@@ -1,7 +1,7 @@
 // debug.js — 디버그 패널(?debug=1).
-// TUNABLE 슬라이더(즉시 반영), "현재 값 복사", 공 발사기, 화살표 표시, FPS, 최근 물리 이벤트.
-// 순수 함수(changedTunables, launchParams)는 DOM 없이 테스트할 수 있도록 분리한다.
-import { TUNABLE, TUNABLE_DEFAULTS, TUNABLE_RANGES, LAUNCHER } from '../shared/constants.js';
+// TUNABLE 슬라이더(묶음별, 즉시 반영), "현재 값 복사", 공 발사기, 화살표 표시, FPS, 최근 구질 판정·물리 이벤트.
+// 순수 함수(changedTunables, launchParams, tunableLabel)는 DOM 없이 테스트할 수 있도록 분리한다.
+import { TUNABLE, TUNABLE_DEFAULTS, TUNABLE_RANGES, TUNABLE_GROUPS, LAUNCHER, SHOT_LABELS } from '../shared/constants.js';
 
 const TUNABLE_LABELS = {
   C_D: '항력계수 C_D',
@@ -14,7 +14,59 @@ const TUNABLE_LABELS = {
   E_FLOOR: '바닥 반발계수',
   NET_KEEP: '네트 걸림 시 남는 속도',
   NET_CORD_KEEP: '네트 인 시 남는 속도',
+  SWING_WINDOW: '드래그 속도 측정 창 (s)',
+  CURVE_WINDOW: '곡률 측정 창 (s)',
+  BLOCK_SPEED: '블록 판정 속도 미만 (m/s)',
+  SPEED_FULL: '세기 1이 되는 드래그 속도 (m/s)',
+  SMASH_SPEED: '스매시 드래그 속도 이상 (m/s)',
+  SMASH_MIN_HEIGHT: '스매시 가능 높이: 네트 위 (m)',
+  DIR_SIN: '위/아래 판정 sinθ 기준',
+  CURVE_MIN: '사이드스핀 곡률 이상',
+  HIT_RADIUS: '라켓 도달 반경 좌우·높이 (m)',
+  REACH_Y: '라켓 도달 범위 앞뒤 (m)',
+  PERFECT_WINDOW: 'PERFECT 범위 ± (s)',
+  GOOD_WINDOW: 'GOOD 범위 ± (s)',
+  OK_WINDOW: 'OK 범위 ± (s)',
+  ACC_PERFECT: 'PERFECT 정확도',
+  ACC_GOOD: 'GOOD 정확도',
+  ACC_OK: 'OK 정확도',
+  ACC_BAD: 'BAD 정확도',
+  ERR_YAW: '좌우 방향 최대 오차 (°)',
+  ERR_BIAS: '이름/늦음 치우침 (°)',
+  ERR_PITCH: '위아래 최대 오차 (°)',
+  ERR_SPEED: '속도 최대 오차 비율',
+  AIM_X_POS: '목표 x: 라켓 위치 비율',
+  AIM_X_DRAG: '목표 x: 드래그 좌우 비율',
+  AIM_X_MAX: '목표 x 한계 (m)',
+  DEPTH_GAIN: '올려 칠수록 깊게 (m)',
+  NET_CLEAR: '네트 위 최소 여유 (m)',
+  BLOCK_PUSH: '블록 미는 속도 (m/s)',
+  WEAK_PITCH: '약한 블록 면 각도 (°)',
+  MISHIT_SPEED: '실타 속도 (m/s)',
+  MISHIT_AIM_Z: '실타 네트 높이 (m)',
 };
+
+// 구질·AI 키는 규칙적으로 이름을 붙인다
+const SHOT_NAMES = { DRIVE: '드라이브', SMASH: '스매시', CUT: '커트', SIDE: '사이드', BLOCK: '블록' };
+const SHOT_KEYS = {
+  V_MIN: '속도 최소 (m/s)', V_MAX: '속도 최대 (m/s)', SPIN_MIN: '회전 최소 (rps)', SPIN_MAX: '회전 최대 (rps)',
+  TOP_MIN: '탑스핀 최소 (rps)', TOP_MAX: '탑스핀 최대 (rps)', DEPTH: '목표 깊이 (m)', PITCH: '면 각도 (°)',
+  LAMBDA_TOP: '탑스핀 공 회전 영향', LAMBDA_BACK: '백스핀 공 회전 영향',
+};
+const DIFF_NAMES = { EASY: '쉬움', NORMAL: '보통', HARD: '어려움' };
+const AI_KEYS = {
+  DELAY: '반응 지연 (s)', MOVE: '이동 속도 (m/s)', TIMING: '타이밍 오차 ± (s)', S_MIN: '세기 최소', S_MAX: '세기 최대',
+  AIM_X: '목표 x 범위 ± (m)', JITTER: '샘플 떨림 (m)',
+  W_DRIVE: '드라이브 비율', W_BLOCK: '블록 비율', W_CUT: '커트 비율', W_SIDE: '사이드 비율', W_SMASH: '스매시 비율',
+};
+export function tunableLabel(k) {
+  if (TUNABLE_LABELS[k]) return TUNABLE_LABELS[k];
+  let m = k.match(/^AI_(EASY|NORMAL|HARD)_(.+)$/);
+  if (m && AI_KEYS[m[2]]) return `${DIFF_NAMES[m[1]]} · ${AI_KEYS[m[2]]}`;
+  m = k.match(/^(DRIVE|SMASH|CUT|SIDE|BLOCK)_(.+)$/);
+  if (m && SHOT_KEYS[m[2]]) return `${SHOT_NAMES[m[1]]} · ${SHOT_KEYS[m[2]]}`;
+  return k;
+}
 
 const LAUNCHER_LABELS = {
   speed: '속도 (m/s)',
@@ -87,13 +139,22 @@ export function initDebug(enabled, hooks) {
   const panel = el('div', { id: 'debug' });
   document.body.append(panel);
 
-  // ── 물리 상수 ──
-  panel.append(el('h3', { textContent: '물리 상수 (TUNABLE)' }));
+  // ── 최근 판정 ──
+  panel.append(el('h3', { textContent: '최근 구질 판정' }));
+  const shotLog = el('div', { className: 'dbg-log', textContent: '(아직 없음)' });
+  panel.append(shotLog);
+
+  // ── 튜닝 값 (묶음별로 접기) ──
+  panel.append(el('h3', { textContent: '튜닝 값 (TUNABLE)' }));
   const tunableSliders = {};
-  for (const k of Object.keys(TUNABLE_DEFAULTS)) {
-    const s = slider(TUNABLE_LABELS[k] ?? k, TUNABLE_RANGES[k], TUNABLE[k], (v) => { TUNABLE[k] = v; });
-    tunableSliders[k] = s;
-    panel.append(s.row);
+  for (const [group, keys] of Object.entries(TUNABLE_GROUPS)) {
+    const box = el('details', { className: 'dbg-group', open: group === '물리' }, el('summary', { textContent: `${group} (${keys.length})` }));
+    for (const k of keys) {
+      const s = slider(tunableLabel(k), TUNABLE_RANGES[k], TUNABLE[k], (v) => { TUNABLE[k] = v; });
+      tunableSliders[k] = s;
+      box.append(s.row);
+    }
+    panel.append(box);
   }
   const copyMsg = el('span', { className: 'dbg-msg' });
   const copyBtn = el('button', { textContent: '현재 값 복사' });
@@ -152,11 +213,20 @@ export function initDebug(enabled, hooks) {
 
   let frames = 0, fpsTime = 0;
   const log = [];
+  const shots = [];
   const fmt = (n) => n.toFixed(2);
 
   return {
     launcherConfig: cfg,
     syncArrows(v) { arrowBox.checked = v; },
+    onShot(e) {
+      const q = e.shot.quality;
+      const who = e.side === -1 ? '나' : '로봇';
+      const dt = Number.isFinite(q.dtApex) ? `${Math.round(q.dtApex * 1000)}ms` : '-';
+      shots.unshift(`${fmt(e.t)}s ${who} ${SHOT_LABELS[e.shot.shotType]}${q.weak ? '(약)' : ''} ${q.timing} Δt=${dt} 세기=${fmt(q.strength)} ${fmt(e.speed)}m/s`);
+      shots.length = Math.min(shots.length, 6);
+      shotLog.textContent = shots.join('\n');
+    },
     onEvents(events) {
       for (const e of events) {
         const extra = e.type === 'net' ? (e.over ? ' (넘어감)' : ' (걸림)') : '';

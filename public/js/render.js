@@ -1,12 +1,17 @@
 // render.js — Three.js 장면 구성과 그리기.
 // 물리 좌표계(z가 위)와 Three.js 좌표계(y가 위)의 변환은 이 파일에서만 한다.
 import * as THREE from 'three';
-import { TABLE, NET, BALL, RENDER, DEBUG_ARROW } from '../shared/constants.js';
+import { TABLE, NET, BALL, RACKET, RENDER, DEBUG_ARROW } from '../shared/constants.js';
 
 // 물리 (x, y, z) → Three.js (x, z, -y)
 // 물리 y축(탁구대 길이)이 화면 안쪽으로 들어가도록 Three.js의 -z에 대응시킨다.
 export function toThree(p) {
   return new THREE.Vector3(p.x, p.z, -p.y);
+}
+
+// Three.js (x, y, z) → 물리 (x, −z, y)
+export function fromThree(v) {
+  return { x: v.x, y: -v.z, z: v.y };
 }
 
 // 물리 좌표계 크기 (sx, sy, sz) → Three.js 박스 크기
@@ -167,6 +172,62 @@ export function createBallView(scene) {
   };
 }
 
+// 라켓: 원판(고무) + 손잡이. update(pos, normal)은 물리 좌표 위치·면 법선(공을 향하는 쪽)
+export function createRacketView(scene, color, opacity = 1) {
+  const group = new THREE.Group();
+  const blade = new THREE.Mesh(
+    new THREE.CylinderGeometry(RACKET.RADIUS, RACKET.RADIUS, RACKET.THICKNESS, RENDER.RACKET_SEGMENTS),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.7, transparent: opacity < 1, opacity }),
+  );
+  blade.castShadow = true;
+  group.add(blade); // 원판 축 = 그룹 로컬 y = 면 법선
+  const handle = new THREE.Mesh(
+    new THREE.BoxGeometry(RACKET.HANDLE_LENGTH, RACKET.HANDLE_WIDTH, RACKET.HANDLE_WIDTH),
+    new THREE.MeshStandardMaterial({ color: RENDER.COLOR_HANDLE, roughness: 0.8 }),
+  );
+  handle.position.x = RACKET.RADIUS + RACKET.HANDLE_LENGTH / 2; // 손잡이 = 그룹 로컬 +x
+  handle.castShadow = true;
+  group.add(handle);
+  group.visible = false;
+  scene.add(group);
+
+  const m = new THREE.Matrix4();
+  const down = new THREE.Vector3(0, -1, 0);
+  function update(pos, normal) {
+    if (!pos) { group.visible = false; return; }
+    group.visible = true;
+    group.position.copy(toThree(pos));
+    const n = toThree(normal).normalize();
+    // 손잡이는 면 안에서 아래쪽을 향하게
+    const hx = down.clone().addScaledVector(n, -down.dot(n));
+    if (hx.lengthSq() < 1e-6) hx.set(1, 0, 0);
+    hx.normalize();
+    const z = new THREE.Vector3().crossVectors(hx, n);
+    m.makeBasis(hx, n, z);
+    group.quaternion.setFromRotationMatrix(m);
+  }
+  return { update, group };
+}
+
+// 예측 정점 표시 고리 (반지름 r, 라켓 평면과 나란히)
+export function createMarkerView(scene) {
+  const geo = new THREE.RingGeometry(RENDER.MARKER_INNER, 1, 48);
+  const mat = new THREE.MeshBasicMaterial({
+    color: RENDER.COLOR_MARKER, transparent: true, opacity: RENDER.MARKER_OPACITY, side: THREE.DoubleSide, depthWrite: false,
+  });
+  const ring = new THREE.Mesh(geo, mat);
+  ring.visible = false;
+  scene.add(ring);
+  return {
+    update(pos, radius) {
+      ring.visible = !!pos;
+      if (!pos) return;
+      ring.position.copy(toThree(pos));
+      ring.scale.setScalar(radius); // RingGeometry는 xy 평면 = 물리 xz 평면(y 방향을 바라봄)
+    },
+  };
+}
+
 // 장면을 만들고 그리기 함수들을 돌려준다.
 export function createRenderer(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -205,6 +266,23 @@ export function createRenderer(canvas) {
     renderer.render(scene, camera);
   }
 
+  // 화면 좌표(clientX, clientY) → 카메라에서 나가는 광선 (물리 좌표 원점·방향)
+  const raycaster = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  function screenRay(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    raycaster.setFromCamera(ndc, camera);
+    return { origin: fromThree(raycaster.ray.origin), dir: fromThree(raycaster.ray.direction) };
+  }
+
+  // 물리 좌표 → 화면 좌표 (clientX, clientY). 디버그·자동 점검용
+  function worldToScreen(p) {
+    const v = toThree(p).project(camera);
+    const rect = canvas.getBoundingClientRect();
+    return { x: rect.left + ((v.x + 1) / 2) * rect.width, y: rect.top + ((1 - v.y) / 2) * rect.height };
+  }
+
   resize();
-  return { renderer, scene, camera, resize, render };
+  return { renderer, scene, camera, resize, render, screenRay, worldToScreen };
 }

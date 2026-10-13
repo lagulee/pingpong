@@ -1,7 +1,7 @@
 // physics.js — 공 운동, 바운드, 충돌. 브라우저·서버 공용.
 // 결정론: 결과는 입력 상태·dt·매개변수만으로 정해진다. 시간과 난수는 인자로 받는다.
 // 좌표계: x = 너비, y = 길이, z = 높이(위 +). 원점은 탁구대 윗면 중앙.
-import { BALL, TABLE, NET, RACKET, PHYSICS, TUNABLE } from './constants.js';
+import { BALL, TABLE, NET, RACKET, PHYSICS, TUNABLE, SWING } from './constants.js';
 
 const R = BALL.RADIUS;
 const AREA = Math.PI * R * R;
@@ -227,4 +227,152 @@ export function makeLaunch({ pos, speed, elevation = 0, azimuth = 0, topspin = 0
   const topAxis = cross(vec(0, 0, 1), heading);
   const spin = add(scale(topAxis, topspin * 2 * Math.PI), vec(0, 0, sidespin * 2 * Math.PI));
   return createBall({ pos, vel: scale(dir, speed), spin, t });
+}
+
+// ── 플레이어 기준 좌표 ──────────────────────────────────────
+// 판정·조준은 "자기 쪽이 y < 0이고 +y로 친다"는 기준 좌표에서 한다.
+// side = −1(y < 0 쪽 플레이어)은 그대로, side = +1은 z축 기준 180° 회전 (x, y, z) → (−x, −y, z).
+// 회전(행렬식 +1)이므로 각속도 벡터도 같은 식으로 바뀐다.
+export const toLocal = (v, side) => (side < 0 ? vec(v.x, v.y, v.z) : vec(-v.x, -v.y, v.z));
+export const toWorld = toLocal; // 180° 회전은 자기 자신이 역변환
+export function ballToLocal(b, side) {
+  return { pos: toLocal(b.pos, side), vel: toLocal(b.vel, side), spin: toLocal(b.spin, side), t: b.t };
+}
+export const ballToWorld = ballToLocal;
+
+// ── 궤적 예측 ──────────────────────────────────────────
+// 공을 복제해 라켓 없이 진행하며, side 쪽 첫 바운드와 그 뒤 정점(v_z가 0 이하로 바뀌는 순간)을 찾는다.
+// 반환: { events, bounce, apex: { t, pos, vel } | null, states: [{ t, pos }] }
+export function predictPath(ball, side, opts = {}) {
+  const params = opts.params ?? TUNABLE;
+  const maxT = opts.maxT ?? SWING.PREDICT_T;
+  const after = opts.after ?? SWING.PREDICT_AFTER; // 정점 뒤로 더 기록할 시간 (늦게 치는 경우용)
+  const b = cloneBall(ball);
+  const dt = PHYSICS.DT;
+  const t0 = b.t;
+  const states = [{ t: b.t, pos: copy(b.pos) }];
+  const events = [];
+  let bounce = null, apex = null;
+  while (b.t - t0 < maxT) {
+    const ev = step(b, dt, { params });
+    if (ev.length && bounce) break; // 바운드 뒤 다른 충돌: 그 뒤로는 칠 수 없는 공
+    states.push({ t: b.t, pos: copy(b.pos) });
+    for (const e of ev) {
+      events.push(e);
+      if (!bounce && (e.type === 'bounce' || e.type === 'edge') && e.side === side) bounce = e;
+    }
+    if (events.some((e) => e.type === 'floor')) break;
+    if (bounce && !apex && b.t > bounce.t && b.vel.z <= 0) apex = { t: b.t, pos: copy(b.pos), vel: copy(b.vel) };
+    if (apex && b.t - apex.t >= after) break;
+  }
+  return { events, bounce, apex, states };
+}
+
+// 예측 상태 목록에서 시각 t의 공 위치 (선형 보간)
+export function positionAt(states, t) {
+  if (!states.length) return null;
+  if (t <= states[0].t) return copy(states[0].pos);
+  for (let i = 1; i < states.length; i++) {
+    if (states[i].t >= t) {
+      const a = states[i - 1], b = states[i];
+      return lerp(a.pos, b.pos, (t - a.t) / (b.t - a.t));
+    }
+  }
+  return copy(states[states.length - 1].pos);
+}
+
+// ── 조준 (기준 좌표, +y로 친다) ──────────────────────────────
+// 공을 첫 충돌까지 날려 착지 지점을 잰다. 네트에 걸리거나 네트 위 여유가 부족하면 "짧음"(y = 0)으로 본다.
+export function flightLanding(ball, params = TUNABLE, clear = params.NET_CLEAR ?? 0) {
+  const b = cloneBall(ball);
+  const dt = PHYSICS.DT;
+  const n = Math.round(SWING.AIM_MAX_T / dt);
+  const netTop = NET.HEIGHT + R + clear;
+  for (let i = 0; i < n; i++) {
+    const y0 = b.pos.y, z0 = b.pos.z;
+    const ev = step(b, dt, { params });
+    // 네트 평면(y = 0)을 지나는 순간의 높이
+    if (y0 < 0 && b.pos.y >= 0) {
+      const f = -y0 / (b.pos.y - y0);
+      const z = z0 + (b.pos.z - z0) * f;
+      if (z < netTop) return { x: b.pos.x, y: 0, short: true, event: ev[0] ?? null };
+    }
+    if (ev.length) {
+      const e = ev[0];
+      if (e.type === 'net') return { x: e.pos.x, y: 0, short: true, event: e };
+      return { x: e.pos.x, y: e.pos.y, short: e.pos.y <= 0, event: e };
+    }
+  }
+  return { x: b.pos.x, y: Infinity, short: false, event: null }; // 너무 높이 뜬 공: 아주 긴 것으로 본다
+}
+
+// f(a) = target이 되는 a를 찾는다. 먼저 구간을 고르게 훑어 f가 가장 큰 a(가장 멀리 가는 각도)를 찾고,
+// 그 아래 구간(대개 증가 구간)에서 이분법으로 f(a) ≥ target인 가장 작은 a를 고른다.
+// target까지 못 가면 가장 멀리 가는 a, 처음부터 넘으면 lo.
+function bisect(f, lo, hi, target, iter) {
+  const N = SWING.AIM_SCAN;
+  let best = lo, bestF = -Infinity;
+  for (let i = 0; i <= N; i++) {
+    const a = lo + ((hi - lo) * i) / N;
+    const v = f(a);
+    if (v > bestF) { bestF = v; best = a; }
+  }
+  if (bestF < target) return best;
+  hi = best;
+  if (f(lo) >= target) return lo;
+  for (let i = 0; i < iter; i++) {
+    const mid = (lo + hi) / 2;
+    if (f(mid) < target) lo = mid; else hi = mid;
+  }
+  return hi; // f가 끊겨 뛰는 경우(네트에 걸림 → 넘어감) 넘어가는 쪽을 고른다
+}
+
+const DEG = Math.PI / 180;
+
+// 속도·회전(rps)이 주어진 공을 pos에서 쳐서 target(x, y)에 떨어뜨리는 발사각·방향각을 찾는다.
+// 반환: { elevation, azimuth, ball, landing }
+export function solveAim({ pos, speed, topspin = 0, sidespin = 0, target, t = 0 }, params = TUNABLE) {
+  const launch = (elevation, azimuth) => makeLaunch({ pos, speed, elevation, azimuth, topspin, sidespin, t });
+  let azimuth = Math.atan2(target.x - pos.x, target.y - pos.y) / DEG;
+  let elevation = 0, landing = null;
+  for (let round = 0; round < SWING.AIM_ROUNDS; round++) {
+    const az = azimuth;
+    elevation = bisect((el) => flightLanding(launch(el, az), params).y,
+      SWING.AIM_PITCH_MIN, SWING.AIM_PITCH_MAX, target.y, SWING.AIM_ITER);
+    landing = flightLanding(launch(elevation, azimuth), params);
+    if (!Number.isFinite(landing.y) || landing.short) break;
+    const d = landing.y - pos.y;
+    azimuth += Math.atan2(target.x - landing.x, d) / DEG;
+  }
+  landing = flightLanding(launch(elevation, azimuth), params);
+  return { elevation, azimuth, ball: launch(elevation, azimuth), landing };
+}
+
+// 라켓 면 법선: pitch(°, + 위로 열림), yaw(°, + 오른쪽 +x)
+export function faceNormal(pitch, yaw = 0) {
+  const p = pitch * DEG, y = yaw * DEG;
+  return vec(Math.sin(y) * Math.cos(p), Math.cos(y) * Math.cos(p), Math.sin(p));
+}
+
+// 라켓 면(법선 n, 속도 u)에 공이 맞은 직후 상태 (기준 좌표). 원래 공은 바꾸지 않는다.
+export function racketResponse(ball, n, u, params = TUNABLE) {
+  const b = cloneBall(ball);
+  applyContact(b, n, params.E_RACKET, params.MU_RACKET, u);
+  return b;
+}
+
+// 블록: ball(회전 포함)이 target에 떨어지도록 면 기울기를 맞춘다. 반환: { pitch, yaw, normal }
+// 회전을 못 읽은 블록은 회전을 뺀 공을 넘겨 면을 맞춘다 (input.js).
+export function solveBlock(ball, u, target, params = TUNABLE) {
+  let yaw = 0, pitch = 0;
+  const land = (p, y) => flightLanding(racketResponse(ball, faceNormal(p, y), u, params), params);
+  for (let round = 0; round < SWING.AIM_ROUNDS; round++) {
+    const yw = yaw;
+    pitch = bisect((p) => land(p, yw).y, SWING.BLOCK_PITCH_MIN, SWING.BLOCK_PITCH_MAX, target.y, SWING.AIM_ITER);
+    const l = land(pitch, yaw);
+    if (!Number.isFinite(l.y) || l.short) break;
+    // 면을 γ 돌리면 반사 방향은 약 2γ 돌아간다
+    yaw += 0.5 * Math.atan2(target.x - l.x, l.y - ball.pos.y) / DEG;
+  }
+  return { pitch, yaw, normal: faceNormal(pitch, yaw) };
 }
