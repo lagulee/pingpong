@@ -219,9 +219,11 @@ export function createMarkerView(scene) {
   ring.visible = false;
   scene.add(ring);
   return {
-    update(pos, radius) {
+    // smash: 스매시 가능한 높이면 빨간 고리
+    update(pos, radius, smash = false) {
       ring.visible = !!pos;
       if (!pos) return;
+      mat.color.setHex(smash ? RENDER.COLOR_MARKER_SMASH : RENDER.COLOR_MARKER);
       ring.position.copy(toThree(pos));
       ring.scale.setScalar(radius); // RingGeometry는 xy 평면 = 물리 xz 평면(y 방향을 바라봄)
     },

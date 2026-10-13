@@ -69,11 +69,11 @@ const JUDGE_TUNABLE = {
   SWING_WINDOW: 0.08,        // 드래그 속도를 재는 접촉 직전 시간 창 (s)
   CURVE_WINDOW: 0.1,         // 곡률을 재는 시간 창 (s)
   BLOCK_SPEED: 0.25,         // 이보다 느리면 블록 (m/s)
-  SPEED_FULL: 3.0,           // 세기 s = 1이 되는 드래그 속도 (m/s)
-  SMASH_SPEED: 2.0,          // 아래로 이보다 빠르면 스매시 시도 (m/s)
+  SPEED_FULL: 2.2,           // 세기 s = 1이 되는 드래그 속도 (m/s)
+  SMASH_SPEED: 1.4,          // 아래로 이보다 빠르면 스매시 시도 (m/s)
   SMASH_MIN_HEIGHT: 0.20,    // 스매시 가능 높이: 공 중심이 네트 위 이만큼 이상 (m)
   DIR_SIN: 0.5,              // sinθ가 이보다 크면 위쪽, −이보다 작으면 아래쪽 드래그
-  CURVE_MIN: 0.12,           // 곡률(현에서 벗어난 최대 거리 / 현 길이)이 이 이상이면 사이드스핀
+  CURVE_MIN: 0.18,           // 곡률(현에서 벗어난 최대 거리 / 현 길이)이 이 이상이면 사이드스핀
   HIT_RADIUS: 0.15,          // 라켓 중심에서 좌우·높이 도달 범위 (m)
   REACH_Y: 0.30,             // 라켓 평면에서 앞뒤 도달 범위 (m)
   PERFECT_WINDOW: 0.04,      // |타격 − 정점| 이내면 PERFECT (s)
@@ -90,7 +90,7 @@ const JUDGE_TUNABLE = {
   AIM_X_POS: 0.5,            // 목표 x = AIM_X_POS·라켓 x + AIM_X_DRAG·(드래그 좌우 성분 비율)
   AIM_X_DRAG: 0.6,
   AIM_X_MAX: 0.66,           // 목표 x 한계 (m)
-  DEPTH_GAIN: 0.25,          // 드라이브·사이드 목표 깊이 += DEPTH_GAIN·(sinθ − 0.7): 올려 칠수록 깊게
+  DEPTH_GAIN: 0.25,          // 드라이브 목표 깊이 += DEPTH_GAIN·(sinθ − 0.7): 올려 칠수록 깊게
   NET_CLEAR: 0.06,           // 조준 시 네트 위 최소 여유 (m)
   BLOCK_PUSH: 1.5,           // 블록 때 라켓을 앞으로 미는 속도 (m/s)
   WEAK_PITCH: 0,             // 버튼 없이 맞은 약한 블록의 면 기울기 (°, + 위로 열림)
@@ -245,7 +245,7 @@ export const SWING = Object.freeze({
   AI_SWING_TIME: 0.12,       // 로봇 스윙(가상 드래그) 시간 (s)
   AI_FOLLOW_TIME: 0.1,       // 타격 뒤 팔로스루 (s)
   AI_SAMPLE_DT: 1 / 120,     // 로봇 가상 마우스 샘플 간격 (s)
-  AI_SIDE_CURVE: 0.22,       // 로봇 사이드스핀 스윙 곡률
+  AI_SIDE_CURVE: 0.3,        // 로봇 사이드스핀 스윙 곡률
   AI_RETURN_SPEED: 1.0,      // 로봇이 대기 위치로 돌아가는 속도 (m/s)
   AI_BLOCK_LEAD: 0.15,
   AI_PLANE_BACK: 0.1,        // 로봇 라켓 평면을 스윙 타점보다 뒤에 두는 거리 (m)       // 블록할 때 미리 버튼을 누르는 시간 (s)
@@ -338,6 +338,7 @@ export const RENDER = Object.freeze({
   RACKET_SEGMENTS: 32,
   RACKET_OPACITY_ME: 0.8,    // 내 라켓은 살짝 비쳐서 공을 가리지 않게
   COLOR_MARKER: 0xffe066,    // 예측 정점 고리
+  COLOR_MARKER_SMASH: 0xff4a3a, // 정점이 스매시 가능 높이일 때 고리 색
   MARKER_OPACITY: 0.55,
   MARKER_INNER: 0.9,         // 고리 안쪽 반지름 비율
   FACE_TILT: 25,             // 화면용 라켓 면 기울기: 드래그가 위로 향할수록 덮고(−) 아래로 향할수록 연다(°)

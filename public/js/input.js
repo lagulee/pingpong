@@ -47,6 +47,21 @@ export function sampleAt(samples, t) {
   return null;
 }
 
+// 시각 t의 라켓 평면 위치: 앞뒤 샘플 사이를 선형 보간 (마우스 이벤트 간격보다 물리 스텝이 촘촘하므로).
+// t 뒤 샘플이 아직 없으면 마지막 샘플 위치. 반환 { x, y, b } 또는 null
+export function racketPointAt(samples, t) {
+  for (let i = samples.length - 1; i >= 0; i--) {
+    const a = samples[i];
+    if (a.t <= t + 1e-9) {
+      const n = samples[i + 1];
+      if (!n || n.t - a.t < 1e-9) return { x: a.x, y: a.y, b: a.b };
+      const f = Math.min(1, (t - a.t) / (n.t - a.t));
+      return { x: a.x + (n.x - a.x) * f, y: a.y + (n.y - a.y) * f, b: a.b };
+    }
+  }
+  return null;
+}
+
 // 오래된 샘플을 버린다 (배열을 직접 줄인다)
 export function pruneSamples(samples, t) {
   let k = 0;
@@ -145,7 +160,7 @@ export function aimTarget(type, drag, racketX, params = TUNABLE) {
   const ux = drag.speed > 0 ? drag.u.x / drag.speed : 0;
   const x = clamp(params.AIM_X_POS * racketX + params.AIM_X_DRAG * ux, -params.AIM_X_MAX, params.AIM_X_MAX);
   const depth = type === 'block' ? params.BLOCK_DEPTH : params[`${PREFIX[type]}_DEPTH`];
-  const gain = type === 'drive' || type === 'side' ? params.DEPTH_GAIN * (drag.sin - SWING.REF_SIN) : 0;
+  const gain = type === 'drive' ? params.DEPTH_GAIN * (drag.sin - SWING.REF_SIN) : 0;
   const y = clamp(depth + gain, 0.2, 1.3);
   return { x, y };
 }
@@ -233,16 +248,23 @@ export function classifyShot(samples, ballState, ctx = {}) {
 // 반환: 'swing'(휘두르는 중, 도달 범위 안) | 'block'(버튼 누르고 정지, 라켓 평면 통과)
 //     | 'weak'(버튼 없음, 도달 범위 뒤끝 통과 — 늦게 휘두를 여유를 준다) | null
 export function checkHit(player, ball, t, dt, params = TUNABLE) {
-  const s = sampleAt(player.samples, t);
+  const s = racketPointAt(player.samples, t);
   if (!s) return null;
   const b = ballToLocal(ball, player.side);
-  const inXZ = Math.abs(b.pos.x - s.x) <= params.HIT_RADIUS && Math.abs(b.pos.z - s.y) <= params.HIT_RADIUS;
-  if (!inXZ) return null;
+  const dx = b.pos.x - s.x, dz = b.pos.z - s.y;
+  if (Math.abs(dx) > params.HIT_RADIUS || Math.abs(dz) > params.HIT_RADIUS) return null;
   const yp = player.yPlane;
-  if (s.b && Math.abs(b.pos.y - yp) <= params.REACH_Y && analyzeDrag(player.samples, t, params).speed >= params.BLOCK_SPEED) {
-    return 'swing';
-  }
   const crosses = (y) => b.vel.y < 0 && b.pos.y >= y && b.pos.y + b.vel.y * dt < y;
+  if (s.b && Math.abs(b.pos.y - yp) <= params.REACH_Y) {
+    const drag = analyzeDrag(player.samples, t, params);
+    if (drag.speed >= params.BLOCK_SPEED) {
+      // 휘두르는 라켓이 공에 "닿는 순간" 친다: 스윙 방향으로 봤을 때 라켓 중심이 공 중심에 도달(또는 지나침).
+      // 스윙을 시작하자마자(아직 가속 중일 때) 치지 않도록 하기 위함. 도달 범위 뒤끝에서는 마지막 기회로 친다.
+      const along = (dx * drag.u.x + dz * drag.u.y) / drag.speed;
+      if (along <= 0 || crosses(yp - params.REACH_Y)) return 'swing';
+      return null;
+    }
+  }
   if (s.b && crosses(yp)) return 'block';
   if (!s.b && crosses(yp - params.REACH_Y)) return 'weak';
   return null;
@@ -250,7 +272,7 @@ export function checkHit(player, ball, t, dt, params = TUNABLE) {
 
 // 라켓의 기준 좌표 위치. ballLocalY를 주면 도달 범위 안에서 앞뒤로 공을 따라간다 (화면 표시용).
 export function racketLocal(player, t, ballLocalY = null, params = TUNABLE) {
-  const s = sampleAt(player.samples, t);
+  const s = racketPointAt(player.samples, t);
   if (!s) return null;
   const y = ballLocalY == null ? player.yPlane
     : clamp(ballLocalY, player.yPlane - params.REACH_Y, player.yPlane + params.REACH_Y);

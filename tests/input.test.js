@@ -355,3 +355,49 @@ test('TUNABLE: 새 판정·구질·AI 값이 모두 슬라이더 범위와 묶�
   }
   for (const [k, r] of Object.entries(TUNABLE_RANGES)) assert.ok(k in TUNABLE_DEFAULTS, `범위만 있는 키 ${k}`);
 });
+
+// 사람처럼 가속·감속하는 스윙: 공에서 off만큼 떨어져 정지 → 버튼 누르고 dur 동안 dist 이동(사인 곡선).
+// 공은 정점 시각 1.0에 라켓 평면(y = −1.6)을 지나는 등속 수평 비행으로 근사한다.
+function humanSwing({ dir, dist, dur, off, startRel, z = 0.3, vy = -4.5 }) {
+  const apexT = 1.0, yPlane = -1.6;
+  const b = createBall({ pos: { x: 0, y: yPlane - vy * 0.6, z }, vel: { x: 0, y: vy, z: 0 }, t: 0.4 });
+  const player = { side: -1, yPlane, samples: [] };
+  const t0 = apexT + startRel;
+  for (let i = 0; i < 400; i++) {
+    const t = b.t;
+    const f = Math.min(1, Math.max(0, (t - t0) / dur));
+    const prog = (1 - Math.cos(Math.PI * f)) / 2;
+    player.samples.push({ t, x: 0, y: z - dir * off + dir * dist * prog, b: t >= t0 });
+    const kind = checkHit(player, b, t, DT);
+    if (kind) {
+      const r = classifyShot(player.samples, b, { t, apexT, pressed: kind !== 'weak' });
+      return { kind, ...r, progress: f };
+    }
+    b.pos.y += b.vel.y * DT;
+    b.t += DT;
+  }
+  return null;
+}
+
+test('사람형 스윙: 휘두르기 시작한 순간이 아니라 라켓이 공에 닿는 순간 친다', () => {
+  // 공 12 cm 아래에서 위로 35 cm를 0.15 s에 — 시작 시각이 달라도 모두 드라이브, 세기 0.6 이상
+  for (const startRel of [-0.12, -0.1, -0.07, -0.05]) {
+    const r = humanSwing({ dir: 1, dist: 0.35, dur: 0.15, off: 0.12, startRel });
+    assert.equal(r.kind, 'swing');
+    assert.equal(r.shotType, 'drive', `시작 ${startRel}`);
+    assert.ok(r.quality.strength >= 0.6, `시작 ${startRel}: 세기 ${r.quality.strength}`);
+    assert.ok(r.progress > 0.25, '가속이 시작되자마자 치지 않는다');
+  }
+  // 정점 근처에서 시작하면 PERFECT 범위
+  assert.equal(humanSwing({ dir: 1, dist: 0.35, dur: 0.15, off: 0.12, startRel: -0.07 }).quality.timing, 'PERFECT');
+  // 높은 공을 빠르게 내려치면 스매시, 천천히 내리면 커트
+  for (const startRel of [-0.1, -0.06, -0.04]) {
+    assert.equal(humanSwing({ dir: -1, dist: 0.4, dur: 0.12, off: 0.12, startRel, z: 0.45 }).shotType, 'smash', `스매시 시작 ${startRel}`);
+  }
+  for (const startRel of [-0.12, -0.08]) {
+    assert.equal(humanSwing({ dir: -1, dist: 0.2, dur: 0.2, off: 0.08, startRel }).shotType, 'cut', `커트 시작 ${startRel}`);
+  }
+  // 공이 오기 한참 전에 휘둘러 지나가 버리면 헛스윙 → 버튼을 뗀 뒤 도달 범위 뒤끝에서 약한 블록 (또는 놓침)
+  const whiff = humanSwing({ dir: 1, dist: 0.35, dur: 0.15, off: 0.12, startRel: -0.4 });
+  assert.ok(!whiff || whiff.shotType === 'block' || whiff.kind !== 'swing');
+});

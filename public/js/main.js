@@ -4,7 +4,7 @@
 import { createRenderer, createBallView, createRacketView, createMarkerView } from './render.js';
 import { createBall, makeLaunch, faceNormal, toWorld } from '../shared/physics.js';
 import {
-  PHYSICS, PRACTICE, SWING, RENDER, TUNABLE, SHOT_LABELS, DIFFICULTIES, DIFFICULTY_LABELS, DEMO,
+  PHYSICS, PRACTICE, SWING, RENDER, TUNABLE, NET, SHOT_LABELS, DIFFICULTIES, DIFFICULTY_LABELS, DEMO,
 } from '../shared/constants.js';
 import { initDebug, launchParams } from './debug.js';
 import { createMouseInput, rayPlaneY, analyzeDrag, createRng } from './input.js';
@@ -196,7 +196,8 @@ function frame(now) {
 
   // 내가 칠 공의 예측 정점
   const waiting = mode === 'rally' && tr.receiver === -1 && (tr.phase === 'toward' || tr.phase === 'bounced');
-  marker.update(waiting ? human.apexPos : null, TUNABLE.HIT_RADIUS);
+  const smashable = !!human.apexPos && human.apexPos.z >= NET.HEIGHT + TUNABLE.SMASH_MIN_HEIGHT;
+  marker.update(waiting ? human.apexPos : null, TUNABLE.HIT_RADIUS, smashable);
 
   debug.onFrame(elapsed, ball);
   view.render();
