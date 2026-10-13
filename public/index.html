@@ -27,6 +27,11 @@
       pointer-events: none; text-align: center;
     }
     #game { cursor: crosshair; }
+    /* 버전 표시 (배포 반영 확인용) */
+    #version {
+      position: fixed; left: 10px; bottom: 8px; color: rgba(232, 238, 247, 0.55);
+      font: 12px/1 ui-monospace, monospace; pointer-events: none;
+    }
     /* 디버그 패널 (?debug=1) */
     #debug {
       position: fixed; top: 0; right: 0; width: 300px; max-height: 100vh; overflow-y: auto;
@@ -70,6 +75,7 @@
     <div id="robot-shot"></div>
   </div>
   <div id="center"></div>
+  <div id="version"></div>
   <script>
     // 모듈 로드 실패(CDN 차단, WebGL 미지원 등)를 화면에 알린다.
     window.addEventListener('error', (e) => {

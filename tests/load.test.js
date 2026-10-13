@@ -114,3 +114,17 @@ test('debug.js 순수 함수: 바뀐 TUNABLE만 고르고, 발사기 입력을 �
   assert.equal(p.pos.z, LAUNCHER.PRESETS.topspin.height);
   assert.equal(p.topspin, LAUNCHER.PRESETS.topspin.topspin);
 });
+
+test('버전: constants.js의 VERSION이 "v단계.수정번호" 형식이고 화면 왼쪽 아래에 표시된다', async () => {
+  const { VERSION } = await import(pathToFileURL(join(ROOT, 'public/shared/constants.js')).href);
+  assert.match(VERSION, /^v\d+\.\d+$/);
+  const html = readFileSync(join(ROOT, 'public/index.html'), 'utf8');
+  assert.match(html, /<div id="version"><\/div>/);
+  assert.match(html, /#version \{[^}]*left:[^}]*bottom:/);
+  const main = readFileSync(join(ROOT, 'public/js/main.js'), 'utf8');
+  assert.match(main, /getElementById\('version'\)\.textContent = VERSION/);
+  // 버전 문자열을 다른 파일에 하드코딩하지 않는다
+  for (const f of [...jsFiles('public/js'), join(ROOT, 'public/index.html')]) {
+    assert.ok(!readFileSync(f, 'utf8').includes(VERSION), `${f}에 버전 문자열 하드코딩`);
+  }
+});

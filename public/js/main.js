@@ -4,7 +4,7 @@
 import { createRenderer, createBallView, createRacketView, createMarkerView } from './render.js';
 import { createBall, makeLaunch, faceNormal, toWorld } from '../shared/physics.js';
 import {
-  PHYSICS, PRACTICE, SWING, RENDER, TUNABLE, NET, SHOT_LABELS, DIFFICULTIES, DIFFICULTY_LABELS, DEMO,
+  PHYSICS, PRACTICE, SWING, RENDER, TUNABLE, NET, VERSION, SHOT_LABELS, DIFFICULTIES, DIFFICULTY_LABELS, DEMO,
 } from '../shared/constants.js';
 import { initDebug, launchParams } from './debug.js';
 import { createMouseInput, rayPlaneY, analyzeDrag, createRng } from './input.js';
@@ -16,6 +16,7 @@ const shotEl = document.getElementById('shot');
 const shotSubEl = document.getElementById('shot-sub');
 const robotShotEl = document.getElementById('robot-shot');
 const centerEl = document.getElementById('center');
+document.getElementById('version').textContent = VERSION;
 const view = createRenderer(canvas);
 const ballView = createBallView(view.scene);
 const myRacket = createRacketView(view.scene, RENDER.COLOR_RACKET_ME, RENDER.RACKET_OPACITY_ME);
