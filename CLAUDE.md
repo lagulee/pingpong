@@ -112,4 +112,8 @@ pingpong/
 
 ## 10. 결정 기록
 
-- (아직 없음)
+- [0단계] `npm test`는 `node --test "tests/**/*.test.js"`로 한다. Node 22에서 `node --test tests/`는 폴더를 파일로 취급해 실패하기 때문.
+- [0단계] Three.js는 jsdelivr `three@0.170.0`을 import map으로 고정해 불러온다.
+- [0단계] 브라우저 코드(`public/js`)는 Node에서 `three`·DOM을 해석할 수 없으므로 `node --check`로 문법만 검사하고, `public/shared`는 실제 import로 검사한다.
+- [0단계] `Room`은 `cloudflare:workers`를 import하지 않는 일반 클래스로 둔다. Node 테스트에서 직접 생성할 수 있게 하기 위함.
+- [0단계] 렌더링용 치수·색상·카메라 위치도 `constants.js`의 `RENDER`에 둔다(수치 단일 원본 규칙).

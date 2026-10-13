@@ -1,0 +1,24 @@
+{
+  // 1vs1 탁구게임 Worker 설정
+  "name": "pingpong",
+  "main": "server/worker.js",
+  "compatibility_date": "2025-10-01",
+
+  // public/ 폴더를 정적 자산으로 제공한다. 일치하는 파일이 없을 때만 Worker가 실행된다.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+
+  // 방 하나 = Durable Object 하나 (5단계에서 구현)
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOM", "class_name": "Room" }
+    ]
+  },
+
+  // 무료 플랜 조건: SQLite 기반 Durable Object만 사용한다.
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Room"] }
+  ]
+}

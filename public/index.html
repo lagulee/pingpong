@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>1vs1 탁구</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #10141c; overflow: hidden; }
+    #game { display: block; width: 100vw; height: 100vh; }
+    #hud {
+      position: fixed; top: 12px; left: 16px;
+      color: #e8eef7; font: 600 15px/1.4 system-ui, sans-serif;
+      text-shadow: 0 1px 3px #000; pointer-events: none;
+    }
+    #error { color: #ff8a80; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="hud">
+    <div>1vs1 탁구</div>
+    <div id="status">불러오는 중…</div>
+    <div id="error"></div>
+  </div>
+  <script>
+    // 모듈 로드 실패(CDN 차단, WebGL 미지원 등)를 화면에 알린다.
+    window.addEventListener('error', (e) => {
+      document.getElementById('error').textContent = '오류: ' + (e.message || '스크립트를 불러오지 못했습니다.');
+    });
+    // 모듈 의존성(Three.js CDN) 로드 실패는 error 이벤트로 잡히지 않으므로 시간 초과로 안내한다.
+    setTimeout(() => {
+      if (document.getElementById('status').textContent === '불러오는 중…') {
+        document.getElementById('error').textContent = '3D 엔진을 불러오지 못했습니다. 새로고침해 주세요.';
+      }
+    }, 10000);
+  </script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
