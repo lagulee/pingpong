@@ -112,7 +112,8 @@ function showShot(e) {
     shotEl.textContent = `${label} · ${s.quality.timing}`;
     shotEl.className = `shot-${s.quality.timing.toLowerCase()}`;
     const dt = Number.isFinite(s.quality.dtApex) ? `${s.quality.dtApex >= 0 ? '+' : ''}${Math.round(s.quality.dtApex * 1000)} ms` : '정점 없음';
-    shotSubEl.textContent = `세기 ${s.quality.strength.toFixed(2)} · 정점 대비 ${dt} · ${e.speed.toFixed(1)} m/s`;
+    const dir = s.quality.dragSin <= -TUNABLE.DIR_SIN ? '↓' : s.quality.dragSin >= TUNABLE.DIR_SIN ? '↑' : '↔';
+    shotSubEl.textContent = `스윙 ${dir} ${s.quality.dragSpeed.toFixed(2)} m/s (스매시 ↓${TUNABLE.SMASH_SPEED}) · 세기 ${s.quality.strength.toFixed(2)} · 정점 대비 ${dt} · 공 ${e.speed.toFixed(1)} m/s`;
   } else {
     robotShotEl.textContent = `로봇: ${label} · ${s.quality.timing}`;
   }

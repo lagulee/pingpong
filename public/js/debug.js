@@ -14,11 +14,12 @@ const TUNABLE_LABELS = {
   E_FLOOR: '바닥 반발계수',
   NET_KEEP: '네트 걸림 시 남는 속도',
   NET_CORD_KEEP: '네트 인 시 남는 속도',
-  SWING_WINDOW: '드래그 속도 측정 창 (s)',
+  SWING_WINDOW: '드래그 방향 측정 창 (s)',
+  PEAK_DT: '최고 속도 측정 구간 (s)',
   CURVE_WINDOW: '곡률 측정 창 (s)',
   BLOCK_SPEED: '블록 판정 속도 미만 (m/s)',
-  SPEED_FULL: '세기 1이 되는 드래그 속도 (m/s)',
-  SMASH_SPEED: '스매시 드래그 속도 이상 (m/s)',
+  SPEED_FULL: '세기 1이 되는 최고 속도 (m/s)',
+  SMASH_SPEED: '스매시: 아래로 최고 속도 이상 (m/s)',
   SMASH_MIN_HEIGHT: '스매시 가능 높이: 네트 위 (m)',
   DIR_SIN: '위/아래 판정 sinθ 기준',
   CURVE_MIN: '사이드스핀 곡률 이상',
@@ -223,7 +224,7 @@ export function initDebug(enabled, hooks) {
       const q = e.shot.quality;
       const who = e.side === -1 ? '나' : '로봇';
       const dt = Number.isFinite(q.dtApex) ? `${Math.round(q.dtApex * 1000)}ms` : '-';
-      shots.unshift(`${fmt(e.t)}s ${who} ${SHOT_LABELS[e.shot.shotType]}${q.weak ? '(약)' : ''} ${q.timing} Δt=${dt} 세기=${fmt(q.strength)} ${fmt(e.speed)}m/s`);
+      shots.unshift(`${fmt(e.t)}s ${who} ${SHOT_LABELS[e.shot.shotType]}${q.weak ? '(약)' : ''} ${q.timing} Δt=${dt} 스윙=${fmt(q.dragSpeed)} 세기=${fmt(q.strength)} 공=${fmt(e.speed)}m/s`);
       shots.length = Math.min(shots.length, 6);
       shotLog.textContent = shots.join('\n');
     },

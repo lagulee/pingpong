@@ -70,7 +70,11 @@ export function pruneSamples(samples, t) {
 }
 
 // 접촉 시각 t 직전 드래그 분석.
-// u: SWING_WINDOW 동안의 평균 속도 = (p(t) − p(t − W)) / W, p(τ)는 τ 이전 마지막 샘플 위치.
+// u: SWING_WINDOW 동안의 평균 속도 = (p(t) − p(t − W)) / W, p(τ)는 τ 이전 마지막 샘플 위치. 방향(θ)에 쓴다.
+// speed: 같은 창 안에서 PEAK_DT 길이 구간 속도의 최댓값. 세기·구질 판정에 쓴다.
+//   평균은 가속 중인 스윙 앞부분까지 섞여 빠른 내려치기(스매시)와 빠른 커트가 거의 같게 나오기 때문.
+//   위치는 샘플 사이를 선형 보간하고, 접촉 시각 t 뒤 샘플은 쓰지 않는다.
+// avgSpeed: |u|
 // kappa: CURVE_WINDOW 동안 경로가 현(시작→끝)에서 벗어난 최대 거리 / 현 길이 (부호: 현 기준 왼쪽 +).
 export function analyzeDrag(samples, t, params = TUNABLE) {
   const none = { u: { x: 0, y: 0 }, speed: 0, sin: 0, theta: 0, kappa: 0 };
@@ -85,8 +89,9 @@ export function analyzeDrag(samples, t, params = TUNABLE) {
   }
   if (span <= 1e-6) return none;
   const u = { x: (end.x - start.x) / span, y: (end.y - start.y) / span };
-  const speed = Math.hypot(u.x, u.y);
-  const sin = speed > 0 ? u.y / speed : 0;
+  const avgSpeed = Math.hypot(u.x, u.y);
+  const sin = avgSpeed > 0 ? u.y / avgSpeed : 0;
+  const speed = peakSpeed(samples, t, Math.min(W, span), params.PEAK_DT);
 
   // 곡률
   const C = params.CURVE_WINDOW;
@@ -102,7 +107,28 @@ export function analyzeDrag(samples, t, params = TUNABLE) {
     }
     kappa /= chord;
   }
-  return { u, speed, sin, theta: Math.atan2(u.y, u.x), kappa };
+  return { u, speed, avgSpeed, sin, theta: Math.atan2(u.y, u.x), kappa };
+}
+
+// 시각 t 직전 W초 안에서, 길이 d인 구간의 평균 속도 중 최댓값 (t 뒤 샘플은 쓰지 않음)
+function peakSpeed(samples, t, W, d) {
+  const past = [];
+  for (const q of samples) if (q.t <= t + 1e-9) past.push(q);
+  if (past.length < 2) return 0;
+  const at = (tau) => racketPointAt(past, Math.max(tau, past[0].t));
+  const dd = Math.min(d, W);
+  if (dd <= 1e-6) return 0;
+  let best = 0;
+  // 구간 끝을 t − W + d부터 t까지 촘촘히(샘플 시각 포함) 옮겨 가며 잰다
+  const ends = new Set([t]);
+  for (let k = 0; k <= 16; k++) ends.add(t - W + dd + ((W - dd) * k) / 16);
+  for (const q of past) if (q.t > t - W + dd && q.t <= t) { ends.add(q.t); ends.add(q.t + dd); }
+  for (const e of ends) {
+    if (e > t + 1e-9 || e < t - W + dd - 1e-9) continue;
+    const a = at(e - dd), b = at(e);
+    best = Math.max(best, Math.hypot(b.x - a.x, b.y - a.y) / dd);
+  }
+  return best;
 }
 
 // 구질 판정 (판정 순서는 계획 3장 표). zLocal: 공 중심 높이(탁구대 윗면 기준)
@@ -184,7 +210,8 @@ export function classifyShot(samples, ballState, ctx = {}) {
   const { timing, accuracy } = gradeTiming(dtApex, params);
   const strength = clamp((drag.speed - params.BLOCK_SPEED) / (params.SPEED_FULL - params.BLOCK_SPEED), 0, 1);
   const err = aimErrors(accuracy, dtApex, rng, params);
-  const quality = { timing, accuracy, strength, dtApex, weak: !pressed, target: null };
+  // dragSpeed·dragSin: 판정에 쓴 스윙 최고 속도(m/s)와 방향(+ 위). 화면에 보여 줘서 사용자가 임계값을 맞출 수 있게 한다.
+  const quality = { timing, accuracy, strength, dtApex, weak: !pressed, target: null, dragSpeed: drag.speed, dragSin: drag.sin };
 
   let out; // 기준 좌표의 { vel, spin }
   if (shotType === 'mishit') {

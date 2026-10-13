@@ -53,7 +53,7 @@ const onOppTable = (e) => e && (e.type === 'bounce' || e.type === 'edge') && e.p
 // 대표 드래그 5종 (공 위치에 라켓 중심이 도착)
 const SAMPLES = {
   drive: (b) => drag({ ux: 0.1, uy: 1.8, x1: b.pos.x, z1: b.pos.z, t1: b.t }),
-  smash: (b) => drag({ ux: 0, uy: -2.6, x1: b.pos.x, z1: b.pos.z, t1: b.t }),
+  smash: (b) => drag({ ux: 0, uy: -4.0, x1: b.pos.x, z1: b.pos.z, t1: b.t }), // 빠르게 내려치기 (최고 속도 기준)
   cut: (b) => drag({ ux: 0, uy: -1.0, x1: b.pos.x, z1: b.pos.z, t1: b.t }),
   side: (b) => drag({ ux: 1.8, uy: 0.2, x1: b.pos.x, z1: b.pos.z, t1: b.t, curve: 0.25, T: 0.1 }),
   block: (b) => drag({ ux: 0.02, uy: 0.01, x1: b.pos.x, z1: b.pos.z, t1: b.t }),
@@ -392,10 +392,18 @@ test('사람형 스윙: 휘두르기 시작한 순간이 아니라 라켓이 공
   assert.equal(humanSwing({ dir: 1, dist: 0.35, dur: 0.15, off: 0.12, startRel: -0.07 }).quality.timing, 'PERFECT');
   // 높은 공을 빠르게 내려치면 스매시, 천천히 내리면 커트
   for (const startRel of [-0.1, -0.06, -0.04]) {
+    assert.equal(humanSwing({ dir: -1, dist: 0.3, dur: 0.12, off: 0.1, startRel, z: 0.45 }).shotType, 'smash', `짧은 스매시 시작 ${startRel}`);
     assert.equal(humanSwing({ dir: -1, dist: 0.4, dur: 0.12, off: 0.12, startRel, z: 0.45 }).shotType, 'smash', `스매시 시작 ${startRel}`);
   }
   for (const startRel of [-0.12, -0.08]) {
     assert.equal(humanSwing({ dir: -1, dist: 0.2, dur: 0.2, off: 0.08, startRel }).shotType, 'cut', `커트 시작 ${startRel}`);
+  }
+  // 빠른 커트(25 cm / 0.12~0.15 s)도 낮은 공에서 실타(네트), 높은 공에서 스매시가 되지 않고 커트다
+  for (const [dur, z] of [[0.15, 0.2], [0.12, 0.2], [0.15, 0.45], [0.12, 0.45]]) {
+    for (const startRel of [-0.08, -0.05]) {
+      const r = humanSwing({ dir: -1, dist: 0.25, dur, off: 0.08, startRel, z });
+      assert.equal(r.shotType, 'cut', `빠른 커트 ${dur}s, 공 높이 ${z}, 시작 ${startRel}: ${r.shotType}`);
+    }
   }
   // 공이 오기 한참 전에 휘둘러 지나가 버리면 헛스윙 → 버튼을 뗀 뒤 도달 범위 뒤끝에서 약한 블록 (또는 놓침)
   const whiff = humanSwing({ dir: 1, dist: 0.35, dur: 0.15, off: 0.12, startRel: -0.4 });

@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v2.2';
+export const VERSION = 'v2.3';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -71,10 +71,11 @@ const PHYSICS_TUNABLE = {
 // 판정: 드래그 속도 u는 라켓 평면 위 m/s (현재 카메라에서 1 px ≈ 1.2 mm)
 const JUDGE_TUNABLE = {
   SWING_WINDOW: 0.08,        // 드래그 속도를 재는 접촉 직전 시간 창 (s)
+  PEAK_DT: 0.025,            // 창 안에서 최고 속도를 재는 짧은 구간 길이 (s)
   CURVE_WINDOW: 0.1,         // 곡률을 재는 시간 창 (s)
   BLOCK_SPEED: 0.25,         // 이보다 느리면 블록 (m/s)
-  SPEED_FULL: 2.2,           // 세기 s = 1이 되는 드래그 속도 (m/s)
-  SMASH_SPEED: 1.4,          // 아래로 이보다 빠르면 스매시 시도 (m/s)
+  SPEED_FULL: 3.5,           // 세기 s = 1이 되는 드래그 속도 (m/s)
+  SMASH_SPEED: 2.8,          // 아래로 이보다 빠르면 스매시 시도 (m/s)
   SMASH_MIN_HEIGHT: 0.20,    // 스매시 가능 높이: 공 중심이 네트 위 이만큼 이상 (m)
   DIR_SIN: 0.5,              // sinθ가 이보다 크면 위쪽, −이보다 작으면 아래쪽 드래그
   CURVE_MIN: 0.18,           // 곡률(현에서 벗어난 최대 거리 / 현 길이)이 이 이상이면 사이드스핀
@@ -174,9 +175,10 @@ export const TUNABLE_RANGES = Object.freeze({
   NET_KEEP: r(0, 1, 0.01),
   NET_CORD_KEEP: r(0, 1, 0.01),
   SWING_WINDOW: r(0.02, 0.2, 0.005),
+  PEAK_DT: r(0.005, 0.08, 0.005),
   CURVE_WINDOW: r(0.04, 0.4, 0.005),
   BLOCK_SPEED: r(0, 1.5, 0.01),
-  SPEED_FULL: r(0.5, 8, 0.05),
+  SPEED_FULL: r(0.5, 10, 0.05),
   SMASH_SPEED: r(0.5, 6, 0.05),
   SMASH_MIN_HEIGHT: r(0, 0.6, 0.01),
   DIR_SIN: r(0, 1, 0.01),
