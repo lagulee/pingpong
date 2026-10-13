@@ -2,7 +2,8 @@
 // 로봇 둘이 가상 마우스 샘플 → checkHit → classifyShot 경로로 사람과 똑같이 친다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createAI, createRally, feedBall, stepRally, createRallyTracker, createPlayer } from '../public/js/ai.js';
+import { createAI, createRally, feedBall, stepRally, createPlayer } from '../public/js/ai.js';
+import { createRules, startRally, applyEvent, bouncedOn, canHit } from '../public/shared/rules.js';
 import { createRng } from '../public/js/input.js';
 import { PRACTICE, TUNABLE, DIFFICULTIES } from '../public/shared/constants.js';
 
@@ -12,10 +13,11 @@ function playRally(seed, diffA, diffB = diffA, params = TUNABLE, onEvent = () =>
   const b = createAI(1, diffB, createRng(seed * 13 + 5));
   const game = createRally({ players: { [-1]: a.player, [1]: b.player }, ais: [a, b], rng: createRng(seed) });
   feedBall(game, 1, 0, params);
-  for (let i = 0; i < 240 * 300 && game.tracker.phase !== 'over' && game.tracker.count < PRACTICE.MAX_RALLY; i++) {
+  for (let i = 0; i < 240 * 300 && game.rules.phase === 'rally' && game.rules.rally < PRACTICE.MAX_RALLY; i++) {
     for (const e of stepRally(game, undefined, params)) onEvent(e, game);
   }
-  return game.tracker;
+  // count: 정상 리턴 수 (로봇이 보낸 첫 공은 세지 않음), reason: 랠리를 끝낸 사유
+  return { count: game.rules.rally, reason: game.results.at(-1)?.reason ?? null, phase: game.rules.phase };
 }
 
 test('[4] AI 대 AI가 보통 난이도에서 평균 10회 이상 랠리한다', () => {
@@ -75,7 +77,7 @@ test('난이도: 어려움 로봇은 쉬움 로봇보다 많이 받아낸다', (
     let chances = 0, returns = 0;
     for (let seed = 1; seed <= 15; seed++) {
       playRally(seed, diff, 'NORMAL', TUNABLE, (e, game) => {
-        if (e.type === 'bounce' && e.side === -1 && game.tracker.phase === 'bounced') chances++;
+        if (e.type === 'bounce' && e.side === -1 && game.rules.phase === 'rally' && bouncedOn(game.rules, -1)) chances++;
         if (e.type === 'racket' && e.side === -1) returns++;
       });
     }
@@ -86,37 +88,30 @@ test('난이도: 어려움 로봇은 쉬움 로봇보다 많이 받아낸다', (
   assert.deepEqual(DIFFICULTIES, ['EASY', 'NORMAL', 'HARD']);
 });
 
-test('랠리 판정: 정상 바운드만 세고, 두 번 바운드·자기 코트·바닥은 끝', () => {
+test('랠리 판정 (rules.js): 정상 바운드만 세고, 두 번 바운드·자기 코트·바닥은 끝', () => {
+  // 2단계 임시 판정(createRallyTracker)과 같은 시나리오를 3단계 규칙 상태 기계로 확인한다
   const ev = (type, side, extra = {}) => ({ type, side, t: 0, pos: { x: 0, y: side, z: 0 }, speed: 1, ...extra });
-  const tr = createRallyTracker();
-  tr.start(1, 0);                 // 로봇(+1)이 보냄
-  assert.equal(tr.canHit(-1), false);
-  tr.onEvent(ev('bounce', -1));   // 내 코트 바운드 (보낸 공은 세지 않음)
-  assert.equal(tr.count, 0);
-  assert.equal(tr.canHit(-1), true);
-  tr.onHit(-1, 0.5);
-  tr.onEvent(ev('net', 0, { over: true }));
-  tr.onEvent(ev('bounce', 1));    // 상대 코트 정상 바운드 → 1회
-  assert.equal(tr.count, 1);
-  tr.onEvent(ev('bounce', 1));    // 두 번 바운드 → 받을 쪽(+1) 실점
-  assert.equal(tr.phase, 'over');
-  assert.equal(tr.loser, 1);
+  const hit = (side) => ({ type: 'racket', side, racket: side, t: 0 });
+  const run = (s, list) => { let r = null; for (const e of list) { const o = applyEvent(s, e); s = o.state; r = o.result ?? r; } return { s, r }; };
+  let s = startRally(createRules(), 1);          // 로봇(+1)이 보냄
+  assert.equal(canHit(s, -1), true);
+  ({ s } = run(s, [ev('bounce', -1)]));          // 내 코트 바운드 (보낸 공은 세지 않음)
+  assert.equal(s.rally, 0);
+  assert.equal(bouncedOn(s, -1), true);
+  ({ s } = run(s, [hit(-1), ev('net', 0, { over: true }), ev('bounce', 1)])); // 상대 코트 정상 바운드 → 1회
+  assert.equal(s.rally, 1);
+  let r;
+  ({ s, r } = run(s, [ev('bounce', 1)]));        // 두 번 바운드 → 받을 쪽(+1) 실점
+  assert.equal(s.phase, 'pointOver');
+  assert.equal(r.loser, 1);
 
-  const t2 = createRallyTracker();
-  t2.start(1, 0);
-  t2.onEvent(ev('bounce', -1));
-  t2.onHit(-1, 0.5);
-  t2.onEvent(ev('bounce', -1));   // 친 공이 자기 코트에 떨어짐
-  assert.equal(t2.phase, 'over');
-  assert.equal(t2.loser, -1);
+  ({ s, r } = run(startRally(createRules(), 1), [ev('bounce', -1), hit(-1), ev('bounce', -1)])); // 친 공이 자기 코트
+  assert.equal(s.phase, 'pointOver');
+  assert.equal(r.loser, -1);
 
-  const t3 = createRallyTracker();
-  t3.start(1, 0);
-  t3.onEvent(ev('floor', -1));    // 보낸 공이 바로 아웃
-  assert.equal(t3.loser, 1);
-  const t4 = createRallyTracker();
-  t4.start(1, 0);
-  t4.checkTimeout(PRACTICE.RALLY_TIMEOUT + 0.1);
-  assert.equal(t4.phase, 'over');
+  ({ r } = run(startRally(createRules(), 1), [ev('floor', -1)])); // 보낸 공이 바로 아웃
+  assert.equal(r.loser, 1);
+  ({ s } = run(startRally(createRules(), 1), [{ type: 'timeout' }]));
+  assert.equal(s.phase, 'pointOver');
   assert.equal(createPlayer(-1).side, -1);
 });

@@ -1,7 +1,7 @@
 // physics.js — 공 운동, 바운드, 충돌. 브라우저·서버 공용.
 // 결정론: 결과는 입력 상태·dt·매개변수만으로 정해진다. 시간과 난수는 인자로 받는다.
 // 좌표계: x = 너비, y = 길이, z = 높이(위 +). 원점은 탁구대 윗면 중앙.
-import { BALL, TABLE, NET, RACKET, PHYSICS, TUNABLE, SWING } from './constants.js';
+import { BALL, TABLE, NET, RACKET, PHYSICS, TUNABLE, SWING, SERVE } from './constants.js';
 
 const R = BALL.RADIUS;
 const AREA = Math.PI * R * R;
@@ -375,4 +375,131 @@ export function solveBlock(ball, u, target, params = TUNABLE) {
     yaw += 0.5 * Math.atan2(target.x - l.x, l.y - ball.pos.y) / DEG;
   }
   return { pitch, yaw, normal: faceNormal(pitch, yaw) };
+}
+
+// ── 서브 조준 (기준 좌표, +y로 친다) ──────────────────────────
+// 서브는 자기 코트(y < 0)에 한 번 → 상대 코트(y > 0)에 떨어져야 한다.
+// 첫 충돌이 자기 코트 바운드면 두 번째 충돌 위치를 돌려준다. 그 밖에는 조준 탐색이 쓸 수 있게
+// "짧음"(y = 0: 자기 코트에 두 번·네트) 또는 "김"(상대 코트에 바로 떨어짐: 아주 큰 y)으로 본다.
+// low: 네트 위 여유(clear)보다 낮게 넘어감, netCord: 네트 윗줄을 스침(렛).
+export function serveLanding(ball, params = TUNABLE, clear = params.NET_CLEAR ?? 0) {
+  const b = cloneBall(ball);
+  const dt = PHYSICS.DT;
+  const n = Math.round(SWING.AIM_MAX_T / dt);
+  const netTop = NET.HEIGHT + R + clear;
+  let own = null, netCord = false, low = false;
+  for (let i = 0; i < n; i++) {
+    const y0 = b.pos.y, z0 = b.pos.z;
+    const ev = step(b, dt, { params });
+    // 네트 평면(y = 0)을 지나는 높이가 여유보다 낮으면 "네트 위험" (조준 탐색은 유효하지 않은 서브로 본다)
+    if (y0 < 0 && b.pos.y >= 0 && z0 + (b.pos.z - z0) * (-y0 / (b.pos.y - y0)) < netTop) low = true;
+    if (!ev.length) continue;
+    const e = ev[0];
+    const isBounce = e.type === 'bounce' || e.type === 'edge';
+    if (!own) {
+      if (isBounce && e.pos.y < 0) { own = e; continue; }
+      if (e.type === 'floor' && e.pos.y < 0) return { x: e.pos.x, y: -Infinity, own: null, event: e };
+      return { x: e.pos.x, y: Infinity, own: null, event: e }; // 자기 코트를 건너뜀: 너무 김
+    }
+    if (e.type === 'net' && !e.over) return { x: e.pos.x, y: 0, own, short: true, event: e };
+    if (e.type === 'net') { netCord = true; continue; } // 네트 윗줄 스침 (렛 후보): 다음 충돌을 본다
+    if (isBounce && e.pos.y < 0) return { x: e.pos.x, y: 0, own, short: true, netCord, low, event: e };
+    return { x: e.pos.x, y: e.pos.y, own, short: false, netCord, low, event: e };
+  }
+  return { x: b.pos.x, y: Infinity, own, netCord, event: null };
+}
+
+// pos에서 친 서브가 자기 코트를 거쳐 target(x, y > 0)에 떨어지도록 발사각·방향각을 찾는다.
+// 발사각에 따른 착지점은 단조롭지 않다(가파르게 치면 자기 코트 뒤쪽에 높이 튀어 길게 간다).
+// 그래서 발사각을 SERVE.PITCH_STEP 간격으로 훑어 유효한 서브(자기 코트 → 상대 코트) 중 목표에 가장 가까운 각을 고르고,
+// 이웃 칸과 목표를 사이에 두면 그 구간에서 이분법으로 다듬는다.
+// 네트 위 여유는 NET_CLEAR부터 시작해 답이 없으면 절반, 0으로 줄여 다시 찾는다.
+// 반환: { elevation, azimuth, ball, landing, valid }
+export function solveServe(opts, params = TUNABLE) {
+  let r = null;
+  for (const k of SERVE.CLEAR_STEPS) {
+    r = solveServeWith(opts, params, (params.NET_CLEAR ?? 0) * k);
+    if (r.valid) return r;
+  }
+  return r;
+}
+
+function solveServeWith({ pos, speed, topspin = 0, sidespin = 0, target, t = 0 }, params, clear) {
+  const serveLanding_ = (ball) => serveLanding(ball, params, clear);
+  const launch = (elevation, azimuth) => makeLaunch({ pos, speed, elevation, azimuth, topspin, sidespin, t });
+  const valid = (l) => l.own && !l.short && !l.netCord && !l.low && l.y > 0 && l.y <= TABLE.LENGTH / 2;
+  let azimuth = Math.atan2(target.x - pos.x, target.y - pos.y) / DEG;
+  let elevation = 0;
+  let good = null; // 마지막으로 찾은 유효한 { elevation, azimuth }
+  for (let round = 0; round < SWING.AIM_ROUNDS; round++) {
+    const az = azimuth;
+    const f = (el) => serveLanding_(launch(el, az));
+    const cells = [];
+    for (let el = SERVE.PITCH_MIN; el <= SERVE.PITCH_MAX + 1e-9; el += SERVE.PITCH_STEP) cells.push({ el, l: f(el) });
+    // 목표 근처(SERVE.NEAR 이내)의 유효한 각 중 가장 수평에 가까운 각(낮고 자연스러운 서브), 없으면 목표에 가장 가까운 각
+    let best = -1;
+    const near = (c) => Math.abs(c.l.y - target.y) <= SERVE.NEAR;
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i];
+      if (!valid(c.l)) continue;
+      if (best < 0) { best = i; continue; }
+      const b0 = cells[best];
+      const better = near(c) && near(b0) ? Math.abs(c.el) < Math.abs(b0.el)
+        : near(c) || (!near(b0) && Math.abs(c.l.y - target.y) < Math.abs(b0.l.y - target.y));
+      if (better) best = i;
+    }
+    if (best < 0) {
+      if (good) break; // 방향각 보정 뒤 유효한 각이 사라짐: 이전 답을 쓴다
+      // 유효한 각이 없음 (너무 빠르거나 느림): 착지 y가 목표에 가장 가까운 각
+      let k = 0;
+      for (let i = 1; i < cells.length; i++) {
+        if (Math.abs(cells[i].l.y - target.y) < Math.abs(cells[k].l.y - target.y)) k = i;
+      }
+      elevation = cells[k].el;
+      break;
+    }
+    elevation = cells[best].el;
+    // 목표를 사이에 둔 이웃 칸이 있으면 이분법
+    for (const j of [best - 1, best + 1]) {
+      const c = cells[j];
+      if (!c || !valid(c.l)) continue;
+      const d0 = cells[best].l.y - target.y, d1 = c.l.y - target.y;
+      if (d0 * d1 > 0) continue;
+      let lo = cells[best].el, hi = c.el, flo = d0;
+      for (let i = 0; i < SWING.AIM_ITER; i++) {
+        const mid = (lo + hi) / 2;
+        const lm = f(mid);
+        const dm = valid(lm) ? lm.y - target.y : NaN;
+        if (Number.isNaN(dm)) break;
+        if (dm * flo > 0) { lo = mid; flo = dm; } else hi = mid;
+      }
+      elevation = (lo + hi) / 2;
+      if (!valid(f(elevation))) elevation = cells[best].el;
+      break;
+    }
+    good = { elevation, azimuth };
+    const l = f(elevation);
+    azimuth += Math.atan2(target.x - l.x, l.y - pos.y) / DEG;
+  }
+  if (good && !valid(serveLanding_(launch(elevation, azimuth)))) ({ elevation, azimuth } = good);
+  const landing = serveLanding_(launch(elevation, azimuth));
+  return { elevation, azimuth, ball: launch(elevation, azimuth), landing, valid: valid(landing) };
+}
+
+// 서브 토스: 기준 좌표 x에서 손 높이로부터 공을 위로 띄운다 (회전 없음)
+export function makeToss(x, t = 0) {
+  const cx = Math.max(-SERVE.TOSS_X_MAX, Math.min(SERVE.TOSS_X_MAX, x));
+  return createBall({ pos: vec(cx, SERVE.TOSS_Y, SERVE.TOSS_Z), vel: vec(0, 0, SERVE.TOSS_SPEED), t });
+}
+
+// 토스한 공이 떨어지면서 높이 z를 지나는 시각 (공기저항 포함, 고정 스텝). 못 지나면 null
+export function tossTimeAt(ball, z, params = TUNABLE) {
+  const b = cloneBall(ball);
+  const dt = PHYSICS.DT;
+  for (let i = 0; i < Math.round(SWING.PREDICT_T / dt); i++) {
+    const z0 = b.pos.z;
+    integrate(b, dt, params);
+    if (b.vel.z < 0 && z0 >= z && b.pos.z < z) return b.t - dt * (b.pos.z - z) / (b.pos.z - z0);
+  }
+  return null;
 }

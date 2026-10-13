@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v2.3';
+export const VERSION = 'v3.0';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -117,6 +117,8 @@ const SHOT_TUNABLE = {
   SIDE_V_MIN: 6, SIDE_V_MAX: 9, SIDE_SPIN_MIN: 30, SIDE_SPIN_MAX: 60, // 횡회전 (rps)
   SIDE_TOP_MIN: 10, SIDE_TOP_MAX: 20, SIDE_DEPTH: 0.8, SIDE_PITCH: -10, SIDE_LAMBDA_TOP: 0.2, SIDE_LAMBDA_BACK: 0.4,
   BLOCK_DEPTH: 0.75, BLOCK_LAMBDA_TOP: 0.1, BLOCK_LAMBDA_BACK: 1.0,
+  // 서브: 속도는 세기로 보간, 회전은 판정된 구질(드라이브 = 탑, 커트 = 백, 사이드 = 횡)의 범위를 쓴다
+  SERVE_V_MIN: 4, SERVE_V_MAX: 7, SERVE_DEPTH: 0.9, SERVE_SPIN_SCALE: 0.6,
 };
 
 // AI 로봇 난이도별 수치 (EASY 쉬움 / NORMAL 보통 / HARD 어려움)
@@ -214,6 +216,10 @@ export const TUNABLE_RANGES = Object.freeze({
   BLOCK_DEPTH: r(0.2, 1.37, 0.01),
   BLOCK_LAMBDA_TOP: r(0, 1, 0.01),
   BLOCK_LAMBDA_BACK: r(0, 1, 0.01),
+  SERVE_V_MIN: r(0, 15, 0.1),
+  SERVE_V_MAX: r(0, 15, 0.1),
+  SERVE_DEPTH: r(0.2, 1.37, 0.01),
+  SERVE_SPIN_SCALE: r(0, 1.5, 0.01),
   ...aiRanges('EASY'),
   ...aiRanges('NORMAL'),
   ...aiRanges('HARD'),
@@ -253,9 +259,47 @@ export const SWING = Object.freeze({
   AI_SAMPLE_DT: 1 / 120,     // 로봇 가상 마우스 샘플 간격 (s)
   AI_SIDE_CURVE: 0.3,        // 로봇 사이드스핀 스윙 곡률
   AI_RETURN_SPEED: 1.0,      // 로봇이 대기 위치로 돌아가는 속도 (m/s)
-  AI_BLOCK_LEAD: 0.15,
-  AI_PLANE_BACK: 0.1,        // 로봇 라켓 평면을 스윙 타점보다 뒤에 두는 거리 (m)       // 블록할 때 미리 버튼을 누르는 시간 (s)
+  AI_BLOCK_LEAD: 0.15,       // 블록할 때 미리 버튼을 누르는 시간 (s)
+  AI_PLANE_BACK: 0.1,        // 로봇 라켓 평면을 스윙 타점보다 뒤에 두는 거리 (m)
   AI_DIR: Object.freeze({ drive: 75, smash: -80, cut: -70, side: 0, block: 0 }), // 로봇 드래그 각도 기본값 (°)
+});
+
+// 탁구 규칙 (game-rules.md)
+export const RULES = Object.freeze({
+  POINTS_TO_WIN: 11,         // 이 점수를 먼저 내고
+  WIN_BY: 2,                 // 이만큼 앞서야 게임이 끝난다 (듀스)
+  SERVE_TURN: 2,             // 서브권이 몇 점마다 바뀌는지
+  DEUCE_AT: 10,              // 둘 다 이 점수 이상이면 1점마다 서브 교대
+  BEST_OF: 1,                // 기본 단판. 3이면 3게임 2선승제
+});
+
+// 득점 사유 코드 → 화면 문구
+export const REASON_LABELS = Object.freeze({
+  out: '아웃',
+  net: '네트',
+  twoBounce: '투 바운드',
+  miss: '못 받음',
+  volley: '발리',
+  doubleHit: '연속 타격',
+  ownCourt: '자기 코트',
+  serveNoBounce: '서브 폴트 (자기 코트 바운드 없음)',
+  serveFault: '서브 폴트',
+  let: '렛',
+  retoss: '토스 다시',
+});
+
+// 서브 (토스 위치는 서버 기준 좌표: 자기 쪽 y < 0)
+export const SERVE = Object.freeze({
+  TOSS_Y: -1.55,             // 엔드라인(−1.37) 뒤에서 토스한다 (m)
+  TOSS_Z: 0.10,              // 토스를 시작하는 손 높이 (탁구대 윗면 기준, m)
+  TOSS_X_MAX: 0.6,           // 토스 좌우 위치 한계 (m)
+  TOSS_SPEED: 3.0,           // 위로 띄우는 속도 (m/s) → 약 44 cm 올라가고, 토스 뒤 약 0.55 s에 타점 높이로 내려온다
+  HIT_Z: 0.25,               // 떨어지는 공을 이 높이에서 치는 것을 기준(정점 대비 타이밍)으로 한다 (m)
+  PITCH_MIN: -55,            // 서브 발사각 탐색 범위 (°)
+  PITCH_MAX: 20,
+  PITCH_STEP: 1.5,           // 서브 발사각을 훑는 간격 (°)
+  NEAR: 0.15,                // 목표 깊이에서 이만큼 안이면 가장 낮은 발사각을 고른다 (m)
+  CLEAR_STEPS: Object.freeze([1, 0.5, 0]), // 네트 위 여유 = NET_CLEAR × 이 값으로 차례로 시도
 });
 
 // 연습 모드
@@ -267,8 +311,27 @@ export const PRACTICE = Object.freeze({
   FEED_TOPSPIN: 20,
   FEED_DEPTH: 0.85,          // 내 쪽 네트에서 떨어질 거리 (m)
   FEED_X_RANGE: 0.3,
-  RALLY_TIMEOUT: 3,          // 마지막 타격 뒤 이 시간이 지나면 랠리 종료 (s)
+  RALLY_TIMEOUT: 3,          // 마지막 타격(토스) 뒤 이 시간이 지나면 시간 초과로 판정 (s)
+  SERVE_DELAY: 1.2,          // 로봇이 서브 차례가 된 뒤 토스하기까지 (s)
+  POINT_DELAY: 1.8,          // 득점 사유를 보여 주는 시간. 그 뒤 다음 서브 (s)
+  SCENARIO_DELAY: 2.0,       // 디버그 규칙 시험: 버튼을 누른 뒤 공을 보내기까지 (마우스를 화면으로 옮길 시간, s)
   MAX_RALLY: 60,             // 자동 랠리 테스트에서 랠리 하나를 끊는 횟수
+});
+
+// 디버그 규칙 시험 공 (렛·투 바운드·발리를 일부러 만든다). 위치·속도는 보내는 쪽 기준 좌표
+export const SCENARIO = Object.freeze({
+  LET_SPEEDS: Object.freeze([4, 4.5, 5, 3.5, 5.5]), // 네트 인 서브를 찾을 속도 후보 (m/s)
+  LET_PITCH_STEP: 0.1,       // 발사각 훑는 간격 (°)
+  LET_TOPSPIN: 10,           // rps
+  LET_MARGIN: 0.1,           // 엔드라인에서 이만큼 안쪽에 떨어져야 함 (m)
+  SHORT_SPEED: 4,            // 투 바운드용 짧은 백스핀 공: 네트 가까이(0.24 m) → 0.76 m에 두 번째 바운드
+  SHORT_TOPSPIN: -25,
+  SHORT_TARGET: Object.freeze({ x: 0, y: 0.3 }),
+  LONG_SPEED: 9,             // 발리용 긴 공
+  LONG_Z: 0.25,              // 내 라켓 평면을 지나는 높이 (m)
+  LONG_PITCH_MIN: -10,
+  LONG_PITCH_MAX: 25,
+  LONG_PITCH_STEP: 0.25,
 });
 
 // 공 발사기 (디버그 패널). 회전은 rps(초당 회전수)로 입력받는다.

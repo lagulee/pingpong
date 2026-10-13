@@ -1,14 +1,19 @@
-// main.js — 게임 진입점. 2단계: 로봇과 연습 랠리 (서브·점수는 3단계).
-// 흐름: 대기(클릭) → 로봇이 공을 보냄 → 내가 침 → 로봇이 받음 → … → 랠리 종료 → 잠시 뒤 다시 보냄
+// main.js — 게임 진입점. 3단계: 로봇과 11점 1게임 (서브·점수·듀스·서브 교대는 shared/rules.js).
+// 흐름: 서브 대기 → (내 서브: 클릭으로 토스 → 드래그로 치기 / 로봇 서브: 자동) → 랠리 → 득점 사유 표시 → 다음 서브 … → 결과 화면
 // 물리는 고정 스텝, 화면은 직전·현재 물리 위치를 보간해 그린다.
 import { createRenderer, createBallView, createRacketView, createMarkerView } from './render.js';
 import { createBall, makeLaunch, faceNormal, toWorld } from '../shared/physics.js';
 import {
   PHYSICS, PRACTICE, SWING, RENDER, TUNABLE, NET, VERSION, SHOT_LABELS, DIFFICULTIES, DIFFICULTY_LABELS, DEMO,
+  REASON_LABELS, RULES,
 } from '../shared/constants.js';
+import { canHit, bouncedOn } from '../shared/rules.js';
 import { initDebug, launchParams } from './debug.js';
 import { createMouseInput, rayPlaneY, analyzeDrag, createRng } from './input.js';
-import { createAI, createPlayer, createRally, feedBall, serveBall, placeBall, stepRally, racketWorld } from './ai.js';
+import {
+  createAI, createPlayer, createRally, stepMatch, serveBall, placeBall, endFree, tossBall, queueScenario,
+  scoreState, racketWorld,
+} from './ai.js';
 
 const canvas = document.getElementById('game');
 const statusEl = document.getElementById('status');
@@ -16,6 +21,12 @@ const shotEl = document.getElementById('shot');
 const shotSubEl = document.getElementById('shot-sub');
 const robotShotEl = document.getElementById('robot-shot');
 const centerEl = document.getElementById('center');
+const scoreEls = { me: document.getElementById('score-me'), robot: document.getElementById('score-robot') };
+const serveEls = { me: document.getElementById('serve-me'), robot: document.getElementById('serve-robot') };
+const serveInfoEl = document.getElementById('serve-info');
+const resultEl = document.getElementById('result');
+const resultTitleEl = document.getElementById('result-title');
+const resultScoreEl = document.getElementById('result-score');
 document.getElementById('version').textContent = VERSION;
 const view = createRenderer(canvas);
 const ballView = createBallView(view.scene);
@@ -29,21 +40,26 @@ let difficulty = 'NORMAL';
 let clock = 0;            // 게임 시각 (s), 고정 스텝마다 DT씩 증가
 let acc = 0;              // 고정 스텝 누적기
 let realAtFrame = 0;      // 마지막 프레임의 실제 시각 (s)
-let mode = 'ready';       // ready → feeding → rally → ended → feeding …
-let timer = 0;            // feeding·ended 남은 시간
-let best = 0;
-let endMsg = '';
 let prevPos = null;       // 화면 보간용 직전 스텝 공 위치
 let seed = 1;             // 판마다 다른 시드 (판정 오차·로봇 선택)
 let freeStart = 0;        // 디버그 떨어뜨리기 시작 시각
+let shownResults = 0;     // 화면에 보여 준 득점 결과 수
+let messageUntil = 0;     // 득점 사유 표시가 끝나는 시각
 
 const human = createPlayer(-1);
 let robot, game;
 function newGame() {
   robot = createAI(1, difficulty, createRng(seed * 31 + 7));
-  game = createRally({ players: { [-1]: human, [1]: robot.player }, ais: [robot], rng: createRng(seed) });
-  placeBall(game, createBall({ pos: toWorld(PRACTICE.FEED_POS, 1), t: clock }));
+  game = createRally({ players: { [-1]: human, [1]: robot.player }, ais: [robot], rng: createRng(seed), firstServer: -1 });
+  game.ball.t = clock;
   prevPos = { ...game.ball.pos };
+  shownResults = 0;
+  messageUntil = 0;
+  centerEl.textContent = '';
+  shotEl.textContent = '';
+  shotSubEl.textContent = '';
+  robotShotEl.textContent = '';
+  resultEl.hidden = true;
   seed++;
 }
 
@@ -55,38 +71,38 @@ const mouse = createMouseInput(canvas, {
   },
   now: () => clock + acc + (performance.now() / 1000 - realAtFrame),
   onPress() {
-    if (mode === 'ready') startFeeding();
+    // 내 서브 차례: 클릭한 자리(라켓 x)에서 공을 띄운다
+    const last = human.samples[human.samples.length - 1];
+    if (tossBall(game, -1, last ? last.x : 0, clock)) prevPos = { ...game.ball.pos };
   },
 });
 human.samples = mouse.samples;
 
-function startFeeding(delay = PRACTICE.FEED_DELAY) {
-  mode = 'feeding';
-  timer = delay;
-  centerEl.textContent = '';
-}
-
 function setDifficulty(d) {
   difficulty = d;
   newGame();
-  mode = 'ready';
 }
+document.getElementById('again').addEventListener('click', () => newGame());
 
 // ── 디버그 패널 ──
 const debugEnabled = new URLSearchParams(location.search).get('debug') === '1';
 const debug = initDebug(debugEnabled, {
   // 발사기: 내 쪽에서 로봇에게 쏜다 (로봇이 받아친다)
+  // 발사기·시험 공은 연습 공: 점수에 넣지 않고, 끝나면 원래 서브 대기로 돌아간다
   onLaunch: (cfg) => {
     serveBall(game, makeLaunch({ ...launchParams(cfg), t: clock }), -1);
     prevPos = { ...game.ball.pos };
-    mode = 'rally';
-    centerEl.textContent = '';
   },
   onDrop: () => {
     placeBall(game, createBall({ pos: DEMO.DROP_POS, t: clock }));
     prevPos = { ...game.ball.pos };
-    mode = 'free';
     freeStart = clock;
+  },
+  onScenario: (kind) => {
+    queueScenario(game, kind, clock);
+    prevPos = { ...game.ball.pos };
+    centerEl.textContent = `시험 공: ${REASON_LABELS[kind]} (${PRACTICE.SCENARIO_DELAY}초 뒤)`;
+    messageUntil = clock + PRACTICE.SCENARIO_DELAY;
   },
   onArrows: setArrows,
   arrowsVisible: ballView.arrowsVisible,
@@ -99,8 +115,7 @@ function setArrows(v) {
 window.addEventListener('keydown', (e) => {
   const i = ['Digit1', 'Digit2', 'Digit3'].indexOf(e.code);
   if (i >= 0) setDifficulty(DIFFICULTIES[i]);
-  if (e.code === 'Space') { e.preventDefault(); startFeeding(0); }
-  if (e.code === 'KeyR') { best = 0; game.tracker.count = 0; }
+  if (e.code === 'KeyR') newGame();
   if (e.code === 'KeyV') setArrows(!ballView.arrowsVisible);
 });
 
@@ -120,40 +135,55 @@ function showShot(e) {
   debug.onShot?.(e);
 }
 
-function endRally() {
-  const tr = game.tracker;
-  best = Math.max(best, tr.count);
-  endMsg = `${tr.loser === -1 ? '실점' : '득점'} — ${tr.reason} · 랠리 ${tr.count}회`;
-  centerEl.textContent = endMsg;
-  mode = 'ended';
-  timer = PRACTICE.END_DELAY;
+// ── 득점 사유·점수판·결과 화면 ──
+function showResult(r) {
+  const tag = r.practice ? '(연습 공) ' : '';
+  if (r.type === 'let') centerEl.textContent = `${tag}렛 — 다시 서브`;
+  else if (r.type === 'retoss') centerEl.textContent = `${tag}토스 다시`;
+  else {
+    const who = r.winner === -1 ? '득점' : '실점';
+    centerEl.textContent = `${tag}${who} — ${REASON_LABELS[r.reason] ?? r.reason}`;
+  }
+  centerEl.className = r.type !== 'point' ? 'center-neutral' : r.winner === -1 ? 'center-win' : 'center-lose';
+  messageUntil = clock + PRACTICE.POINT_DELAY;
+  if (r.matchOver && !r.practice) {
+    const [me, rb] = r.score;
+    resultTitleEl.textContent = r.winner === -1 ? '승리!' : '패배';
+    resultTitleEl.className = r.winner === -1 ? 'result-win' : 'result-lose';
+    resultScoreEl.textContent = `나 ${me} : ${rb} 로봇 · 마지막 점수: ${REASON_LABELS[r.reason] ?? r.reason}`;
+    resultEl.hidden = false;
+  }
+}
+
+function updateScoreboard() {
+  const st = scoreState(game);
+  scoreEls.me.textContent = st.score[0];
+  scoreEls.robot.textContent = st.score[1];
+  const over = st.phase === 'gameOver';
+  serveEls.me.style.visibility = !over && st.server === -1 ? 'visible' : 'hidden';
+  serveEls.robot.style.visibility = !over && st.server === 1 ? 'visible' : 'hidden';
+  const deuce = Math.min(...st.score) >= RULES.DEUCE_AT;
+  const who = st.server === -1 ? '나' : '로봇';
+  serveInfoEl.textContent = over ? '게임 끝'
+    : deuce ? `듀스 · ${who} 서브 (1점마다 교대)`
+      : `${who} 서브 ${st.serveCount + 1}/${RULES.SERVE_TURN}`;
 }
 
 // ── 고정 스텝 ──
 function fixedStep() {
   const dt = PHYSICS.DT;
-  if (mode === 'feeding') {
-    timer -= dt;
-    if (timer <= 0) {
-      feedBall(game, 1, clock);
-      prevPos = { ...game.ball.pos };
-      mode = 'rally';
-    }
-  } else if (mode === 'rally' || mode === 'ended' || mode === 'free') {
-    prevPos = { ...game.ball.pos };
-    for (const e of stepRally(game, dt)) {
-      if (e.type === 'racket') showShot(e);
-      debug.onEvents([e]);
-    }
-    if (mode === 'rally' && game.tracker.phase === 'over') endRally();
-    if (mode === 'ended') {
-      timer -= dt;
-      if (timer <= 0) startFeeding(PRACTICE.FEED_DELAY - PRACTICE.END_DELAY / 2);
-    }
-    if (mode === 'free' && clock - freeStart > DEMO.RESET_AFTER) mode = 'ready';
+  prevPos = { ...game.ball.pos };
+  for (const e of stepMatch(game, dt)) {
+    if (e.type === 'racket') showShot(e);
+    debug.onEvents([e]);
   }
+  // 공이 순간 이동했으면(서브 대기 자리 등) 보간하지 않는다
+  const p = game.ball.pos;
+  if (Math.hypot(p.x - prevPos.x, p.y - prevPos.y, p.z - prevPos.z) > 0.5) prevPos = { ...p };
+  while (shownResults < game.results.length) showResult(game.results[shownResults++]);
+  if (game.free && clock - freeStart > DEMO.RESET_AFTER) endFree(game, clock);
   clock += dt;
-  if (game.ball && (mode === 'rally' || mode === 'ended' || mode === 'free')) game.ball.t = clock;
+  game.ball.t = clock;
 }
 
 // ── 그리기 ──
@@ -189,24 +219,31 @@ function frame(now) {
   };
   ballView.update(pos, ball.vel, ball.spin, elapsed);
 
-  // 라켓
-  const tr = game.tracker;
-  const follow = (side) => (mode === 'rally' && tr.canHit(side) ? ball : null);
+  // 라켓: 칠 수 있는(내 쪽에 바운드한) 공이 오면 도달 범위 안에서 앞뒤로 따라간다
+  const rules = game.rules;
+  const live = !game.free && (rules.phase === 'serving' || rules.phase === 'rally');
+  const follow = (side) => (live && canHit(rules, side) && bouncedOn(rules, side) ? ball : null);
   myRacket.update(racketWorld(human, clock, follow(-1)), racketNormal(human, clock, -1));
   const rp = racketWorld(robot.player, clock, follow(1)) ?? toWorld({ x: SWING.HOME.x, y: SWING.HOME_Y, z: SWING.HOME.z }, 1);
   robotRacket.update(rp, racketNormal(robot.player, clock, 1));
 
-  // 내가 칠 공의 예측 정점
-  const waiting = mode === 'rally' && tr.receiver === -1 && (tr.phase === 'toward' || tr.phase === 'bounced');
+  // 내가 칠 공의 예측 정점 (상대가 친 공이 나에게 오는 중) 또는 내 서브 타점
+  const waiting = live && canHit(rules, -1);
   const smashable = !!human.apexPos && human.apexPos.z >= NET.HEIGHT + TUNABLE.SMASH_MIN_HEIGHT;
   marker.update(waiting ? human.apexPos : null, TUNABLE.HIT_RADIUS, smashable);
 
   debug.onFrame(elapsed, ball);
   view.render();
 
-  if (mode === 'ready') centerEl.textContent = '클릭해서 시작';
-  statusEl.textContent = `연습 모드 · ${DIFFICULTY_LABELS[difficulty]} · 랠리 ${tr.count}회 (최고 ${best}) · `
-    + `1/2/3 난이도 · Space 공 보내기 · R 기록 초기화 · V 화살표${debugEnabled ? '' : ' · ?debug=1 패널'}`;
+  updateScoreboard();
+  if (clock >= messageUntil) {
+    centerEl.className = '';
+    const waitServe = rules.phase === 'waitingServe' && !game.free && !game.scenario;
+    centerEl.textContent = !waitServe ? ''
+      : rules.server === -1 ? '내 서브 — 클릭: 공 띄우기 · 드래그: 치기' : '로봇 서브';
+  }
+  statusEl.textContent = `연습 경기 (${RULES.POINTS_TO_WIN}점) · ${DIFFICULTY_LABELS[difficulty]} · `
+    + `1/2/3 난이도(새 게임) · R 새 게임 · V 화살표${debugEnabled ? '' : ' · ?debug=1 패널'}`;
   requestAnimationFrame(frame);
 }
 
@@ -217,6 +254,6 @@ requestAnimationFrame(frame);
 if (debugEnabled) {
   window.pingpong = {
     get game() { return game; }, get robot() { return robot; }, human,
-    get clock() { return clock; }, get mode() { return mode; }, toScreen: view.worldToScreen,
+    get clock() { return clock; }, toScreen: view.worldToScreen,
   };
 }

@@ -26,7 +26,41 @@
       color: #fff; font: 700 26px/1.3 system-ui, sans-serif; text-shadow: 0 2px 6px #000;
       pointer-events: none; text-align: center;
     }
+    #center.center-win { color: #8fe39a; }
+    #center.center-lose { color: #ff8a80; }
+    #center.center-neutral { color: #ffd84d; }
     #game { cursor: crosshair; }
+    /* 점수판 (화면 위 가운데) */
+    #scoreboard {
+      position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+      display: grid; grid-template-columns: auto auto auto auto auto; align-items: center; column-gap: 10px;
+      padding: 6px 16px; border-radius: 10px; background: rgba(10, 14, 22, 0.72);
+      color: #e8eef7; font: 600 16px/1.2 system-ui, sans-serif; pointer-events: none; text-align: center;
+    }
+    #scoreboard .pts { font: 800 34px/1 system-ui, sans-serif; min-width: 1.4em; font-variant-numeric: tabular-nums; }
+    #scoreboard .sep { font: 800 28px/1 system-ui, sans-serif; color: #9fb0c8; }
+    #scoreboard .me { color: #ff9a8f; }
+    #scoreboard .robot { color: #9fb6ff; }
+    #scoreboard .serve { color: #ffd84d; font-size: 13px; }
+    #serve-info { grid-column: 1 / 6; font: 500 12px/1.4 system-ui, sans-serif; color: #c9d3e0; margin-top: 2px; }
+    /* 결과 화면 */
+    #result {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: rgba(6, 9, 14, 0.6);
+    }
+    #result[hidden] { display: none; }
+    #result .box {
+      min-width: 280px; padding: 24px 32px; border-radius: 14px; background: #161d2b; text-align: center;
+      color: #e8eef7; font: 500 16px/1.5 system-ui, sans-serif; box-shadow: 0 8px 30px #000a;
+    }
+    #result-title { margin: 0 0 6px; font: 800 40px/1.1 system-ui, sans-serif; }
+    #result-title.result-win { color: #ffd84d; }
+    #result-title.result-lose { color: #ff8a80; }
+    #again {
+      margin-top: 16px; padding: 10px 26px; border: 0; border-radius: 8px; background: #2f6bd8; color: #fff;
+      font: 700 17px/1 system-ui, sans-serif; cursor: pointer;
+    }
+    #again:hover { background: #3d7cf0; }
     /* 버전 표시 (배포 반영 확인용) */
     #version {
       position: fixed; left: 10px; bottom: 8px; color: rgba(232, 238, 247, 0.55);
@@ -74,7 +108,22 @@
     <div id="shot-sub"></div>
     <div id="robot-shot"></div>
   </div>
+  <div id="scoreboard">
+    <span class="name me">나 <span id="serve-me" class="serve">● 서브</span></span>
+    <span id="score-me" class="pts me">0</span>
+    <span class="sep">:</span>
+    <span id="score-robot" class="pts robot">0</span>
+    <span class="name robot"><span id="serve-robot" class="serve">서브 ●</span> 로봇</span>
+    <div id="serve-info"></div>
+  </div>
   <div id="center"></div>
+  <div id="result" hidden>
+    <div class="box">
+      <h2 id="result-title"></h2>
+      <div id="result-score"></div>
+      <button id="again" type="button">다시 하기</button>
+    </div>
+  </div>
   <div id="version"></div>
   <script>
     // 모듈 로드 실패(CDN 차단, WebGL 미지원 등)를 화면에 알린다.

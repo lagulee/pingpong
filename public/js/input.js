@@ -5,7 +5,7 @@
 // 마우스 샘플 { t, x, y, b }: t = 게임 시각(s), (x, y) = 라켓 평면 위 좌표(m, x 좌우·y 높이), b = 버튼 누름.
 // 모든 판정은 플레이어 기준 좌표("자기 쪽 y < 0, +y로 친다")에서 하고, 결과만 세계 좌표로 돌려준다.
 import {
-  vec, add, sub, scale, length, cross, createBall, makeLaunch, solveAim, solveBlock,
+  vec, add, sub, scale, length, cross, createBall, makeLaunch, solveAim, solveBlock, solveServe,
   faceNormal, racketResponse, ballToLocal, toWorld,
 } from '../shared/physics.js';
 import { NET, SWING, TUNABLE } from '../shared/constants.js';
@@ -194,7 +194,8 @@ export function aimTarget(type, drag, racketX, params = TUNABLE) {
 // ── 구질 판정 + 나가는 공 상태 ─────────────────────────────
 // samples: 마우스 샘플, ballState: 접촉 순간 공(세계 좌표)
 // ctx: { t(접촉 시각, 기본 ballState.t), side(−1/+1, 기본 −1), apexT(예측 정점 시각), rng, params,
-//        racketX(라켓 x, 기준 좌표, 기본 마지막 샘플 x), pressed(버튼, 기본 true) }
+//        racketX(라켓 x, 기준 좌표, 기본 마지막 샘플 x), pressed(버튼, 기본 true),
+//        serve(서브: 자기 코트 → 상대 코트로 조준, 기본 false) }
 // 반환: { shotType, vel, spin, quality: { timing, accuracy, strength, dtApex, weak, target } }
 export function classifyShot(samples, ballState, ctx = {}) {
   const params = ctx.params ?? TUNABLE;
@@ -205,16 +206,21 @@ export function classifyShot(samples, ballState, ctx = {}) {
   const b = ballToLocal(ballState, side);
   const drag = analyzeDrag(samples, t, params);
   const racketX = ctx.racketX ?? sampleAt(samples, t)?.x ?? b.pos.x;
-  const shotType = judgeType(drag, b.pos.z, params, pressed);
+  const serve = !!ctx.serve;
+  let shotType = judgeType(drag, b.pos.z, params, pressed);
+  if (serve && shotType === 'mishit') shotType = 'smash'; // 토스한 공 내려치기는 빠른 서브로 본다
   const dtApex = ctx.apexT == null ? Infinity : t - ctx.apexT;
   const { timing, accuracy } = gradeTiming(dtApex, params);
   const strength = clamp((drag.speed - params.BLOCK_SPEED) / (params.SPEED_FULL - params.BLOCK_SPEED), 0, 1);
   const err = aimErrors(accuracy, dtApex, rng, params);
   // dragSpeed·dragSin: 판정에 쓴 스윙 최고 속도(m/s)와 방향(+ 위). 화면에 보여 줘서 사용자가 임계값을 맞출 수 있게 한다.
-  const quality = { timing, accuracy, strength, dtApex, weak: !pressed, target: null, dragSpeed: drag.speed, dragSin: drag.sin };
+  const quality = { timing, accuracy, strength, dtApex, weak: !pressed, target: null, dragSpeed: drag.speed, dragSin: drag.sin, serve };
 
   let out; // 기준 좌표의 { vel, spin }
-  if (shotType === 'mishit') {
+  if (serve && shotType !== 'block') {
+    out = serveShot(shotType, drag, b, t, racketX, strength, err, params);
+    quality.target = out.target;
+  } else if (shotType === 'mishit') {
     // 낮은 공 내려치기: 네트 아랫부분을 향해 곧게 꽂힌다
     const tx = clamp(b.pos.x, -params.AIM_X_MAX, params.AIM_X_MAX);
     const dir = sub(vec(tx, 0, params.MISHIT_AIM_Z), b.pos);
@@ -268,6 +274,35 @@ export function classifyShot(samples, ballState, ctx = {}) {
     spin: toWorld(out.spin, side),
     quality,
   };
+}
+
+// 서브: 드래그 구질로 회전을 정하고(드라이브 = 탑, 커트 = 백, 사이드 = 횡, 스매시 = 빠르고 회전 적음),
+// 자기 코트 → 상대 코트 SERVE_DEPTH에 떨어지게 조준한다. 속도는 세기로 SERVE_V_MIN~MAX.
+function serveShot(type, drag, b, t, racketX, strength, err, params) {
+  const P = PREFIX[type];
+  const k = params.SERVE_SPIN_SCALE;
+  const spin = k * lerpP(params, P, 'SPIN', strength);
+  let topspin = 0, sidespin = 0;
+  if (type === 'drive') topspin = spin * Math.max(0.4, drag.sin);
+  else if (type === 'smash') topspin = spin;
+  else if (type === 'cut') topspin = -spin;
+  else {
+    const dirX = Math.abs(drag.u.x) > 1e-9 ? Math.sign(drag.u.x) : Math.sign(drag.kappa) || 1;
+    sidespin = dirX * spin;
+    topspin = k * lerpP(params, P, 'TOP', strength);
+  }
+  const speed = type === 'smash' ? params.SERVE_V_MAX
+    : params.SERVE_V_MIN + strength * (params.SERVE_V_MAX - params.SERVE_V_MIN);
+  const target = { x: aimTarget(type, drag, racketX, params).x, y: params.SERVE_DEPTH };
+  const aim = solveServe({ pos: b.pos, speed, topspin, sidespin, target, t }, params);
+  const launch = makeLaunch({
+    pos: b.pos, t,
+    speed: speed * (1 + err.speed),
+    elevation: aim.elevation + err.pitch,
+    azimuth: aim.azimuth + err.yaw,
+    topspin, sidespin,
+  });
+  return { vel: launch.vel, spin: launch.spin, target };
 }
 
 // ── 타격 순간 판정 (사람·로봇 공용) ───────────────────────────

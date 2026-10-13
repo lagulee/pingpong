@@ -1,5 +1,5 @@
 // debug.js — 디버그 패널(?debug=1).
-// TUNABLE 슬라이더(묶음별, 즉시 반영), "현재 값 복사", 공 발사기, 화살표 표시, FPS, 최근 구질 판정·물리 이벤트.
+// TUNABLE 슬라이더(묶음별, 즉시 반영), "현재 값 복사", 공 발사기, 규칙 시험 공, 화살표 표시, FPS, 최근 구질 판정·물리 이벤트.
 // 순수 함수(changedTunables, launchParams, tunableLabel)는 DOM 없이 테스트할 수 있도록 분리한다.
 import { TUNABLE, TUNABLE_DEFAULTS, TUNABLE_RANGES, TUNABLE_GROUPS, LAUNCHER, SHOT_LABELS } from '../shared/constants.js';
 
@@ -45,6 +45,10 @@ const TUNABLE_LABELS = {
   WEAK_PITCH: '약한 블록 면 각도 (°)',
   MISHIT_SPEED: '실타 속도 (m/s)',
   MISHIT_AIM_Z: '실타 네트 높이 (m)',
+  SERVE_V_MIN: '서브 · 속도 최소 (m/s)',
+  SERVE_V_MAX: '서브 · 속도 최대 (m/s)',
+  SERVE_DEPTH: '서브 · 목표 깊이 (m)',
+  SERVE_SPIN_SCALE: '서브 · 회전 비율 (구질 회전 × 이 값)',
 };
 
 // 구질·AI 키는 규칙적으로 이름을 붙인다
@@ -86,6 +90,9 @@ const PRESET_LABELS = {
 export const EVENT_LABELS = {
   bounce: '바운드', edge: '모서리', net: '네트', racket: '라켓', floor: '바닥',
 };
+
+// 규칙 시험 버튼 (ai.js SCENARIOS)
+const SCENARIO_LABELS = { let: '렛 서브', twoBounce: '투 바운드', volley: '발리 / 아웃' };
 
 // 기본값과 다른 튜닝 값만 골라낸다 ("현재 값 복사"용)
 export function changedTunables(current = TUNABLE, defaults = TUNABLE_DEFAULTS) {
@@ -132,7 +139,7 @@ function slider(label, range, value, onInput) {
 }
 
 // 패널을 만든다. enabled가 아니면 아무것도 하지 않는 객체를 돌려준다.
-// hooks: { onLaunch(cfg), onDrop(), onArrows(bool), arrowsVisible }
+// hooks: { onLaunch(cfg), onDrop(), onScenario(kind), onArrows(bool), arrowsVisible }
 export function initDebug(enabled, hooks) {
   const noop = { onEvents() {}, onFrame() {}, launcherConfig: { ...LAUNCHER.DEFAULTS } };
   if (!enabled) return noop;
@@ -201,6 +208,19 @@ export function initDebug(enabled, hooks) {
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Enter' && e.target.tagName !== 'BUTTON') hooks.onLaunch({ ...cfg }); // 버튼 포커스 시 중복 발사 방지
   });
+
+  // ── 규칙 시험: 로봇이 렛·투 바운드·발리 상황의 공을 보낸다 (점수에 넣지 않음) ──
+  panel.append(el('h3', { textContent: '규칙 시험 (점수 안 바뀜)' }));
+  const scen = el('div', { className: 'dbg-buttons' });
+  for (const [kind, label] of Object.entries(SCENARIO_LABELS)) {
+    const b = el('button', { textContent: label });
+    b.addEventListener('click', () => { b.blur(); hooks.onScenario?.(kind); });
+    scen.append(b);
+  }
+  panel.append(scen, el('div', {
+    className: 'dbg-info',
+    textContent: '렛: 그냥 보기 · 투 바운드: 치지 말고 보기 · 발리: 버튼을 누른 채 노란 고리에 라켓을 대기(그냥 두면 아웃)',
+  }));
 
   // ── 표시 ──
   panel.append(el('h3', { textContent: '표시' }));
