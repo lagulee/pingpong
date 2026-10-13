@@ -1,7 +1,7 @@
 // render.js — Three.js 장면 구성과 그리기.
 // 물리 좌표계(z가 위)와 Three.js 좌표계(y가 위)의 변환은 이 파일에서만 한다.
 import * as THREE from 'three';
-import { TABLE, NET, RENDER } from '../shared/constants.js';
+import { TABLE, NET, BALL, RENDER, DEBUG_ARROW } from '../shared/constants.js';
 
 // 물리 (x, y, z) → Three.js (x, z, -y)
 // 물리 y축(탁구대 길이)이 화면 안쪽으로 들어가도록 Three.js의 -z에 대응시킨다.
@@ -99,6 +99,72 @@ function buildFloor() {
   floor.position.copy(toThree({ x: 0, y: 0, z: -TABLE.HEIGHT }));
   floor.receiveShadow = true;
   return floor;
+}
+
+// 공 무늬 텍스처: 적도 띠 + 점 하나. 실제 ω로 돌아가므로 회전 방향과 세기를 눈으로 읽을 수 있다.
+function makeBallTexture() {
+  const w = RENDER.BALL_TEXTURE_SIZE, h = w / 2;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d');
+  g.fillStyle = '#' + RENDER.COLOR_BALL.toString(16).padStart(6, '0');
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = '#' + RENDER.COLOR_BALL_MARK.toString(16).padStart(6, '0');
+  g.fillRect(0, h * 0.44, w, h * 0.12);              // 적도 띠
+  g.beginPath(); g.arc(w * 0.25, h * 0.2, h * 0.12, 0, Math.PI * 2); g.fill(); // 점
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function makeArrow(color) {
+  const a = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(), 1, color,
+    DEBUG_ARROW.HEAD_LENGTH, DEBUG_ARROW.HEAD_WIDTH);
+  a.visible = false;
+  return a;
+}
+
+// 물리 벡터 v(배율 k)를 화살표로 표시한다. 너무 짧으면 숨긴다.
+function setArrow(arrow, origin, v, k, show) {
+  const len = Math.hypot(v.x, v.y, v.z) * k;
+  arrow.visible = show && len >= DEBUG_ARROW.MIN_LENGTH;
+  if (!arrow.visible) return;
+  arrow.position.copy(origin);
+  arrow.setDirection(toThree(v).normalize());
+  arrow.setLength(Math.max(len, DEBUG_ARROW.HEAD_LENGTH * 1.5), DEBUG_ARROW.HEAD_LENGTH, DEBUG_ARROW.HEAD_WIDTH);
+}
+
+// 공 + 속도(초록)·회전(분홍, 오른손 법칙 축) 디버그 화살표
+export function createBallView(scene) {
+  const geo = new THREE.SphereGeometry(BALL.RADIUS, RENDER.BALL_SEGMENTS, RENDER.BALL_SEGMENTS / 2);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: makeBallTexture(), roughness: 0.45 }));
+  mesh.castShadow = true;
+  scene.add(mesh);
+  const velArrow = makeArrow(DEBUG_ARROW.COLOR_VEL);
+  const spinArrow = makeArrow(DEBUG_ARROW.COLOR_SPIN);
+  scene.add(velArrow, spinArrow);
+  const q = new THREE.Quaternion();
+  let showArrows = true;
+
+  // pos: 화면에 그릴(보간된) 위치, frameDt: 화면 프레임 시간 → 공 무늬를 ω만큼 돌린다
+  function update(pos, vel, spin, frameDt) {
+    mesh.position.copy(toThree(pos));
+    const w = Math.hypot(spin.x, spin.y, spin.z);
+    if (w > 0) {
+      // 좌표 변환 (x, y, z) → (x, z, −y)은 회전(행렬식 +1)이므로 각속도 벡터도 같은 식으로 바뀐다
+      q.setFromAxisAngle(toThree(spin).normalize(), w * frameDt);
+      mesh.quaternion.premultiply(q);
+    }
+    setArrow(velArrow, mesh.position, vel, DEBUG_ARROW.VEL_SCALE, showArrows);
+    setArrow(spinArrow, mesh.position, spin, DEBUG_ARROW.SPIN_SCALE, showArrows);
+  }
+
+  return {
+    mesh,
+    update,
+    setArrowsVisible(v) { showArrows = v; },
+    get arrowsVisible() { return showArrows; },
+  };
 }
 
 // 장면을 만들고 그리기 함수들을 돌려준다.

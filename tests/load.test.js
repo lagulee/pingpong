@@ -93,3 +93,24 @@ test('worker.js가 Room을 내보내고 요청을 정적 자산으로 넘긴다'
   assert.equal(seen, req);
   assert.equal(await res.text(), 'ok');
 });
+
+test('debug.js 순수 함수: 바뀐 TUNABLE만 고르고, 발사기 입력을 물리 인자로 바꾼다', async () => {
+  // debug.js는 'three'를 import하지 않으므로 Node에서 불러올 수 있다 (DOM은 initDebug 호출 시에만 사용).
+  const { changedTunables, launchParams } = await import(pathToFileURL(join(ROOT, 'public/js/debug.js')).href);
+  const { TUNABLE_DEFAULTS, TUNABLE_RANGES, LAUNCHER } = await import(pathToFileURL(join(ROOT, 'public/shared/constants.js')).href);
+  assert.deepEqual(changedTunables({ ...TUNABLE_DEFAULTS }, TUNABLE_DEFAULTS), {});
+  assert.deepEqual(changedTunables({ ...TUNABLE_DEFAULTS, K_M: 0.007 }, TUNABLE_DEFAULTS), { K_M: 0.007 });
+  // 모든 TUNABLE에 슬라이더 범위가 있고 기본값이 범위 안에 있다
+  for (const [k, v] of Object.entries(TUNABLE_DEFAULTS)) {
+    const r = TUNABLE_RANGES[k];
+    assert.ok(r && v >= r.min && v <= r.max, `${k} 범위`);
+  }
+  for (const [k, v] of Object.entries(LAUNCHER.DEFAULTS)) {
+    const r = LAUNCHER.RANGES[k];
+    assert.ok(r && v >= r.min && v <= r.max, `발사기 ${k} 범위`);
+  }
+  const p = launchParams(LAUNCHER.PRESETS.topspin);
+  assert.equal(p.pos.y, LAUNCHER.START_Y);
+  assert.equal(p.pos.z, LAUNCHER.PRESETS.topspin.height);
+  assert.equal(p.topspin, LAUNCHER.PRESETS.topspin.topspin);
+});
