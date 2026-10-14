@@ -4,10 +4,13 @@
 // 이 파일은 'three'·DOM을 쓰지 않는다 (Node의 자동 랠리 테스트가 그대로 불러 쓴다).
 import {
   step, predictPath, positionAt, solveAim, ballToLocal, ballToWorld, toWorld, toLocal, createBall, vec,
-  makeToss, tossTimeAt, makeLaunch, serveLanding, inPlayFor,
+  tossTimeAt, makeLaunch, serveLanding,
 } from '../shared/physics.js';
 import { NET, TABLE, PHYSICS, SWING, PRACTICE, SERVE, RULES, SCENARIO, TUNABLE, SERVE_GUIDE } from '../shared/constants.js';
-import { createRules, applyEvent, canHit, bouncedOn, startRally, toServe } from '../shared/rules.js';
+import { applyEvent, canHit, startRally, toServe } from '../shared/rules.js';
+import {
+  createMatch, holdBall, startToss, applyHit, stepBall, stepGame, isServeHit, isEarly,
+} from '../shared/match.js';
 import { classifyShot, checkHit, racketLocal, pruneSamples } from './input.js';
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -224,46 +227,25 @@ export function aiUpdate(ai, ball, t, dt, params = TUNABLE) {
 }
 
 // ── 경기 진행 (연습 모드·자동 경기 테스트 공용) ─────────────────
-// 규칙 판정은 rules.js 상태 기계(game.rules)가 한다. 이 부분은 서브 토스, 타격, 물리 진행,
-// 득점 뒤 대기, 시간 초과를 맡는다. 득점 결과는 game.results에 차례로 쌓인다.
+// 경기 흐름(서브 대기·토스·타격 적용·물리·규칙·다음 서브)은 shared/match.js(서버와 공용)가 맡고,
+// 여기서는 그 위에 로봇·사람 플레이어(타격 판정), 연습 공, 디버그 규칙 시험을 얹는다.
 // players: { [-1]: player, [1]: player }, ais: 로봇 목록, rng: 판정 오차·연습 공 난수
-export function createRally({ players, ais = [], rng, firstServer = -1, bestOf = RULES.BEST_OF }) {
+// local: 이 컴퓨터에서 타격을 판정하는 쪽 (연습: 양쪽, 대전: 내 쪽만)
+export function createRally({ players, ais = [], rng, firstServer = -1, bestOf = RULES.BEST_OF, local = [-1, 1] }) {
   for (const ai of ais) ai.player.robot = true;
   return {
-    ball: createBall({ pos: vec(0, 0, 1) }),
-    players, ais, rng,
-    rules: createRules({ firstServer, bestOf }),
-    results: [],             // 득점·렛 결과 기록 (rules.js의 result)
+    ...createMatch({ firstServer, bestOf }),
+    players, ais, rng, local,
     lastShot: null,
-    lastHitT: 0,             // 마지막 타격(토스) 시각: 시간 초과 판정용
-    holding: false,          // 서브 대기 중 서브권자가 공을 들고 있음 (물리 정지)
     tossAt: null,            // 로봇이 토스할 시각
-    nextAt: null,            // 득점 표시가 끝나고 다음 서브로 넘어갈 시각
-    practice: null,          // 연습 공·디버그 공: 점수를 바꾸지 않고, 끝나면 이 상태(서브 대기)로 돌아간다
-    free: false,             // 디버그 떨어뜨리기: 규칙·타격 없이 물리만
     scenario: null,          // 디버그 규칙 시험 대기 { kind, at }
   };
 }
 
-// 규칙에 이벤트 1개를 넣는다. 결과가 나오면 기록하고 다음 서브 시각을 정한다.
-function rule(game, e, t, params = TUNABLE) {
-  const r = applyEvent(game.rules, e);
-  game.rules = r.state;
-  if (r.result) {
-    game.results.push({ ...r.result, t, practice: !!game.practice });
-    game.nextAt = t + PRACTICE.POINT_DELAY;
-  }
-  return r.result;
-}
-
-// 서브권자가 자기 토스 위치에서 공을 들고 기다린다
-export function holdServe(game, t, params = TUNABLE) {
+// 서브 대기를 새로 시작할 때: 플레이어 라켓 평면을 서브 자리로, 로봇 서브권자는 토스 시각을 잡는다
+function onHold(game, t) {
   const server = game.rules.server;
-  game.ball = createBall({ pos: toWorld(vec(0, SERVE.TOSS_Y, SERVE.TOSS_Z), server), t });
-  game.holding = true;
-  game.free = false;
   game.scenario = null;
-  game.nextAt = null;
   game.tossAt = null;
   for (const side of [-1, 1]) {
     const p = game.players[side];
@@ -278,14 +260,16 @@ export function holdServe(game, t, params = TUNABLE) {
   }
 }
 
+// 서브권자가 자기 토스 위치에서 공을 들고 기다린다
+export function holdServe(game, t, params = TUNABLE) {
+  holdBall(game, t);
+  onHold(game, t);
+}
+
 // side가 기준 좌표 x에서 공을 띄운다 (서브 대기 중 서브권자만). 성공하면 true
 export function tossBall(game, side, x, t, params = TUNABLE) {
-  if (game.free || game.scenario || game.rules.phase !== 'waitingServe' || game.rules.server !== side) return false;
-  rule(game, { type: 'toss', side }, t, params);
-  game.ball = ballToWorld(makeToss(x, t), side);
-  game.holding = false;
+  if (game.scenario || !startToss(game, side, x, t)) return false;
   game.tossAt = null;
-  game.lastHitT = t;
   const p = game.players[side];
   p.yPlane = SERVE.TOSS_Y;
   p.apexT = tossTimeAt(game.ball, SERVE.HIT_Z, params); // 이 높이에서 치면 PERFECT
@@ -339,92 +323,83 @@ export function endFree(game, t, params = TUNABLE) {
   holdServe(game, t, params);
 }
 
-function incoming(game, side, t, params) {
+export function incoming(game, side, t, params = TUNABLE) {
   predictFor(game.players[side], game.ball, params);
   for (const ai of game.ais) if (ai.player.side === side) aiOnIncoming(ai, t, params);
 }
 
-// 고정 스텝 하나: 로봇 → 타격 판정 → 물리 → 규칙. 반환: 물리·타격 이벤트 목록
-// (racket 이벤트에는 shot 판정 결과가 붙는다). 득점 결과는 game.results에 쌓인다.
-export function stepRally(game, dt = PHYSICS.DT, params = TUNABLE) {
+// 로봇 갱신 → 타격 판정(이 컴퓨터가 맡은 쪽만) → applyHit. 만든 racket 이벤트에는 shot 판정 결과가 붙는다.
+function hitPhase(game, t, dt, events, params) {
   const ball = game.ball;
-  const t = ball.t;
   for (const ai of game.ais) aiUpdate(ai, ball, t, dt, params);
-  const events = [];
   const rules = game.rules;
   const live = !game.free && (rules.phase === 'serving' || rules.phase === 'rally');
 
-  for (const side of live ? [-1, 1] : []) {
+  for (const side of live ? game.local : []) {
     if (!canHit(rules, side)) continue;
     const p = game.players[side];
-    const serveHit = rules.phase === 'serving' && rules.lastHitter === 0;
+    const serveHit = isServeHit(rules);
     const kind = checkHit(p, ball, t, dt, params, serveHit ? params.SERVE_HIT_RADIUS : params.HIT_RADIUS);
     if (!kind) continue;
     // 자기 쪽에 바운드하기 전 공: 일부러 휘두르거나 막은 경우만 맞는다(발리 → 실점).
     // 버튼 없이 라켓이 놓여 있던 경우와 로봇은 치지 않는다.
-    const early = !serveHit && !bouncedOn(rules, side);
-    if (early && (kind === 'weak' || p.robot)) continue;
-    // 바운드 전 공: 코트 밖으로 나가던 공이면 쳐도 발리가 아니라 상대의 아웃 (rules.js가 판정)
-    const outside = early && !inPlayFor(ball, side, params);
+    if (isEarly(rules, side) && (kind === 'weak' || p.robot)) continue;
     const shot = classifyShot(p.samples, ball, {
       t, side, apexT: p.apexT, rng: game.rng, params, pressed: kind !== 'weak', serve: serveHit,
     });
-    ball.vel = shot.vel;
-    ball.spin = shot.spin;
-    const speed = Math.hypot(shot.vel.x, shot.vel.y, shot.vel.z);
     p.lastShot = shot;
     game.lastShot = { side, ...shot };
-    const e = { type: 'racket', t, pos: { ...ball.pos }, speed, side, racket: side, shot };
-    if (outside) e.outside = true;
-    events.push(e);
-    game.lastHitT = t;
-    rule(game, e, t, params);
+    // 바운드 전 공이 코트 밖으로 나가던 공이면 applyHit가 outside를 붙인다 (쳐도 발리가 아니라 상대의 아웃)
+    events.push(applyHit(game, side, { vel: shot.vel, spin: shot.spin, shot }, params));
     incoming(game, -side, t, params);
     break;
   }
+}
 
-  for (const e of step(ball, dt, { params })) {
-    events.push(e);
-    if (!game.free) rule(game, e, e.t, params);
-  }
-  const ph = game.rules.phase;
-  if (!game.free && (ph === 'serving' || ph === 'rally') && ball.t - game.lastHitT > PRACTICE.RALLY_TIMEOUT) {
-    rule(game, { type: 'timeout' }, ball.t, params);
-  }
-  return events;
+// 연습 모드의 경기 흐름 훅 (shared/match.js의 stepGame에 넘긴다)
+function practiceHooks(params) {
+  return {
+    onHold,
+    idle(game, t, dt) {
+      for (const ai of game.ais) aiUpdate(ai, game.ball, t, dt, params);
+    },
+    afterIdle(game, t) {
+      if (game.tossAt !== null && t >= game.tossAt) {
+        const ai = game.ais.find((a) => a.player.side === game.rules.server);
+        tossBall(game, ai.player.side, uniform(game.rng, -PRACTICE.FEED_X_RANGE, PRACTICE.FEED_X_RANGE), game.ball.t, params);
+      }
+    },
+    nextServe(game) {
+      if (!game.practice) return false;
+      game.rules = game.practice; // 연습 공은 점수에 넣지 않는다
+      game.practice = null;
+      return true;
+    },
+    beforeStep(game, t, dt, events) {
+      hitPhase(game, t, dt, events, params);
+    },
+  };
+}
+
+// 고정 스텝 하나(서브·랠리 중): 로봇 → 타격 판정 → 물리 → 규칙. 반환: 물리·타격 이벤트 목록
+// 득점 결과는 game.results에 쌓인다.
+export function stepRally(game, dt = PHYSICS.DT, params = TUNABLE) {
+  const events = [];
+  hitPhase(game, game.ball.t, dt, events, params);
+  return stepBall(game, dt, params, events);
 }
 
 // 경기 흐름 한 스텝: 서브 대기(로봇 토스) → 서브·랠리 → 득점 표시 → 다음 서브 … → 게임 끝
 // 반환: 이번 스텝의 물리·타격 이벤트
 export function stepMatch(game, dt = PHYSICS.DT, params = TUNABLE) {
-  const t = game.ball.t;
   if (game.scenario) {
+    const t = game.ball.t;
     for (const ai of game.ais) aiUpdate(ai, game.ball, t, dt, params);
     game.ball.t += dt;
     if (t >= game.scenario.at) runScenario(game, game.scenario.kind, game.ball.t, params);
     return [];
   }
-  const ph = game.rules.phase;
-  if (!game.free && ph === 'waitingServe') {
-    if (!game.holding) holdServe(game, t, params);
-    for (const ai of game.ais) aiUpdate(ai, game.ball, t, dt, params);
-    game.ball.t += dt; // 공은 손에 들려 있다
-    if (game.tossAt !== null && t >= game.tossAt) {
-      const ai = game.ais.find((a) => a.player.side === game.rules.server);
-      tossBall(game, ai.player.side, uniform(game.rng, -PRACTICE.FEED_X_RANGE, PRACTICE.FEED_X_RANGE), game.ball.t, params);
-    }
-    return [];
-  }
-  if (!game.free && ph === 'pointOver' && game.nextAt !== null && t >= game.nextAt) {
-    if (game.practice) {
-      game.rules = game.practice; // 연습 공은 점수에 넣지 않는다
-      game.practice = null;
-    } else rule(game, { type: 'next' }, t, params);
-    holdServe(game, t, params);
-    game.ball.t += dt;
-    return [];
-  }
-  return stepRally(game, dt, params);
+  return stepGame(game, dt, params, practiceHooks(params));
 }
 
 // ── 규칙 시험 (디버그 패널) ──────────────────────────────────
