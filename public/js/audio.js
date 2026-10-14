@@ -55,6 +55,7 @@ export function createAudio(p = TUNABLE) {
   let crowdGain = null, crowdTarget = 0;
   let volume = SOUND.MASTER, muted = false;
   let heartOn = false, nextBeat = 0;
+  let paused = false;
 
   function makeNoise() {
     const n = Math.floor(ctx.sampleRate * SOUND.NOISE_SECONDS);
@@ -164,8 +165,15 @@ export function createAudio(p = TUNABLE) {
         master.connect(out);
         setupCrowd();
       }
-      if (ctx.state === 'suspended') ctx.resume();
+      if (ctx.state === 'suspended' && !paused) ctx.resume();
       return true;
+    },
+    // 일시정지: 오디오 시계를 멈춘다 (관중·심장 박동 예약도 함께 멈춤)
+    setPaused(v) {
+      paused = v;
+      if (!ctx) return;
+      if (v && ctx.state === 'running') ctx.suspend();
+      else if (!v && ctx.state === 'suspended') ctx.resume();
     },
     setVolume(v) { volume = v; applyVolume(); },
     setMuted(m) { muted = m; applyVolume(); },

@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   shakeAmplitude, createShake, createViewClock, hitstopSeconds, createBallHistory, spinKind, popupsFor,
-  createDisplayQueue, reactTo, slowmoFor, createFx,
+  createDisplayQueue, reactTo, slowmoFor, createFx, frameSteps,
 } from '../public/js/effects.js';
 import { impactParams, speedLevel, crowdLevel, beatInterval, recipeFor, describeParams } from '../public/js/audio.js';
 import { changedTunables, tunableLabel } from '../public/js/debug.js';
@@ -349,4 +349,42 @@ test('effects.js·audio.js는 three 없이 Node에서 불러와진다 (순수 �
   await assert.doesNotReject(import('../public/js/effects.js'));
   await assert.doesNotReject(import('../public/js/audio.js'));
   assert.equal(typeof toWorld, 'function');
+});
+
+test('일시정지: 멈춘 동안 물리 스텝이 0이고, 다시 시작해도 밀린 시간이 한꺼번에 흐르지 않는다', () => {
+  const DT = 1 / 240;
+  // 평소: 1/60 s 프레임마다 4스텝, 누적기 나머지 보존
+  let r = frameSteps(0, 1 / 60, false, DT, 24);
+  assert.equal(r.steps, 4);
+  r = frameSteps(DT / 2, DT, false, DT, 24);
+  assert.equal(r.steps, 1);
+  assert.ok(Math.abs(r.acc - DT / 2) < 1e-12);
+  // 일시정지: 몇 초가 흘러도 0스텝, 누적기는 비운다
+  for (const el of [1 / 60, 5, 120]) assert.deepEqual(frameSteps(DT * 0.9, el, true, DT, 24), { steps: 0, acc: 0 });
+  // 다시 시작한 첫 프레임은 평소와 같다
+  assert.equal(frameSteps(0, 1 / 60, false, DT, 24).steps, 4);
+  // 너무 밀린 시간(탭 전환)은 상한까지만 밟고 버린다
+  assert.deepEqual(frameSteps(0, 3, false, DT, 24), { steps: 24, acc: 0 });
+});
+
+test('일시정지: 멈춘 프레임을 건너뛴 AI 경기는 멈추지 않은 경기와 같은 결과다 (게임 상태가 멈춰 있음)', () => {
+  const run = (pauseEvery) => {
+    const a = createAI(-1, 'NORMAL', createRng(11)), b = createAI(1, 'NORMAL', createRng(12));
+    const game = createRally({ players: { [-1]: a.player, [1]: b.player }, ais: [a, b], rng: createRng(13) });
+    let acc = 0;
+    for (let f = 0; f < 60 * 20; f++) {
+      const paused = pauseEvery > 0 && f % pauseEvery < pauseEvery / 2;
+      const r = frameSteps(acc, 1 / 60, paused);
+      acc = r.acc;
+      for (let i = 0; i < r.steps; i++) stepMatch(game);
+    }
+    return game;
+  };
+  const plain = run(0);
+  const withPause = run(10);
+  assert.ok(withPause.ball.t < plain.ball.t, '멈춘 동안 시간이 흐르지 않음');
+  // 멈춘 만큼 덜 진행했을 뿐, 같은 시각까지의 기록은 같다
+  const until = withPause.ball.t;
+  const pick = (g) => g.results.filter((x) => x.t <= until - 1e-9).map((x) => [x.reason, x.winner, x.t]);
+  assert.deepEqual(pick(withPause), pick(plain));
 });

@@ -6,7 +6,7 @@ import {
   step, predictPath, positionAt, solveAim, ballToLocal, ballToWorld, toWorld, toLocal, createBall, vec,
   makeToss, tossTimeAt, makeLaunch, serveLanding,
 } from '../shared/physics.js';
-import { NET, TABLE, PHYSICS, SWING, PRACTICE, SERVE, RULES, SCENARIO, TUNABLE } from '../shared/constants.js';
+import { NET, TABLE, PHYSICS, SWING, PRACTICE, SERVE, RULES, SCENARIO, TUNABLE, SERVE_GUIDE } from '../shared/constants.js';
 import { createRules, applyEvent, canHit, bouncedOn, startRally, toServe } from '../shared/rules.js';
 import { classifyShot, checkHit, racketLocal, pruneSamples } from './input.js';
 
@@ -357,11 +357,11 @@ export function stepRally(game, dt = PHYSICS.DT, params = TUNABLE) {
   for (const side of live ? [-1, 1] : []) {
     if (!canHit(rules, side)) continue;
     const p = game.players[side];
-    const kind = checkHit(p, ball, t, dt, params);
+    const serveHit = rules.phase === 'serving' && rules.lastHitter === 0;
+    const kind = checkHit(p, ball, t, dt, params, serveHit ? params.SERVE_HIT_RADIUS : params.HIT_RADIUS);
     if (!kind) continue;
     // 자기 쪽에 바운드하기 전 공: 일부러 휘두르거나 막은 경우만 맞는다(발리 → 실점).
     // 버튼 없이 라켓이 놓여 있던 경우와 로봇은 치지 않는다.
-    const serveHit = rules.phase === 'serving' && rules.lastHitter === 0;
     if (!serveHit && !bouncedOn(rules, side) && (kind === 'weak' || p.robot)) continue;
     const shot = classifyShot(p.samples, ball, {
       t, side, apexT: p.apexT, rng: game.rng, params, pressed: kind !== 'weak', serve: serveHit,
@@ -503,6 +503,39 @@ function runScenario(game, kind, t, params) {
     p.apexT = cross.t;
     p.yPlane = SWING.HOME_Y;
   }
+}
+
+// ── 서브 가이드라인 ─────────────────────────────────────────
+// side가 기준 좌표 x에서 토스해 타점 높이(SERVE.HIT_Z)에서 PERFECT 타이밍으로 위로 휘두른
+// 보통 세기(SERVE_GUIDE.STRENGTH) 드라이브 서브의 예상 궤적. 실제 서브와 같은 classifyShot 경로를 쓴다.
+// 반환: { hit, points, bounces } (모두 세계 좌표. bounces = [내 코트 첫 바운드, 상대 코트 착지]) 또는 null
+export function serveGuide(side, x, params = TUNABLE) {
+  const cx = clamp(x, -SERVE.TOSS_X_MAX, SERVE.TOSS_X_MAX);
+  const hit = vec(cx, SERVE.TOSS_Y, SERVE.HIT_Z);
+  const speed = params.BLOCK_SPEED + SERVE_GUIDE.STRENGTH * (params.SPEED_FULL - params.BLOCK_SPEED);
+  const T = SERVE_GUIDE.SWING_TIME;
+  const samples = [];
+  for (let k = 0; k * SWING.AI_SAMPLE_DT <= T + 1e-9; k++) {
+    const tau = k * SWING.AI_SAMPLE_DT;
+    samples.push({ t: tau - T, x: cx, y: hit.z - speed * (T - tau), b: true }); // 아래 → 위 일정 속도
+  }
+  const ball = ballToWorld(createBall({ pos: hit, vel: vec(0, 0, -1), t: 0 }), side);
+  const shot = classifyShot(samples, ball, { t: 0, side, apexT: 0, params, serve: true, rng: () => 0.5 });
+  const b = createBall({ pos: ball.pos, vel: shot.vel, spin: shot.spin, t: 0 });
+  const points = [{ ...b.pos }], bounces = [];
+  const n = Math.round(SERVE_GUIDE.MAX_T / PHYSICS.DT);
+  for (let i = 1; i <= n && bounces.length < 2; i++) {
+    const ev = step(b, PHYSICS.DT, { params });
+    if (i % SERVE_GUIDE.POINT_STEP === 0) points.push({ ...b.pos });
+    for (const e of ev) {
+      if (e.type === 'bounce' || e.type === 'edge') bounces.push({ ...e.pos });
+      else return null; // 네트·바닥: 가이드로 보여 줄 수 없는 서브
+    }
+  }
+  if (bounces.length < 2) return null;
+  points.push({ ...b.pos });
+  const own = toLocal(bounces[0], side).y < 0, there = toLocal(bounces[1], side).y > 0;
+  return own && there ? { hit: toWorld(hit, side), points, bounces, shotType: shot.shotType } : null;
 }
 
 // 점수판에 보여 줄 규칙 상태: 연습 공 중에는 연습 전 상태(점수가 바뀌지 않음)

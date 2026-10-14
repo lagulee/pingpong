@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v4.0';
+export const VERSION = 'v4.1';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -79,16 +79,17 @@ const JUDGE_TUNABLE = {
   SMASH_MIN_HEIGHT: 0.20,    // 스매시 가능 높이: 공 중심이 네트 위 이만큼 이상 (m)
   DIR_SIN: 0.5,              // sinθ가 이보다 크면 위쪽, −이보다 작으면 아래쪽 드래그
   CURVE_MIN: 0.18,           // 곡률(현에서 벗어난 최대 거리 / 현 길이)이 이 이상이면 사이드스핀
-  HIT_RADIUS: 0.15,          // 라켓 중심에서 좌우·높이 도달 범위 (m)
+  HIT_RADIUS: 0.18,          // 라켓 중심에서 좌우·높이 도달 범위 (m)
+  SERVE_HIT_RADIUS: 0.24,    // 서브(토스한 공)를 칠 때의 도달 범위 (m). 랠리보다 넓게 해 헛스윙을 줄인다
   REACH_Y: 0.30,             // 라켓 평면에서 앞뒤 도달 범위 (m)
-  PERFECT_WINDOW: 0.04,      // |타격 − 정점| 이내면 PERFECT (s)
-  GOOD_WINDOW: 0.10,
-  OK_WINDOW: 0.18,
+  PERFECT_WINDOW: 0.05,      // |타격 − 정점| 이내면 PERFECT (s)
+  GOOD_WINDOW: 0.13,
+  OK_WINDOW: 0.24,
   ACC_PERFECT: 1.0,          // 판정별 정확도
   ACC_GOOD: 0.75,
   ACC_OK: 0.5,
   ACC_BAD: 0.25,
-  ERR_YAW: 10,               // 정확도 0일 때 좌우 방향 최대 무작위 오차 (°)
+  ERR_YAW: 7,                // 정확도 0일 때 좌우 방향 최대 무작위 오차 (°)
   ERR_BIAS: 3,               // 이르거나 늦을 때 한쪽으로 치우치는 오차 (°)
   ERR_PITCH: 3,              // 위아래 최대 오차 (°)
   ERR_SPEED: 0.08,           // 속도 최대 오차 비율
@@ -108,29 +109,31 @@ const JUDGE_TUNABLE = {
 // LAMBDA_TOP / LAMBDA_BACK: 들어온 공이 탑스핀 / 백스핀일 때 그 회전 효과가 남는 비율(0 = 완벽히 대응, 1 = 그대로).
 //   예) 백스핀 공을 블록(BLOCK_LAMBDA_BACK = 1) → 아래로 떨어져 네트, 탑스핀 공을 커트(CUT_LAMBDA_TOP 큼) → 뜬다.
 const SHOT_TUNABLE = {
-  DRIVE_V_MIN: 6, DRIVE_V_MAX: 10, DRIVE_SPIN_MIN: 30, DRIVE_SPIN_MAX: 80,
+  DRIVE_V_MIN: 5, DRIVE_V_MAX: 8.5, DRIVE_SPIN_MIN: 30, DRIVE_SPIN_MAX: 80,
   DRIVE_DEPTH: 0.85, DRIVE_PITCH: -25, DRIVE_LAMBDA_TOP: 0.1, DRIVE_LAMBDA_BACK: 0.3,
-  SMASH_V_MIN: 12, SMASH_V_MAX: 18, SMASH_SPIN_MIN: 5, SMASH_SPIN_MAX: 15,
+  SMASH_V_MIN: 10, SMASH_V_MAX: 15, SMASH_SPIN_MIN: 5, SMASH_SPIN_MAX: 15,
   SMASH_DEPTH: 0.95, SMASH_PITCH: -15, SMASH_LAMBDA_TOP: 0.05, SMASH_LAMBDA_BACK: 0.3,
-  CUT_V_MIN: 5, CUT_V_MAX: 7, CUT_SPIN_MIN: 15, CUT_SPIN_MAX: 40,     // 백스핀 (rps)
+  CUT_V_MIN: 4.5, CUT_V_MAX: 6, CUT_SPIN_MIN: 15, CUT_SPIN_MAX: 40,     // 백스핀 (rps)
   CUT_DEPTH: 0.6, CUT_PITCH: 40, CUT_LAMBDA_TOP: 0.8, CUT_LAMBDA_BACK: 0.1,
-  SIDE_V_MIN: 6, SIDE_V_MAX: 9, SIDE_SPIN_MIN: 30, SIDE_SPIN_MAX: 60, // 횡회전 (rps)
+  SIDE_V_MIN: 5, SIDE_V_MAX: 7.5, SIDE_SPIN_MIN: 30, SIDE_SPIN_MAX: 60, // 횡회전 (rps)
   SIDE_TOP_MIN: 10, SIDE_TOP_MAX: 20, SIDE_DEPTH: 0.8, SIDE_PITCH: -10, SIDE_LAMBDA_TOP: 0.2, SIDE_LAMBDA_BACK: 0.4,
   BLOCK_DEPTH: 0.75, BLOCK_LAMBDA_TOP: 0.1, BLOCK_LAMBDA_BACK: 1.0,
   // 서브: 속도는 세기로 보간, 회전은 판정된 구질(드라이브 = 탑, 커트 = 백, 사이드 = 횡)의 범위를 쓴다
-  SERVE_V_MIN: 4, SERVE_V_MAX: 7, SERVE_DEPTH: 0.9, SERVE_SPIN_SCALE: 0.6,
+  SERVE_V_MIN: 3.5, SERVE_V_MAX: 5.5, SERVE_DEPTH: 0.9, SERVE_SPIN_SCALE: 0.45,
+  SERVE_ASSIST_V: 7.5,       // 서브 속도 보조 상한: 고른 속도로 들어가는 서브가 없으면 이 속도까지 올려 본다 (m/s)
+  SERVE_ERR_SCALE: 0.3,      // 서브 방향·속도 오차 배율 (1 = 랠리와 같음). 작을수록 타이밍이 어긋나도 잘 들어간다
 };
 
 // AI 로봇 난이도별 수치 (EASY 쉬움 / NORMAL 보통 / HARD 어려움)
 // DELAY 반응 지연(s), MOVE 라켓 이동 최대 속도(m/s), TIMING 타이밍 오차 범위 ±(s),
 // S_MIN·S_MAX 세기 범위, AIM_X 목표 x 범위 ±(m), JITTER 샘플 떨림(m), W_* 구질 선택 비율
 const AI_TUNABLE = {
-  AI_EASY_DELAY: 0.35, AI_EASY_MOVE: 1.5, AI_EASY_TIMING: 0.09, AI_EASY_S_MIN: 0.3, AI_EASY_S_MAX: 0.5,
-  AI_EASY_AIM_X: 0.2, AI_EASY_JITTER: 0.003,
+  AI_EASY_DELAY: 0.35, AI_EASY_MOVE: 1.5, AI_EASY_TIMING: 0.09, AI_EASY_S_MIN: 0.2, AI_EASY_S_MAX: 0.4,
+  AI_EASY_AIM_X: 0.15, AI_EASY_JITTER: 0.003,
   AI_EASY_W_DRIVE: 70, AI_EASY_W_BLOCK: 30, AI_EASY_W_CUT: 0, AI_EASY_W_SIDE: 0, AI_EASY_W_SMASH: 0,
-  AI_NORMAL_DELAY: 0.22, AI_NORMAL_MOVE: 2.5, AI_NORMAL_TIMING: 0.05, AI_NORMAL_S_MIN: 0.4, AI_NORMAL_S_MAX: 0.7,
-  AI_NORMAL_AIM_X: 0.4, AI_NORMAL_JITTER: 0.002,
-  AI_NORMAL_W_DRIVE: 50, AI_NORMAL_W_BLOCK: 15, AI_NORMAL_W_CUT: 20, AI_NORMAL_W_SIDE: 15, AI_NORMAL_W_SMASH: 0,
+  AI_NORMAL_DELAY: 0.22, AI_NORMAL_MOVE: 2.5, AI_NORMAL_TIMING: 0.05, AI_NORMAL_S_MIN: 0.3, AI_NORMAL_S_MAX: 0.55,
+  AI_NORMAL_AIM_X: 0.3, AI_NORMAL_JITTER: 0.002,
+  AI_NORMAL_W_DRIVE: 60, AI_NORMAL_W_BLOCK: 15, AI_NORMAL_W_CUT: 15, AI_NORMAL_W_SIDE: 10, AI_NORMAL_W_SMASH: 0,
   AI_HARD_DELAY: 0.12, AI_HARD_MOVE: 4.0, AI_HARD_TIMING: 0.02, AI_HARD_S_MIN: 0.5, AI_HARD_S_MAX: 1.0,
   AI_HARD_AIM_X: 0.6, AI_HARD_JITTER: 0.001,
   AI_HARD_W_DRIVE: 40, AI_HARD_W_BLOCK: 10, AI_HARD_W_CUT: 15, AI_HARD_W_SIDE: 20, AI_HARD_W_SMASH: 15,
@@ -154,6 +157,7 @@ const FEEL_TUNABLE = {
   CROWD_RALLY_FULL: 8,                       // 함성 = 1 − e^(−랠리 수/이 값)
   SND_HEART: 1, HEART_BPM: 96, HEART_GAIN: 0.7, // 매치포인트 심장 박동
   SND_JINGLE: 1,                             // 득점·게임 종료 효과음
+  FX_SERVE_GUIDE: 1,                         // 내 서브 가이드라인 (예상 궤적 점선·바운드 지점·타점 고리)
 };
 
 export const TUNABLE_DEFAULTS = Object.freeze({
@@ -162,7 +166,7 @@ export const TUNABLE_DEFAULTS = Object.freeze({
 
 // 디버그 패널에서 슬라이더 대신 체크박스로 보이는 켜기/끄기 키
 export const TUNABLE_TOGGLES = Object.freeze([
-  'FX_HITSTOP', 'FX_SHAKE', 'FX_TRAIL', 'FX_POPUP', 'FX_SLOWMO', 'SND_CROWD', 'SND_HEART', 'SND_JINGLE',
+  'FX_HITSTOP', 'FX_SHAKE', 'FX_TRAIL', 'FX_POPUP', 'FX_SLOWMO', 'SND_CROWD', 'SND_HEART', 'SND_JINGLE', 'FX_SERVE_GUIDE',
 ]);
 
 // 디버그 패널 묶음 이름 → 키 목록
@@ -212,6 +216,7 @@ export const TUNABLE_RANGES = Object.freeze({
   DIR_SIN: r(0, 1, 0.01),
   CURVE_MIN: r(0, 0.5, 0.005),
   HIT_RADIUS: r(0.05, 0.4, 0.005),
+  SERVE_HIT_RADIUS: r(0.05, 0.5, 0.005),
   REACH_Y: r(0.05, 0.8, 0.01),
   PERFECT_WINDOW: r(0, 0.2, 0.005),
   GOOD_WINDOW: r(0, 0.3, 0.005),
@@ -246,6 +251,8 @@ export const TUNABLE_RANGES = Object.freeze({
   SERVE_V_MAX: r(0, 15, 0.1),
   SERVE_DEPTH: r(0.2, 1.37, 0.01),
   SERVE_SPIN_SCALE: r(0, 1.5, 0.01),
+  SERVE_ASSIST_V: r(0, 15, 0.1),
+  SERVE_ERR_SCALE: r(0, 1, 0.01),
   ...aiRanges('EASY'),
   ...aiRanges('NORMAL'),
   ...aiRanges('HARD'),
@@ -306,6 +313,7 @@ export const SWING = Object.freeze({
   AI_SWING_TIME: 0.12,       // 로봇 스윙(가상 드래그) 시간 (s)
   AI_FOLLOW_TIME: 0.1,       // 타격 뒤 팔로스루 (s)
   AI_SAMPLE_DT: 1 / 120,     // 로봇 가상 마우스 샘플 간격 (s)
+  SERVE_ASSIST_STEP: 0.5,    // 서브 속도 보조 간격 (m/s)
   AI_SIDE_CURVE: 0.3,        // 로봇 사이드스핀 스윙 곡률
   AI_RETURN_SPEED: 1.0,      // 로봇이 대기 위치로 돌아가는 속도 (m/s)
   AI_BLOCK_LEAD: 0.15,       // 블록할 때 미리 버튼을 누르는 시간 (s)
@@ -342,13 +350,34 @@ export const SERVE = Object.freeze({
   TOSS_Y: -1.55,             // 엔드라인(−1.37) 뒤에서 토스한다 (m)
   TOSS_Z: 0.10,              // 토스를 시작하는 손 높이 (탁구대 윗면 기준, m)
   TOSS_X_MAX: 0.6,           // 토스 좌우 위치 한계 (m)
-  TOSS_SPEED: 3.0,           // 위로 띄우는 속도 (m/s) → 약 44 cm 올라가고, 토스 뒤 약 0.55 s에 타점 높이로 내려온다
-  HIT_Z: 0.25,               // 떨어지는 공을 이 높이에서 치는 것을 기준(정점 대비 타이밍)으로 한다 (m)
+  TOSS_SPEED: 3.0,           // 위로 띄우는 속도 (m/s) → 약 44 cm 올라가고, 토스 뒤 약 0.54 s에 타점 높이(HIT_Z)로 내려온다
+  HIT_Z: 0.30,               // 떨어지는 공을 이 높이에서 치는 것을 기준(정점 대비 타이밍)으로 한다 (m). 늦게 쳐도 들어갈 여유를 두려고 높게
   PITCH_MIN: -55,            // 서브 발사각 탐색 범위 (°)
   PITCH_MAX: 20,
   PITCH_STEP: 1.5,           // 서브 발사각을 훑는 간격 (°)
   NEAR: 0.15,                // 목표 깊이에서 이만큼 안이면 가장 낮은 발사각을 고른다 (m)
   CLEAR_STEPS: Object.freeze([1, 0.5, 0]), // 네트 위 여유 = NET_CLEAR × 이 값으로 차례로 시도
+});
+
+// 서브 가이드라인 (v4.1): "보통 세기로 위로 휘두른 드라이브 서브를 정점(타점 고리)에서 쳤을 때"의 예상 궤적
+export const SERVE_GUIDE = Object.freeze({
+  STRENGTH: 0.5,             // 가이드 스윙 세기 (0~1)
+  SWING_TIME: 0.1,           // 가이드 스윙(가상 드래그) 길이 (s)
+  POINT_STEP: 3,             // 물리 스텝 몇 개마다 점선 점을 하나 찍는지
+  MAX_T: 1.5,                // 궤적을 그리는 최대 시간 (s)
+  QUANT_X: 0.05,             // 라켓 x를 이 간격으로 반올림해 계산 결과를 재사용한다 (m)
+  DASH: 0.05,                // 점선 칠한 길이 (m)
+  GAP: 0.035,                // 점선 빈 길이 (m)
+  COLOR_PATH: 0xffe066,
+  COLOR_OWN: 0x8fe39a,       // 내 코트 첫 바운드 표시
+  COLOR_TARGET: 0xff9a3c,    // 상대 코트 착지 표시
+  MARK_RADIUS: 0.06,         // 바운드 표시 고리 반지름 (m)
+  OPACITY: 0.8,
+});
+
+// 일시정지 (v4.1)
+export const PAUSE = Object.freeze({
+  AUTO_ON_HIDE: true,        // 탭을 옮기거나 창을 최소화하면 자동으로 일시정지
 });
 
 // 연습 모드

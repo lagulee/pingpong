@@ -1,7 +1,7 @@
 // render.js — Three.js 장면 구성과 그리기.
 // 물리 좌표계(z가 위)와 Three.js 좌표계(y가 위)의 변환은 이 파일에서만 한다.
 import * as THREE from 'three';
-import { TABLE, NET, BALL, RACKET, RENDER, DEBUG_ARROW, FEEL } from '../shared/constants.js';
+import { TABLE, NET, BALL, RACKET, RENDER, DEBUG_ARROW, FEEL, SERVE_GUIDE, PHYSICS } from '../shared/constants.js';
 
 // 물리 (x, y, z) → Three.js (x, z, -y)
 // 물리 y축(탁구대 길이)이 화면 안쪽으로 들어가도록 Three.js의 -z에 대응시킨다.
@@ -226,6 +226,54 @@ export function createMarkerView(scene) {
       mat.color.setHex(smash ? RENDER.COLOR_MARKER_SMASH : RENDER.COLOR_MARKER);
       ring.position.copy(toThree(pos));
       ring.scale.setScalar(radius); // RingGeometry는 xy 평면 = 물리 xz 평면(y 방향을 바라봄)
+    },
+  };
+}
+
+// 서브 가이드라인: 예상 궤적 점선 + 탁구대 위 바운드 표시 고리 2개 (내 코트 첫 바운드, 상대 코트 착지)
+// update(guide | null) — guide = { points: [물리 좌표], bounces: [물리 좌표 2개] }
+export function createGuideView(scene) {
+  const N = Math.ceil(SERVE_GUIDE.MAX_T / (SERVE_GUIDE.POINT_STEP * PHYSICS.DT)) + 4;
+  const pos = new Float32Array(N * 3);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setDrawRange(0, 0);
+  const line = new THREE.Line(geo, new THREE.LineDashedMaterial({
+    color: SERVE_GUIDE.COLOR_PATH, dashSize: SERVE_GUIDE.DASH, gapSize: SERVE_GUIDE.GAP,
+    transparent: true, opacity: SERVE_GUIDE.OPACITY, depthWrite: false,
+  }));
+  line.frustumCulled = false;
+  line.visible = false;
+  scene.add(line);
+  const marks = [SERVE_GUIDE.COLOR_OWN, SERVE_GUIDE.COLOR_TARGET].map((color) => {
+    const m = new THREE.Mesh(
+      new THREE.RingGeometry(0.6, 1, 32),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: SERVE_GUIDE.OPACITY, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    m.rotation.x = -Math.PI / 2; // xy 평면 고리 → 탁구대 윗면(Three.js xz 평면)에 눕힌다
+    m.scale.setScalar(SERVE_GUIDE.MARK_RADIUS);
+    m.visible = false;
+    scene.add(m);
+    return m;
+  });
+  let shown = null;
+  return {
+    update(guide) {
+      const vis = !!guide;
+      line.visible = vis;
+      for (const m of marks) m.visible = vis;
+      if (!vis || guide === shown) return; // 같은 가이드면 다시 올리지 않는다
+      shown = guide;
+      const n = Math.min(guide.points.length, N);
+      for (let i = 0; i < n; i++) {
+        const v = toThree(guide.points[i]);
+        pos[i * 3] = v.x; pos[i * 3 + 1] = v.y; pos[i * 3 + 2] = v.z;
+      }
+      geo.setDrawRange(0, n);
+      geo.attributes.position.needsUpdate = true;
+      geo.computeBoundingSphere();
+      line.computeLineDistances(); // 점선 무늬
+      guide.bounces.forEach((b, i) => marks[i].position.copy(toThree({ x: b.x, y: b.y, z: RENDER.LINE_LIFT * 2 })));
     },
   };
 }

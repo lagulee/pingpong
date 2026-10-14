@@ -3,20 +3,24 @@
 // 물리는 고정 스텝, 화면은 공 상태 기록을 "화면 시각"으로 보간해 그린다.
 // 4단계: 화면 시각 = 물리 시각 − lag (히트스톱·슬로모션은 lag만 늘린다). 소리·연출·판정 표시는
 // 물리 이벤트를 대기열에 넣었다가 화면이 그 순간을 보여 줄 때 낸다. 연출은 물리 상태를 바꾸지 않는다.
-import { createRenderer, createBallView, createRacketView, createMarkerView, createTrailView } from './render.js';
+import {
+  createRenderer, createBallView, createRacketView, createMarkerView, createTrailView, createGuideView,
+} from './render.js';
 import { createBall, makeLaunch, faceNormal, toWorld } from '../shared/physics.js';
 import {
   PHYSICS, PRACTICE, SWING, RENDER, TUNABLE, NET, VERSION, SHOT_LABELS, DIFFICULTIES, DIFFICULTY_LABELS, DEMO,
-  REASON_LABELS, RULES,
+  REASON_LABELS, RULES, SERVE, SERVE_GUIDE, PAUSE,
 } from '../shared/constants.js';
 import { canHit, bouncedOn, matchPointSide } from '../shared/rules.js';
 import { createAudio, initSoundTest } from './audio.js';
-import { createFx, createBallHistory, createDisplayQueue, createPopupLayer, spinKind, TRAIL_COLORS } from './effects.js';
+import {
+  createFx, createBallHistory, createDisplayQueue, createPopupLayer, spinKind, TRAIL_COLORS, frameSteps,
+} from './effects.js';
 import { initDebug, launchParams } from './debug.js';
 import { createMouseInput, rayPlaneY, analyzeDrag, createRng } from './input.js';
 import {
   createAI, createPlayer, createRally, stepMatch, serveBall, placeBall, endFree, tossBall, queueScenario,
-  scoreState, racketWorld,
+  scoreState, racketWorld, serveGuide,
 } from './ai.js';
 
 const canvas = document.getElementById('game');
@@ -38,6 +42,7 @@ const myRacket = createRacketView(view.scene, RENDER.COLOR_RACKET_ME, RENDER.RAC
 const robotRacket = createRacketView(view.scene, RENDER.COLOR_RACKET_AI);
 const marker = createMarkerView(view.scene);
 const trail = createTrailView(view.scene);
+const guideView = createGuideView(view.scene);
 window.addEventListener('resize', view.resize);
 
 // ── 연출·소리 ──
@@ -83,7 +88,22 @@ volumeEl.addEventListener('input', () => {
   store.set('pp-volume', volumeEl.value);
   if (audio.muted) toggleMute();
 });
-for (const el of [muteBtn, volumeEl]) el.addEventListener('pointerdown', (e) => e.stopPropagation());
+// ── 일시정지: 물리 스텝·화면 시계·오디오를 모두 멈춘다 (P·Esc·⏸ 버튼, 탭을 옮기면 자동) ──
+const pauseBtn = document.getElementById('pause-btn');
+const pauseEl = document.getElementById('pause');
+let paused = false;
+function setPaused(v) {
+  if (paused === v) return;
+  paused = v;
+  pauseEl.hidden = !v;
+  pauseBtn.textContent = v ? '▶' : '⏸';
+  pauseBtn.title = v ? '계속하기 (P)' : '일시정지 (P)';
+  audio.setPaused(v);
+}
+pauseBtn.addEventListener('click', (e) => { e.stopPropagation(); setPaused(!paused); pauseBtn.blur(); });
+pauseEl.addEventListener('click', () => setPaused(false));
+document.addEventListener('visibilitychange', () => { if (document.hidden && PAUSE.AUTO_ON_HIDE) setPaused(true); });
+for (const el of [muteBtn, volumeEl, pauseBtn]) el.addEventListener('pointerdown', (e) => e.stopPropagation());
 if (params.get('sound') === '1') initSoundTest(audio, document.body);
 
 // ── 게임 상태 ──
@@ -168,6 +188,8 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyR') newGame();
   if (e.code === 'KeyV') setArrows(!ballView.arrowsVisible);
   if (e.code === 'KeyM') toggleMute();
+  if (e.code === 'KeyP' || e.code === 'Escape') setPaused(!paused);
+  if (e.code === 'KeyG') TUNABLE.FX_SERVE_GUIDE = TUNABLE.FX_SERVE_GUIDE >= 0.5 ? 0 : 1;
 });
 
 // ── 판정 표시 ──
@@ -256,6 +278,19 @@ function dispatch(item) {
   if (e.type === 'racket') showShot(e);
 }
 
+// ── 서브 가이드라인: 라켓 x를 SERVE_GUIDE.QUANT_X 간격으로 반올림해 계산 결과를 재사용한다 ──
+const guideCache = new Map();
+let guideSig = '';
+function guideFor(x) {
+  const sig = JSON.stringify(TUNABLE); // 디버그 패널에서 값이 바뀌면 다시 계산
+  if (sig !== guideSig) { guideCache.clear(); guideSig = sig; }
+  const cx = Math.min(SERVE.TOSS_X_MAX, Math.max(-SERVE.TOSS_X_MAX, x));
+  const q = Math.round(cx / SERVE_GUIDE.QUANT_X) * SERVE_GUIDE.QUANT_X;
+  const key = q.toFixed(3);
+  if (!guideCache.has(key)) guideCache.set(key, serveGuide(-1, q));
+  return guideCache.get(key);
+}
+
 // ── 그리기 ──
 function racketNormal(player, t, side) {
   const d = analyzeDrag(player.samples, t);
@@ -267,19 +302,14 @@ let lastTime = null;
 function frame(now) {
   const elapsed = lastTime === null ? 0 : (now - lastTime) / 1000;
   lastTime = now;
-  acc += elapsed;
-  let n = 0;
-  while (acc >= PHYSICS.DT && n < PHYSICS.MAX_STEPS_PER_FRAME) {
-    fixedStep();
-    acc -= PHYSICS.DT;
-    n++;
-  }
-  if (acc >= PHYSICS.DT) acc = 0; // 너무 밀린 시간은 버린다
+  const budget = frameSteps(acc, elapsed, paused); // 일시정지 중에는 0스텝
+  for (let i = 0; i < budget.steps; i++) fixedStep();
+  acc = budget.acc;
   realAtFrame = now / 1000;
-  mouse.refresh(clock);
+  if (!paused) mouse.refresh(clock);
 
   // 화면 시각: 물리 시각에서 연출 지연(lag)을 뺀다. 히트스톱 중에는 멈추고, 슬로모션 중에는 느리게 흐른다.
-  const out = fx.advance(elapsed);
+  const out = fx.advance(paused ? 0 : elapsed);
   const prevView = viewT;
   viewT = Math.max(prevView, clock - PHYSICS.DT + acc - out.lag);
   for (const item of queue.popUntil(viewT)) dispatch(item);
@@ -304,9 +334,20 @@ function frame(now) {
   robotRacket.update(rp, racketNormal(robot.player, clock, 1));
 
   // 내가 칠 공의 예측 정점 (상대가 친 공이 나에게 오는 중) 또는 내 서브 타점
+  // 내 서브 (공을 들고 있거나, 토스했지만 아직 치지 않음): 가이드라인과 넓은 서브 도달 범위 고리
+  const mine = !game.free && !game.scenario && !game.practice && rules.server === -1;
+  const holdingServe = mine && rules.phase === 'waitingServe';
+  const tossed = mine && rules.phase === 'serving' && rules.lastHitter === 0;
+  let guide = null;
+  if (TUNABLE.FX_SERVE_GUIDE >= 0.5 && (holdingServe || tossed)) {
+    const last = human.samples[human.samples.length - 1];
+    guide = guideFor(tossed ? ball.pos.x : (last ? last.x : 0));
+  }
+  guideView.update(guide);
   const waiting = live && canHit(rules, -1);
-  const smashable = !!human.apexPos && human.apexPos.z >= NET.HEIGHT + TUNABLE.SMASH_MIN_HEIGHT;
-  marker.update(waiting ? human.apexPos : null, TUNABLE.HIT_RADIUS, smashable);
+  const smashable = !tossed && !!human.apexPos && human.apexPos.z >= NET.HEIGHT + TUNABLE.SMASH_MIN_HEIGHT;
+  const ringPos = waiting ? human.apexPos : holdingServe && guide ? guide.hit : null;
+  marker.update(ringPos, tossed || holdingServe ? TUNABLE.SERVE_HIT_RADIUS : TUNABLE.HIT_RADIUS, smashable);
 
   debug.onFrame(elapsed, ball);
   view.render();
@@ -321,11 +362,13 @@ function frame(now) {
   if (clock >= messageUntil) {
     centerEl.className = '';
     const waitServe = rules.phase === 'waitingServe' && !game.free && !game.scenario;
-    centerEl.textContent = !waitServe ? ''
-      : rules.server === -1 ? '내 서브 — 클릭: 공 띄우기 · 드래그: 치기' : '로봇 서브';
+    centerEl.textContent = tossed ? '공이 고리까지 내려올 때 휘두르기!'
+      : !waitServe ? ''
+        : rules.server === -1 ? '내 서브\n① 클릭: 공 띄우기  ② 공이 고리에 올 때 휘두르기\n↑ 드라이브 · ↓ 커트 · 곡선 = 사이드'
+          : '로봇 서브';
   }
   statusEl.textContent = `연습 경기 (${RULES.POINTS_TO_WIN}점) · ${DIFFICULTY_LABELS[difficulty]} · `
-    + `1/2/3 난이도(새 게임) · R 새 게임 · V 화살표${debugEnabled ? '' : ' · ?debug=1 패널'}`;
+    + `1/2/3 난이도(새 게임) · R 새 게임 · P 일시정지 · G 서브 가이드 · V 화살표${debugEnabled ? '' : ' · ?debug=1 패널'}`;
   requestAnimationFrame(frame);
 }
 

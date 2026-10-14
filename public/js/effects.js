@@ -2,7 +2,7 @@
 // 연출은 물리 이벤트(bounce, racket, net, edge, floor)와 득점 결과를 "읽기만" 한다. 물리 상태를 바꾸지 않는다.
 // 히트스톱·슬로모션은 화면 표시 시각(viewT = 물리 시각 − lag)만 늦춘다. 물리 시각은 그대로 흐른다(5단계 대전 대비).
 // 이 파일은 'three'를 import하지 않는다. 맨 끝 createPopupLayer만 DOM을 쓰고, 나머지는 Node에서 테스트한다.
-import { TUNABLE, FEEL } from '../shared/constants.js';
+import { TUNABLE, FEEL, PHYSICS } from '../shared/constants.js';
 
 const on = (v) => v >= 0.5; // 켜기/끄기 값 (1 = 켬)
 
@@ -37,6 +37,18 @@ export function createShake(p = TUNABLE) {
       };
     },
   };
+}
+
+// ── 고정 스텝 예산 + 일시정지 ─────────────────────────────
+// 한 화면 프레임에서 밟을 물리 스텝 수. 누적기(acc)에 실제 경과 시간을 더하고 DT씩 덜어 낸다.
+// 일시정지 중에는 스텝 0, 누적기도 비운다(다시 시작할 때 밀린 시간이 한꺼번에 흐르지 않게).
+// 반환: { steps, acc(남은 누적 시간) }
+export function frameSteps(acc, elapsed, paused = false, dt = PHYSICS.DT, max = PHYSICS.MAX_STEPS_PER_FRAME) {
+  if (paused) return { steps: 0, acc: 0 };
+  let a = acc + Math.max(0, elapsed), steps = 0;
+  while (a >= dt && steps < max) { a -= dt; steps++; }
+  if (a >= dt) a = 0; // 너무 밀린 시간은 버린다
+  return { steps, acc: a };
 }
 
 // ── 화면 시계: 히트스톱·슬로모션 ─────────────────────────

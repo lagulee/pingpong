@@ -26,6 +26,7 @@ const TUNABLE_LABELS = {
   DIR_SIN: '위/아래 판정 sinθ 기준',
   CURVE_MIN: '사이드스핀 곡률 이상',
   HIT_RADIUS: '라켓 도달 반경 좌우·높이 (m)',
+  SERVE_HIT_RADIUS: '서브 · 라켓 도달 반경 (m)',
   REACH_Y: '라켓 도달 범위 앞뒤 (m)',
   PERFECT_WINDOW: 'PERFECT 범위 ± (s)',
   GOOD_WINDOW: 'GOOD 범위 ± (s)',
@@ -51,6 +52,8 @@ const TUNABLE_LABELS = {
   SERVE_V_MAX: '서브 · 속도 최대 (m/s)',
   SERVE_DEPTH: '서브 · 목표 깊이 (m)',
   SERVE_SPIN_SCALE: '서브 · 회전 비율 (구질 회전 × 이 값)',
+  SERVE_ASSIST_V: '서브 · 속도 보조 상한 (m/s)',
+  SERVE_ERR_SCALE: '서브 · 방향·속도 오차 배율',
   // 연출 (4단계)
   FX_HITSTOP: '히트스톱 (스매시 순간 정지)',
   HITSTOP_FRAMES: '히트스톱 프레임 수 (60 fps 기준)',
@@ -82,6 +85,7 @@ const TUNABLE_LABELS = {
   HEART_BPM: '심장 박동 빠르기 (BPM)',
   HEART_GAIN: '심장 박동 음량',
   SND_JINGLE: '득점·게임 종료 효과음',
+  FX_SERVE_GUIDE: '내 서브 가이드라인 (점선 궤적·바운드 지점)',
 };
 
 // 구질·AI 키는 규칙적으로 이름을 붙인다

@@ -145,18 +145,21 @@ test('바운드 직후 수평 속도: 드라이브 > 커트 (뻗음 / 멈칫)', 
 });
 
 test('타이밍 판정 경계값', () => {
+  // 경계는 TUNABLE의 판정 창에서 1 ms 안팎 (v4.1에서 창을 넓혔다: 50 / 130 / 240 ms)
   const g = (ms) => gradeTiming(ms / 1000).timing;
+  const P = TUNABLE.PERFECT_WINDOW * 1000, G = TUNABLE.GOOD_WINDOW * 1000, O = TUNABLE.OK_WINDOW * 1000;
+  assert.ok(P < G && G < O);
   assert.equal(g(0), 'PERFECT');
-  assert.equal(g(39), 'PERFECT');
-  assert.equal(g(-39), 'PERFECT');
-  assert.equal(g(41), 'GOOD');
-  assert.equal(g(99), 'GOOD');
-  assert.equal(g(-101), 'OK');
-  assert.equal(g(179), 'OK');
-  assert.equal(g(181), 'BAD');
+  assert.equal(g(P - 1), 'PERFECT');
+  assert.equal(g(-(P - 1)), 'PERFECT');
+  assert.equal(g(P + 1), 'GOOD');
+  assert.equal(g(G - 1), 'GOOD');
+  assert.equal(g(-(G + 1)), 'OK');
+  assert.equal(g(O - 1), 'OK');
+  assert.equal(g(O + 1), 'BAD');
   assert.equal(gradeTiming(Infinity).timing, 'BAD');
   assert.equal(gradeTiming(NaN).timing, 'BAD');
-  const acc = ['PERFECT', 'GOOD', 'OK', 'BAD'].map((_, i) => gradeTiming([0, 0.07, 0.15, 0.3][i]).accuracy);
+  const acc = ['PERFECT', 'GOOD', 'OK', 'BAD'].map((_, i) => gradeTiming([0, (P + G) / 2000, (G + O) / 2000, O / 500][i]).accuracy);
   assert.deepEqual(acc, [1, 0.75, 0.5, 0.25]);
 });
 

@@ -213,6 +213,8 @@ export function classifyShot(samples, ballState, ctx = {}) {
   const { timing, accuracy } = gradeTiming(dtApex, params);
   const strength = clamp((drag.speed - params.BLOCK_SPEED) / (params.SPEED_FULL - params.BLOCK_SPEED), 0, 1);
   const err = aimErrors(accuracy, dtApex, rng, params);
+  // 서브는 오차를 줄여 타이밍이 조금 어긋나도 들어가게 한다
+  if (serve) for (const k of Object.keys(err)) err[k] *= params.SERVE_ERR_SCALE;
   // dragSpeed·dragSin: 판정에 쓴 스윙 최고 속도(m/s)와 방향(+ 위). 화면에 보여 줘서 사용자가 임계값을 맞출 수 있게 한다.
   const quality = { timing, accuracy, strength, dtApex, weak: !pressed, target: null, dragSpeed: drag.speed, dragSin: drag.sin, serve };
 
@@ -294,10 +296,20 @@ function serveShot(type, drag, b, t, racketX, strength, err, params) {
   const speed = type === 'smash' ? params.SERVE_V_MAX
     : params.SERVE_V_MIN + strength * (params.SERVE_V_MAX - params.SERVE_V_MIN);
   const target = { x: aimTarget(type, drag, racketX, params).x, y: params.SERVE_DEPTH };
-  const aim = solveServe({ pos: b.pos, speed, topspin, sidespin, target, t }, params);
+  // 속도 보조: 이 속도로 들어가는 서브가 없으면(낮은 타점 등) SERVE_ASSIST_V까지 조금씩 빠르게 해 본다
+  let v = speed;
+  let aim = solveServe({ pos: b.pos, speed: v, topspin, sidespin, target, t }, params);
+  while (!aim.valid && v + SWING.SERVE_ASSIST_STEP <= params.SERVE_ASSIST_V + 1e-9) {
+    v += SWING.SERVE_ASSIST_STEP;
+    aim = solveServe({ pos: b.pos, speed: v, topspin, sidespin, target, t }, params);
+  }
+  if (!aim.valid) {
+    v = speed;
+    aim = solveServe({ pos: b.pos, speed: v, topspin, sidespin, target, t }, params);
+  }
   const launch = makeLaunch({
     pos: b.pos, t,
-    speed: speed * (1 + err.speed),
+    speed: v * (1 + err.speed),
     elevation: aim.elevation + err.pitch,
     azimuth: aim.azimuth + err.yaw,
     topspin, sidespin,
@@ -309,12 +321,13 @@ function serveShot(type, drag, b, t, racketX, strength, err, params) {
 // player: { side, samples, yPlane(기준 좌표 라켓 평면 y) }, ball: 세계 좌표 공(이번 스텝 시작 상태)
 // 반환: 'swing'(휘두르는 중, 도달 범위 안) | 'block'(버튼 누르고 정지, 라켓 평면 통과)
 //     | 'weak'(버튼 없음, 도달 범위 뒤끝 통과 — 늦게 휘두를 여유를 준다) | null
-export function checkHit(player, ball, t, dt, params = TUNABLE) {
+// radius: 좌우·높이 도달 범위 (서브는 SERVE_HIT_RADIUS로 넓힌다)
+export function checkHit(player, ball, t, dt, params = TUNABLE, radius = params.HIT_RADIUS) {
   const s = racketPointAt(player.samples, t);
   if (!s) return null;
   const b = ballToLocal(ball, player.side);
   const dx = b.pos.x - s.x, dz = b.pos.z - s.y;
-  if (Math.abs(dx) > params.HIT_RADIUS || Math.abs(dz) > params.HIT_RADIUS) return null;
+  if (Math.abs(dx) > radius || Math.abs(dz) > radius) return null;
   const yp = player.yPlane;
   const crosses = (y) => b.vel.y < 0 && b.pos.y >= y && b.pos.y + b.vel.y * dt < y;
   if (s.b && Math.abs(b.pos.y - yp) <= params.REACH_Y) {
