@@ -362,9 +362,18 @@ export function createRenderer(canvas) {
   }
 
   // 화면 흔들림: 물리 좌표 이동량 { x, z }만큼 카메라를 옮긴다 (시선 방향은 그대로)
-  const camBase = toThree(RENDER.CAMERA_POS);
+  let camBase = toThree(RENDER.CAMERA_POS);
   function setShake(off) {
     camera.position.copy(camBase).add(toThree({ x: off.x, y: 0, z: off.z }));
+  }
+
+  // 내 자리(side): +1이면 카메라를 z축으로 180° 돌려 반대쪽 엔드 뒤에서 본다 (대전 모드)
+  function setSide(side) {
+    const flip = (p) => (side < 0 ? p : { x: -p.x, y: -p.y, z: p.z });
+    camBase = toThree(flip(RENDER.CAMERA_POS));
+    camera.position.copy(camBase);
+    camera.lookAt(toThree(flip(RENDER.CAMERA_TARGET)));
+    camera.updateMatrixWorld();
   }
 
   function render() {
@@ -395,5 +404,5 @@ export function createRenderer(canvas) {
   }
 
   resize();
-  return { renderer, scene, camera, resize, render, screenRay, worldToScreen, setShake };
+  return { renderer, scene, camera, resize, render, screenRay, worldToScreen, setShake, setSide };
 }

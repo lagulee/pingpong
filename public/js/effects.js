@@ -95,6 +95,10 @@ export function createBallHistory(maxTime = FEEL.HISTORY_TIME) {
   return {
     get length() { return buf.length; },
     clear() { buf.length = 0; },
+    // 시각 t 이후 기록을 버린다 (대전: 상대 타격으로 되감아 다시 계산할 때)
+    truncate(t) {
+      while (buf.length && buf[buf.length - 1].t > t + 1e-9) buf.pop();
+    },
     push(t, ball) {
       const prev = buf[buf.length - 1];
       const jump = prev && Math.hypot(ball.pos.x - prev.pos.x, ball.pos.y - prev.pos.y, ball.pos.z - prev.pos.z) > FEEL.TELEPORT;
@@ -171,6 +175,10 @@ export function createDisplayQueue() {
     get length() { return q.length; },
     push(item) { q.push(item); },
     clear() { q.length = 0; },
+    // 시각 t 이후 항목을 버린다 (대전: 되감기로 사라진 미래의 이벤트)
+    dropAfter(t) {
+      for (let i = q.length - 1; i >= 0; i--) if (q[i].t > t + 1e-9) q.splice(i, 1);
+    },
     // t 이하인 항목을 시간 순서로 꺼낸다
     popUntil(t) {
       const out = [];

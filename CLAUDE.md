@@ -38,13 +38,15 @@ pingpong/
 │  ├─ shared/              # 브라우저·서버 공용 (단일 원본)
 │  │  ├─ constants.js      # 규격·물리 상수·판정 임계값
 │  │  ├─ physics.js
-│  │  └─ rules.js
+│  │  ├─ rules.js
+│  │  ├─ match.js          # 경기 흐름 (연습·대전 클라이언트·서버 공용)
+│  │  └─ host.js           # 대전 방·검증·득점 판정 (순수 클래스)
 │  └─ js/
 │     ├─ main.js  render.js  input.js  ai.js
 │     ├─ audio.js effects.js net.js    debug.js
 ├─ server/
 │  ├─ worker.js            # 진입점, WebSocket 업그레이드, 방 라우팅
-│  └─ room.js              # Durable Object: 방 관리, 검증, 득점 판정
+│  └─ room.js              # Durable Object: host.js를 감싸는 얇은 껍데기
 └─ tests/
 ```
 
@@ -57,7 +59,7 @@ pingpong/
 | `.claude/rules/physics.md` | 규격, 운동 방정식, 바운드, 충돌, 물리 검증 | `public/shared/physics.js`, `constants.js`, `tests/physics*` |
 | `.claude/rules/input.md` | 드래그 타격, 구질 판정, AI 로봇 | `public/js/input.js`, `ai.js`, `tests/input*`, `tests/rally*` |
 | `.claude/rules/game-rules.md` | 탁구 규칙, 점수, 서브 | `public/shared/rules.js`, `tests/rules*` |
-| `.claude/rules/network.md` | 동기화, 시계 맞추기, 방, 서버 판정 | `public/js/net.js`, `server/**`, `wrangler.jsonc`, `tests/net*` |
+| `.claude/rules/network.md` | 동기화, 시계 맞추기, 방, 서버 판정 | `public/js/net.js`, `public/shared/host.js`, `match.js`, `server/**`, `wrangler.jsonc`, `tests/net*` |
 | `.claude/rules/feel.md` | 렌더링, 사운드, 이펙트, 디버그 패널 | `public/index.html`, `public/js/main.js`, `render.js`, `audio.js`, `effects.js`, `debug.js` |
 
 ## 5. 좌표계와 기본 규격
@@ -165,3 +167,14 @@ pingpong/
 - [4단계 수정] v4.1 서브 가이드라인(`FX_SERVE_GUIDE`, G 키): 내 서브 차례에 "타점 고리에서 보통 세기로 올려 친 드라이브 서브"의 예상 궤적 점선, 내 코트 첫 바운드(초록)·상대 코트 착지(주황) 고리를 보여 준다. 계산은 실제 서브와 같은 `classifyShot` 경로(`ai.js`의 `serveGuide`), 라켓 x를 5 cm 간격으로 반올림해 캐시한다.
 - [4단계 수정] v4.2 코트 밖 공 규칙(ITTF 오브스트럭션): 바운드 전 공을 건드렸을 때, 탁구대 위에 있거나 그대로 두면 내 코트에 떨어질 공이면 발리(건드린 쪽 실점), 이미 탁구대 밖에서 코트에 떨어지지 않을 공이면 보낸 쪽의 아웃이다. 판정은 `physics.js`의 `inPlayFor`, 결과는 racket 이벤트의 `outside` 플래그로 `rules.js`에 넘긴다(서버도 같은 코드). 측정: 로봇 타구 2170개 중 코트에 들어오는 공이 바운드 전에 라켓 범위에 들어온 것은 1개, 나가는 공 57개는 모두 들어왔다 → 기존 발리 실점은 거의 전부 나가던 공을 건드린 경우였다. 디버그 규칙 시험 "volley"는 "코트 밖 긴 공"(치든 안 치든 로봇 아웃)으로 바뀌었다.
 - [4단계 수정] 배포 반영: 클라우드 세션은 작업 브랜치에 푸시하므로 v4.1·v4.2가 `main`에 없어 배포되지 않았다. 이후 모든 푸시는 작업 브랜치와 `main`에 함께 한다(8장 3번).
+- [5단계] 코드 배치 B안: 서버가 쓸 순수 부분만 `public/shared/`로 옮겼다. 경기 흐름은 `match.js`(`createMatch`·`startToss`·`applyHit`·`stepBall`·`stepGame(훅)`), 연습 전용(로봇·사람 타격 판정·연습 공·규칙 시험)은 `ai.js`가 훅으로 얹는다. `classifyShot`·`checkHit`는 클라이언트 전용으로 `input.js`에 남겼다(서버는 결과 `vel`·`spin`만 검증). 서버가 `public/js`를 import하지 않으므로 로봇·DOM 코드가 Worker에 들어가지 않는다. 리팩터링 전 코드로 기록한 연습 경기 지문(`tests/fixtures/match-golden.json`)과 같음을 `tests/match-refactor.test.js`가 확인한다.
+- [5단계] 방 관리·검증·판정은 `public/shared/host.js`의 `Host`(io 주입 순수 클래스), `server/room.js`는 Hibernation API·저장소·알람을 io로 연결하는 껍데기다. 같은 `Host`를 Node 서버나 P2P 호스트 브라우저에서 돌릴 수 있다. 테스트용으로 `Room`은 `env.CLOCK`·`env.RNG`(가짜 시계·난수)를 받는다.
+- [5단계] 서버는 이벤트 구동: 타격이 오면 확정 상태를 복사해 그 시각까지 진행해 검증하고, 예정 결말 + `GRACE`(0.3 s)에 알람으로 득점을 판정한다. `correct`는 타격 검증 직후 다음 바운드 2개를 미리 보낸다(바운드마다 깨우지 않음). 클라이언트는 상대 타격을 받으면 0.8 s 기억한 상태로 되감아 다시 계산하고, 화면의 공만 그 타격 순간부터 0.1 s에 걸쳐 합류시킨다.
+- [5단계] 대전 중에는 TUNABLE의 물리·판정 값을 기본값으로 고정한다(서버가 기본값으로 판정). 연출 켜기/끄기(`TUNABLE_TOGGLES`)만 바꿀 수 있고, 디버그 패널의 발사기·규칙 시험도 잠근다. 연습으로 돌아오면 이전 값을 되살린다. 일시정지·난이도·새 게임 키도 대전에서는 끈다.
+- [5단계] 클라이언트 `VERSION`이 서버와 다르면 입장을 `version`으로 거절한다(배포가 바뀐 뒤 옛 페이지와 판정이 어긋나는 것을 막음).
+- [5단계] 대전에서 토스한 공을 못 치면 서브 실점(`tossMiss`). 연습은 기존대로 다시 토스.
+- [5단계] `wrangler`는 `package.json`에 넣지 않고 테스트에서만 `npx wrangler@4.139.0 dev`로 고정 버전을 쓴다(외부 라이브러리 추가 없음). 실행할 수 없는 환경이면 그 테스트는 이유를 남기고 건너뛴다.
+- [5단계] 무료 한도: 들어오는 WebSocket 메시지는 20:1로 요청 수에 세고 나가는 메시지는 과금하지 않는다(공식 가격 문서, 사용자 확인). 그래서 상대 라켓 표시용 `racket` 15 Hz를 유지한다(한 사람 10분 경기 ≈ 9,000개 → 요청 약 450건).
+- [5단계] 검증 한도는 실측으로 정했다: AI 경기 60판 87,590타 최대 15.15 m/s·79.2 rps → `MAX_V` 22 m/s(실타 18 m/s × 1.2), `MAX_SPIN` 120 rps.
+- [5단계] 세션 VM에서는 jsDelivr CDN이 403으로 막혀 실제 Three.js를 불러올 수 없다. 브라우저 점검은 Playwright에서 `three`를 빈 대역(Proxy) 모듈로 바꿔 화면 흐름(첫 화면→대기실→카운트다운→대전→기권)만 확인했다. 그림·소리는 사용자가 배포 주소에서 확인한다.
+- [5단계] 버전: 5단계 첫 푸시 = v5.0.

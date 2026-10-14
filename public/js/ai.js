@@ -230,11 +230,11 @@ export function aiUpdate(ai, ball, t, dt, params = TUNABLE) {
 // 경기 흐름(서브 대기·토스·타격 적용·물리·규칙·다음 서브)은 shared/match.js(서버와 공용)가 맡고,
 // 여기서는 그 위에 로봇·사람 플레이어(타격 판정), 연습 공, 디버그 규칙 시험을 얹는다.
 // players: { [-1]: player, [1]: player }, ais: 로봇 목록, rng: 판정 오차·연습 공 난수
-// local: 이 컴퓨터에서 타격을 판정하는 쪽 (연습: 양쪽, 대전: 내 쪽만)
-export function createRally({ players, ais = [], rng, firstServer = -1, bestOf = RULES.BEST_OF, local = [-1, 1] }) {
+// local: 이 컴퓨터에서 타격을 판정하는 쪽 (연습: 양쪽, 대전: 내 쪽만), retoss: false면 토스 실패 = 서브 실점(대전)
+export function createRally({ players, ais = [], rng, firstServer = -1, bestOf = RULES.BEST_OF, local = [-1, 1], retoss = true }) {
   for (const ai of ais) ai.player.robot = true;
   return {
-    ...createMatch({ firstServer, bestOf }),
+    ...createMatch({ firstServer, bestOf, retoss }),
     players, ais, rng, local,
     lastShot: null,
     tossAt: null,            // 로봇이 토스할 시각
@@ -387,6 +387,11 @@ export function stepRally(game, dt = PHYSICS.DT, params = TUNABLE) {
   const events = [];
   hitPhase(game, game.ball.t, dt, events, params);
   return stepBall(game, dt, params, events);
+}
+
+// 대전 되감기 재생용 한 스텝: 로봇·타격 판정 없이 물리·규칙만 다시 돌린다 (서브 대기 준비만 한다)
+export function replayStep(game, dt = PHYSICS.DT, params = TUNABLE) {
+  return stepGame(game, dt, params, { onHold });
 }
 
 // 경기 흐름 한 스텝: 서브 대기(로봇 토스) → 서브·랠리 → 득점 표시 → 다음 서브 … → 게임 끝

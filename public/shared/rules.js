@@ -51,11 +51,13 @@ export function matchPointSide(state, rules = RULES) {
   return 0;
 }
 
-export function createRules({ firstServer = -1, bestOf = RULES.BEST_OF } = {}) {
+// retoss: 토스한 공을 치지 못했을 때 true면 점수 없이 다시 토스(연습), false면 서브 실점 tossMiss(대전)
+export function createRules({ firstServer = -1, bestOf = RULES.BEST_OF, retoss = true } = {}) {
   return {
     score: [0, 0],
     games: [0, 0],
     bestOf,
+    retoss,
     firstServer,             // 이번 게임 첫 서브권자
     server: firstServer,
     serveCount: 0,
@@ -157,7 +159,9 @@ function onServing(state, e) {
       if (hitterOf(e) !== server) return point(state, receiver, 'volley'); // 서브 전에 받는 쪽이 건드림
       return same({ ...state, lastHitter: server, bounceSide: 0, bouncesOnSide: 0, netTouched: false });
     }
-    if (isBounce(e) || e.type === 'floor' || e.type === 'net' || e.type === 'timeout') return noPoint(state, 'retoss');
+    if (isBounce(e) || e.type === 'floor' || e.type === 'net' || e.type === 'timeout') {
+      return state.retoss === false ? point(state, server, 'tossMiss') : noPoint(state, 'retoss');
+    }
     return same(state);
   }
   const ownBounced = bouncedOn(state, server);

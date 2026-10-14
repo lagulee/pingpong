@@ -8,10 +8,11 @@ import { PHYSICS, PRACTICE, SERVE, RULES, TUNABLE } from './constants.js';
 import { createRules, applyEvent, bouncedOn } from './rules.js';
 
 // 경기 상태. practice·free는 연습 모드(ai.js)의 연습 공·디버그 떨어뜨리기 표시이고, 대전에서는 쓰지 않는다.
-export function createMatch({ firstServer = -1, bestOf = RULES.BEST_OF } = {}) {
+// retoss: false면 토스한 공을 못 쳤을 때 서브 실점 (대전)
+export function createMatch({ firstServer = -1, bestOf = RULES.BEST_OF, retoss = true } = {}) {
   return {
     ball: createBall({ pos: vec(0, 0, 1) }),
-    rules: createRules({ firstServer, bestOf }),
+    rules: createRules({ firstServer, bestOf, retoss }),
     results: [],             // 득점·렛 결과 기록 (rules.js의 result + t)
     lastHitT: 0,             // 마지막 타격(토스) 시각: 시간 초과 판정용
     holding: false,          // 서브 대기 중 서브권자가 공을 들고 있음 (물리 정지)

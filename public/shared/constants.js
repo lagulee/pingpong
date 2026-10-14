@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v4.2';
+export const VERSION = 'v5.0';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -343,6 +343,7 @@ export const REASON_LABELS = Object.freeze({
   serveFault: '서브 폴트',
   let: '렛',
   retoss: '토스 다시',
+  tossMiss: '토스 실패',
 });
 
 // 서브 (토스 위치는 서버 기준 좌표: 자기 쪽 y < 0)
@@ -602,4 +603,61 @@ export const SOUND_TEST = Object.freeze({
     floor: Object.freeze([2, 4, 7]),
   }),
   CROWD_RALLIES: Object.freeze([0, 5, 15]),
+});
+
+// 대전 (5단계, .claude/rules/network.md). 탁구 네트 규격 NET과 헷갈리지 않게 ONLINE으로 둔다.
+// 대전 중에는 TUNABLE을 바꿀 수 없다(서버는 기본값으로 판정하므로 값이 다르면 판정이 어긋난다).
+export const ONLINE = Object.freeze({
+  CODE_CHARS: 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', // 방 코드 문자: 0/O, 1/I 제외
+  CODE_LEN: 4,
+  NICK_MAX: 12,              // 닉네임 최대 글자 수
+  START_DELAY: 3,            // 둘 다 준비되면 이만큼 뒤에 시작 (카운트다운, s)
+  SYNC_SAMPLES: 8,           // 시작 전 시계 측정 횟수 (왕복 시간이 가장 짧은 표본을 쓴다)
+  SYNC_INTERVAL: 5,          // 게임 중 시계 다시 재는 간격 (s)
+  // 서버 hit 검증 (실측: AI 경기 60판 87,590타 최대 15.15 m/s(스매시)·79.2 rps(드라이브).
+  // 사람만 낼 수 있는 실타 MISHIT_SPEED 18 m/s × 1.2 = 21.6 → 22, 회전 79.2 × 1.5 ≈ 120)
+  MAX_V: 22,                 // 타구 최대 속도 (m/s)
+  MAX_SPIN: 120,             // 타구 최대 회전 (rps)
+  RACKET_TOL: 0.04,          // 라켓-공 거리 여유: x·z 각각 HIT_RADIUS(서브 SERVE_HIT_RADIUS) + 이 값 (m)
+  BALL_TOL: 0.05,            // 보낸 공 위치와 서버가 계산한 공 위치 차이 한도 (m)
+  T_PAST: 0.3,               // 서버 시각보다 이만큼 과거인 타격까지 받는다 (s)
+  T_FUTURE: 0.05,            // 서버 시각보다 이만큼 미래인 타격까지 받는다 (시계 오차, s)
+  GRACE: 0.3,                // 아무도 치지 않을 때 예정 결말 시각 + 이만큼 기다린 뒤 득점 판정 (s, = T_PAST)
+  CORRECT_MAX: 2,            // 타격 검증 직후 미리 보내는 바운드 보정(correct) 개수
+  CORRECT_EPS: 0.001,        // 내 공과 보정 위치 차이가 이보다 크면 보정을 적용한다 (m)
+  // 화면 합류 (클라이언트)
+  MERGE_TIME: 0.1,           // 상대 타격을 받으면 이 시간에 걸쳐 빨리 감아 합류 (s)
+  HOLD_RATE: 0.5,            // 상대 타격을 기다리는 동안 화면의 공 시계 배속
+  HOLD_MAX: 0.15,            // 기다리며 늦출 수 있는 최대 시간 (s)
+  SNAP_TIME: 0.8,            // 되감기용으로 기억하는 경기 상태 길이 (s, T_PAST보다 길게)
+  MAX_CATCHUP_STEPS: 2400,   // 한 프레임에 따라잡는 최대 물리 스텝 (탭이 가려졌다 돌아왔을 때, 10 s)
+  RACKET_HZ: 15,             // 상대 화면에 내 라켓을 보여 주는 전송 빈도 (Hz)
+  // 연결
+  RECONNECT_WAIT: 10,        // 끊긴 상대를 기다리는 시간. 넘으면 상대 승리 (s)
+  RECONNECT_RETRY: 1,        // 내가 끊겼을 때 다시 접속을 시도하는 간격 (s)
+  LOBBY_IDLE: 600,           // 대기실에서 이 시간 동안 시작하지 않으면 방을 닫는다 (s)
+  PING_GOOD: 60,             // 핑 표시 색: 이 값 미만 초록 (ms)
+  PING_OK: 120,              //            이 값 미만 노랑, 이상 빨강 (ms)
+});
+
+// 대전 오류 코드 → 화면 문구
+export const ONLINE_ERRORS = Object.freeze({
+  full: '방이 가득 찼습니다.',
+  noRoom: '없는 방 코드입니다.',
+  inUse: '이미 쓰고 있는 방 코드입니다.',
+  version: '새 버전이 있습니다. 새로고침(Ctrl+F5)해 주세요.',
+  limit: '사용자가 많아요. 잠시 후 다시 시도해 주세요.',
+  lost: '서버와 연결이 끊겼습니다.',
+});
+
+// 서버가 hit을 거부한 사유 → 화면 문구
+export const REJECT_LABELS = Object.freeze({
+  time: '시각 오류',
+  turn: '차례 아님',
+  speed: '속도 초과',
+  spin: '회전 초과',
+  far: '라켓이 멂',
+  pos: '공 위치 불일치',
+  away: '상대 대기 중',
+  bad: '잘못된 메시지',
 });

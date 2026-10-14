@@ -189,11 +189,14 @@ function toggle(label, value, onInput) {
 // 패널을 만든다. enabled가 아니면 아무것도 하지 않는 객체를 돌려준다.
 // hooks: { onLaunch(cfg), onDrop(), onScenario(kind), onArrows(bool), arrowsVisible }
 export function initDebug(enabled, hooks) {
-  const noop = { onEvents() {}, onFrame() {}, launcherConfig: { ...LAUNCHER.DEFAULTS } };
+  const noop = { onEvents() {}, onFrame() {}, setLocked() {}, setPing() {}, launcherConfig: { ...LAUNCHER.DEFAULTS } };
   if (!enabled) return noop;
 
   const panel = el('div', { id: 'debug' });
   document.body.append(panel);
+  const lockNote = el('div', { className: 'dbg-lock', hidden: true, textContent: '대전 중: 서버와 같은 기본값으로 고정 (연출 켜기/끄기만 바꿀 수 있음)' });
+  const pingEl = el('div', { className: 'dbg-info' });
+  panel.append(lockNote, pingEl);
 
   // ── 최근 판정 ──
   panel.append(el('h3', { textContent: '최근 구질 판정' }));
@@ -203,6 +206,7 @@ export function initDebug(enabled, hooks) {
   // ── 튜닝 값 (묶음별로 접기) ──
   panel.append(el('h3', { textContent: '튜닝 값 (TUNABLE)' }));
   const tunableSliders = {};
+  const lockables = []; // 대전 중 잠그는 입력 (물리·판정 값, 발사기, 규칙 시험)
   for (const [group, keys] of Object.entries(TUNABLE_GROUPS)) {
     const box = el('details', { className: 'dbg-group', open: group === '물리' || group === '연출' }, el('summary', { textContent: `${group} (${keys.length})` }));
     for (const k of keys) {
@@ -210,6 +214,7 @@ export function initDebug(enabled, hooks) {
       const s = TUNABLE_TOGGLES.includes(k) ? toggle(tunableLabel(k), TUNABLE[k], set) : slider(tunableLabel(k), TUNABLE_RANGES[k], TUNABLE[k], set);
       tunableSliders[k] = s;
       box.append(s.row);
+      if (!TUNABLE_TOGGLES.includes(k)) lockables.push(s.row);
     }
     panel.append(box);
   }
@@ -254,7 +259,11 @@ export function initDebug(enabled, hooks) {
   const dropBtn = el('button', { textContent: '떨어뜨리기' });
   dropBtn.addEventListener('click', () => hooks.onDrop());
   panel.append(el('div', { className: 'dbg-buttons' }, fireBtn, dropBtn), presets);
+  lockables.push(resetBtn, fireBtn, dropBtn, presets);
+  for (const r of Object.values(launcherSliders)) lockables.push(r.row);
+  let locked = false;
   window.addEventListener('keydown', (e) => {
+    if (locked) return;
     if (e.code === 'Enter' && e.target.tagName !== 'BUTTON') hooks.onLaunch({ ...cfg }); // 버튼 포커스 시 중복 발사 방지
   });
 
@@ -266,6 +275,7 @@ export function initDebug(enabled, hooks) {
     b.addEventListener('click', () => { b.blur(); hooks.onScenario?.(kind); });
     scen.append(b);
   }
+  lockables.push(scen);
   panel.append(scen, el('div', {
     className: 'dbg-info',
     textContent: '렛: 그냥 보기 · 투 바운드: 치지 말고 보기 · 발리: 버튼을 누른 채 노란 고리에 라켓을 대기(그냥 두면 아웃)',
@@ -289,9 +299,20 @@ export function initDebug(enabled, hooks) {
   return {
     launcherConfig: cfg,
     syncArrows(v) { arrowBox.checked = v; },
+    // 대전 중에는 물리·판정 값과 발사기·규칙 시험을 잠근다 (서버는 기본값으로 판정)
+    setLocked(v) {
+      locked = v;
+      lockNote.hidden = !v;
+      for (const node of lockables) {
+        for (const input of node.querySelectorAll ? [node, ...node.querySelectorAll('input, button')] : [node]) {
+          if ('disabled' in input) input.disabled = v;
+        }
+      }
+    },
+    setPing(ms) { pingEl.textContent = ms === null ? '' : `핑 ${Math.round(ms)} ms`; },
     onShot(e) {
       const q = e.shot.quality;
-      const who = e.side === -1 ? '나' : '로봇';
+      const who = e.side === (hooks.me?.() ?? -1) ? '나' : '상대';
       const dt = Number.isFinite(q.dtApex) ? `${Math.round(q.dtApex * 1000)}ms` : '-';
       shots.unshift(`${fmt(e.t)}s ${who} ${SHOT_LABELS[e.shot.shotType]}${q.weak ? '(약)' : ''} ${q.timing} Δt=${dt} 스윙=${fmt(q.dragSpeed)} 세기=${fmt(q.strength)} 공=${fmt(e.speed)}m/s`);
       shots.length = Math.min(shots.length, 6);
