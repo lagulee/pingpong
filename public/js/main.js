@@ -16,7 +16,7 @@ import { createAudio, initSoundTest } from './audio.js';
 import {
   createFx, createBallHistory, createDisplayQueue, createPopupLayer, spinKind, TRAIL_COLORS, frameSteps,
 } from './effects.js';
-import { initDebug, launchParams } from './debug.js';
+import { initDebug, launchParams, SCENARIO_LABELS } from './debug.js';
 import { createMouseInput, rayPlaneY, analyzeDrag, createRng } from './input.js';
 import {
   createAI, createPlayer, createRally, stepMatch, serveBall, placeBall, endFree, tossBall, queueScenario,
@@ -171,7 +171,7 @@ const debug = initDebug(debugEnabled, {
   },
   onScenario: (kind) => {
     queueScenario(game, kind, clock);
-    centerEl.textContent = `시험 공: ${REASON_LABELS[kind]} (${PRACTICE.SCENARIO_DELAY}초 뒤)`;
+    centerEl.textContent = `시험 공: ${SCENARIO_LABELS[kind] ?? kind} (${PRACTICE.SCENARIO_DELAY}초 뒤)`;
     messageUntil = clock + PRACTICE.SCENARIO_DELAY;
   },
   onArrows: setArrows,

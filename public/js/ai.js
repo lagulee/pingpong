@@ -4,7 +4,7 @@
 // 이 파일은 'three'·DOM을 쓰지 않는다 (Node의 자동 랠리 테스트가 그대로 불러 쓴다).
 import {
   step, predictPath, positionAt, solveAim, ballToLocal, ballToWorld, toWorld, toLocal, createBall, vec,
-  makeToss, tossTimeAt, makeLaunch, serveLanding,
+  makeToss, tossTimeAt, makeLaunch, serveLanding, inPlayFor,
 } from '../shared/physics.js';
 import { NET, TABLE, PHYSICS, SWING, PRACTICE, SERVE, RULES, SCENARIO, TUNABLE, SERVE_GUIDE } from '../shared/constants.js';
 import { createRules, applyEvent, canHit, bouncedOn, startRally, toServe } from '../shared/rules.js';
@@ -362,7 +362,10 @@ export function stepRally(game, dt = PHYSICS.DT, params = TUNABLE) {
     if (!kind) continue;
     // 자기 쪽에 바운드하기 전 공: 일부러 휘두르거나 막은 경우만 맞는다(발리 → 실점).
     // 버튼 없이 라켓이 놓여 있던 경우와 로봇은 치지 않는다.
-    if (!serveHit && !bouncedOn(rules, side) && (kind === 'weak' || p.robot)) continue;
+    const early = !serveHit && !bouncedOn(rules, side);
+    if (early && (kind === 'weak' || p.robot)) continue;
+    // 바운드 전 공: 코트 밖으로 나가던 공이면 쳐도 발리가 아니라 상대의 아웃 (rules.js가 판정)
+    const outside = early && !inPlayFor(ball, side, params);
     const shot = classifyShot(p.samples, ball, {
       t, side, apexT: p.apexT, rng: game.rng, params, pressed: kind !== 'weak', serve: serveHit,
     });
@@ -372,6 +375,7 @@ export function stepRally(game, dt = PHYSICS.DT, params = TUNABLE) {
     p.lastShot = shot;
     game.lastShot = { side, ...shot };
     const e = { type: 'racket', t, pos: { ...ball.pos }, speed, side, racket: side, shot };
+    if (outside) e.outside = true;
     events.push(e);
     game.lastHitT = t;
     rule(game, e, t, params);
@@ -424,11 +428,11 @@ export function stepMatch(game, dt = PHYSICS.DT, params = TUNABLE) {
 }
 
 // ── 규칙 시험 (디버그 패널) ──────────────────────────────────
-// 렛·투 바운드·발리를 일부러 만든다. 로봇(+1 쪽 고정 아님: robotSide)이 공을 보내고, 결과는 점수에 넣지 않는다.
+// 렛·투 바운드·코트 밖 긴 공을 일부러 만든다. 로봇(+1 쪽 고정 아님: robotSide)이 공을 보내고, 결과는 점수에 넣지 않는다.
 //  - let: 로봇 서브가 네트 윗줄을 스치고 내 코트에 들어간다 → 렛
 //  - twoBounce: 짧은 백스핀 공이 내 코트에 두 번 떨어진다 (치지 않으면) → 투 바운드(내 실점)
-//  - volley: 긴 공이 내 코트에 닿지 않고 라켓 평면을 지나간다. 버튼을 누른 채 표시된 고리에 라켓을 대면 → 발리(내 실점),
-//            그냥 두면 → 아웃(로봇 실점)
+//  - volley: 긴 공이 내 코트에 닿지 않고 라켓 평면(엔드라인 밖)을 지나간다. 코트 밖 공이므로
+//            버튼을 누른 채 표시된 고리에 라켓을 대도, 그냥 두어도 → 아웃(로봇 실점). (이름은 디버그 버튼 호환을 위해 그대로 둔다)
 export const SCENARIOS = Object.freeze(['let', 'twoBounce', 'volley']);
 
 export function queueScenario(game, kind, t) {

@@ -181,6 +181,12 @@ test('[6] 투 바운드, 발리, 아웃, 연속 타격이 각각 올바른 쪽�
     const v = applyEvents(createRules({ firstServer: server }), [toss(server), hit(server), bounce(server), hit(R)]);
     assert.equal(v.results[0].loser, R);
     assert.equal(v.results[0].reason, 'volley');
+    // 코트 밖 공(나가던 공)을 바운드 전에 건드림 → 발리가 아니라 보낸 쪽의 아웃
+    check([hit(R), { ...hit(server), outside: true }], R, 'out');
+    check([hit(R), net(R, true), { ...hit(server), outside: true }], R, 'net');
+    const vo = applyEvents(createRules({ firstServer: server }), [toss(server), hit(server), bounce(server), { ...hit(R), outside: true }]);
+    assert.equal(vo.results[0].loser, server, '나가던 서브를 건드려도 서버 실점');
+    assert.equal(vo.results[0].reason, 'out');
     // 아웃: 리턴이 상대 코트에 닿지 않고 바닥 → 친 쪽(R) 실점
     check([hit(R), floor(server)], R, 'out');
     // 리턴이 네트에 걸려 자기 코트로 → 친 쪽 실점 (네트)

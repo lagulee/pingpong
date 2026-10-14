@@ -377,6 +377,25 @@ export function solveBlock(ball, u, target, params = TUNABLE) {
   return { pitch, yaw, normal: faceNormal(pitch, yaw) };
 }
 
+// ── 인플레이 판정 (발리 / 코트 밖 공) ─────────────────────────
+// 공이 side 쪽 코트에 아직 바운드하지 않았을 때, 그 공이 "인플레이"인가.
+// 실제 규칙(ITTF 오브스트럭션): 탁구대 위에 있거나 탁구대 쪽으로 오는(그대로 두면 side 코트에 떨어질) 공을
+// 바운드 전에 건드리면 건드린 쪽 실점(발리). 이미 탁구대 밖에 있고 코트에 떨어지지 않을 공은
+// 건드려도 상대가 친 공의 아웃이다.
+export function inPlayFor(ball, side, params = TUNABLE) {
+  const p = ball.pos;
+  if (Math.abs(p.x) <= TABLE.WIDTH / 2 + R && Math.abs(p.y) <= TABLE.LENGTH / 2 + R && p.z >= 0) return true; // 탁구대 위
+  const b = cloneBall(ball);
+  const n = Math.round(SWING.PREDICT_T / PHYSICS.DT);
+  for (let i = 0; i < n; i++) {
+    for (const e of step(b, PHYSICS.DT, { params })) {
+      if (e.type === 'bounce' || e.type === 'edge') return e.side === side;
+      if (e.type === 'floor') return false;
+    }
+  }
+  return false;
+}
+
 // ── 서브 조준 (기준 좌표, +y로 친다) ──────────────────────────
 // 서브는 자기 코트(y < 0)에 한 번 → 상대 코트(y > 0)에 떨어져야 한다.
 // 첫 충돌이 자기 코트 바운드면 두 번째 충돌 위치를 돌려준다. 그 밖에는 조준 탐색이 쓸 수 있게

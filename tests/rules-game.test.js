@@ -107,12 +107,15 @@ test('규칙 시험 공: 렛 · 투 바운드 · 발리 · 아웃이 실제 물�
   assert.equal(out.result?.reason, 'out');
   assert.equal(out.result.loser, 1);
 
-  // 버튼을 누른 채 표시된 고리에 라켓을 대면 바운드 전에 맞아 발리(내 실점)
+  // 버튼을 누른 채 표시된 고리에 라켓을 대 바운드 전에 맞혀도, 엔드라인 밖 코트 밖 공이므로 발리가 아니라 로봇의 아웃
   const volley = runScenario('volley', ({ human, game }) => {
     if (human.apexPos) human.samples.push({ t: game.ball.t, x: human.apexPos.x, y: human.apexPos.z, b: true });
   });
-  assert.equal(volley.result?.reason, 'volley');
-  assert.equal(volley.result.loser, -1);
+  const touch = volley.events.find((e) => e.type === 'racket' && e.side === -1);
+  assert.ok(touch, '라켓에 맞음');
+  assert.equal(touch.outside, true, '코트 밖 공');
+  assert.equal(volley.result?.reason, 'out');
+  assert.equal(volley.result.loser, 1);
 
   // 시험 공 결과는 점수에 들어가지 않는다: 표시 끝나면 0:0 서브 대기로 돌아감
   for (const s of [lets, two, out, volley]) {

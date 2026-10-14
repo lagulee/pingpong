@@ -129,7 +129,7 @@ export const EVENT_LABELS = {
 };
 
 // 규칙 시험 버튼 (ai.js SCENARIOS)
-const SCENARIO_LABELS = { let: '렛 서브', twoBounce: '투 바운드', volley: '발리 / 아웃' };
+export const SCENARIO_LABELS = { let: '렛 서브', twoBounce: '투 바운드', volley: '코트 밖 긴 공' };
 
 // 기본값과 다른 튜닝 값만 골라낸다 ("현재 값 복사"용)
 export function changedTunables(current = TUNABLE, defaults = TUNABLE_DEFAULTS) {

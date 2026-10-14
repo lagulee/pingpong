@@ -250,3 +250,19 @@ test('발사기 프리셋: 모두 네트를 넘어 건너편 코트에 먼저 �
   assert.ok(firstBounce.sideLeft.pos.x < LAUNCHER.PRESETS.sideLeft.x);
   assert.ok(firstBounce.sideRight.pos.x > LAUNCHER.PRESETS.sideRight.x);
 });
+
+test('인플레이 판정: 탁구대 위·코트로 오는 공은 인플레이, 엔드라인 밖으로 나가는 공은 아님', async () => {
+  const { inPlayFor, createBall, vec } = await import('../public/shared/physics.js');
+  // 내 코트(−y)로 내려오는 공: 아직 탁구대 밖(네트 위 높이)이 아니어도 코트에 떨어질 공
+  const coming = createBall({ pos: vec(0, 0.3, 0.3), vel: vec(0, -5, 0), t: 0 });
+  assert.equal(inPlayFor(coming, -1), true);
+  // 탁구대 위에 있는 공은 길게 나가는 중이어도 인플레이 (오브스트럭션)
+  const overTable = createBall({ pos: vec(0, -1.2, 0.3), vel: vec(0, -8, 1), t: 0 });
+  assert.equal(inPlayFor(overTable, -1), true);
+  // 엔드라인 밖에서 바닥으로 가는 공: 코트 밖
+  const long = createBall({ pos: vec(0, -1.6, 0.3), vel: vec(0, -8, 0), t: 0 });
+  assert.equal(inPlayFor(long, -1), false);
+  // 옆줄 밖으로 지나가는 공
+  const wide = createBall({ pos: vec(1.0, -1.0, 0.2), vel: vec(0.5, -6, 0), t: 0 });
+  assert.equal(inPlayFor(wide, -1), false);
+});

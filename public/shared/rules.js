@@ -165,7 +165,10 @@ function onServing(state, e) {
     case 'racket': {
       const h = hitterOf(e);
       if (h === server) return point(state, server, 'doubleHit');
-      return point(state, receiver, 'volley'); // 받는 쪽 코트에 바운드하기 전에 침
+      // 받는 쪽 코트에 바운드하기 전에 침: 인플레이 공이면 발리(받는 쪽 실점),
+      // 코트 밖으로 나가던 공(e.outside)이면 서브의 아웃(서버 실점)
+      if (e.outside) return point(state, server, state.netTouched ? 'net' : ownBounced ? 'out' : 'serveNoBounce');
+      return point(state, receiver, 'volley');
     }
     case 'bounce': case 'edge':
       if (e.side === server) {
@@ -195,7 +198,8 @@ function onRally(state, e) {
     case 'racket': {
       const h = hitterOf(e);
       if (h === H) return point(state, H, 'doubleHit');
-      if (!bounced) return point(state, R, 'volley');
+      // 바운드 전에 침: 인플레이 공이면 발리(받는 쪽 실점), 코트 밖으로 나가던 공(e.outside)이면 친 쪽의 아웃
+      if (!bounced) return e.outside ? point(state, H, state.netTouched ? 'net' : 'out') : point(state, R, 'volley');
       return same({ ...state, lastHitter: R, bounceSide: 0, bouncesOnSide: 0, netTouched: false, returnPending: true });
     }
     case 'bounce': case 'edge':
