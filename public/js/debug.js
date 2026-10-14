@@ -1,7 +1,9 @@
 // debug.js — 디버그 패널(?debug=1).
 // TUNABLE 슬라이더(묶음별, 즉시 반영), "현재 값 복사", 공 발사기, 규칙 시험 공, 화살표 표시, FPS, 최근 구질 판정·물리 이벤트.
 // 순수 함수(changedTunables, launchParams, tunableLabel)는 DOM 없이 테스트할 수 있도록 분리한다.
-import { TUNABLE, TUNABLE_DEFAULTS, TUNABLE_RANGES, TUNABLE_GROUPS, LAUNCHER, SHOT_LABELS } from '../shared/constants.js';
+import {
+  TUNABLE, TUNABLE_DEFAULTS, TUNABLE_RANGES, TUNABLE_GROUPS, TUNABLE_TOGGLES, LAUNCHER, SHOT_LABELS,
+} from '../shared/constants.js';
 
 const TUNABLE_LABELS = {
   C_D: '항력계수 C_D',
@@ -49,6 +51,37 @@ const TUNABLE_LABELS = {
   SERVE_V_MAX: '서브 · 속도 최대 (m/s)',
   SERVE_DEPTH: '서브 · 목표 깊이 (m)',
   SERVE_SPIN_SCALE: '서브 · 회전 비율 (구질 회전 × 이 값)',
+  // 연출 (4단계)
+  FX_HITSTOP: '히트스톱 (스매시 순간 정지)',
+  HITSTOP_FRAMES: '히트스톱 프레임 수 (60 fps 기준)',
+  FX_SHAKE: '화면 흔들림',
+  SHAKE_GAIN: '흔들림 진폭 / 타격 속도 (m per m/s)',
+  SHAKE_MAX: '흔들림 최대 진폭 (m)',
+  SHAKE_DECAY: '흔들림 감쇠 시간 (s)',
+  FX_TRAIL: '구질 색 꼬리 (탑 빨강·백 파랑·횡 보라)',
+  TRAIL_TIME: '꼬리 길이 (s)',
+  TRAIL_SPIN_MIN: '꼬리 색을 입히는 최소 회전 (rps)',
+  FX_POPUP: 'PERFECT / SMASH! / EDGE! 팝업',
+  POPUP_TIME: '팝업 표시 시간 (s)',
+  FX_SLOWMO: '매치포인트 슬로모션',
+  SLOWMO_RATE: '슬로모션 재생 배율',
+  SLOWMO_TIME: '슬로모션 길이 (s)',
+  CATCHUP_RATE: '밀린 화면 따라잡기 배율',
+  SND_PITCH: '소리 · 전체 음높이 배율',
+  SND_DECAY: '소리 · 전체 감쇠 시간 배율',
+  SND_SPEED_REF: '소리 · 세기 기준 속도 (m/s)',
+  SND_PITCH_RACKET: '소리 · 라켓 음높이',
+  SND_PITCH_TABLE: '소리 · 테이블 음높이',
+  SND_PITCH_NET: '소리 · 네트 음높이',
+  SND_PITCH_EDGE: '소리 · 모서리 음높이',
+  SND_PITCH_FLOOR: '소리 · 바닥 음높이',
+  SND_CROWD: '관중 함성',
+  CROWD_GAIN: '관중 최대 음량',
+  CROWD_RALLY_FULL: '함성이 커지는 랠리 수 기준',
+  SND_HEART: '매치포인트 심장 박동',
+  HEART_BPM: '심장 박동 빠르기 (BPM)',
+  HEART_GAIN: '심장 박동 음량',
+  SND_JINGLE: '득점·게임 종료 효과음',
 };
 
 // 구질·AI 키는 규칙적으로 이름을 붙인다
@@ -138,6 +171,17 @@ function slider(label, range, value, onInput) {
   };
 }
 
+// 켜기/끄기 한 줄 (값 1 = 켬, 0 = 끔). slider와 같은 { row, set } 모양
+function toggle(label, value, onInput) {
+  const box = el('input', { type: 'checkbox', checked: value >= 0.5 });
+  box.addEventListener('change', () => onInput(box.checked ? 1 : 0));
+  const row = el('label', { className: 'dbg-toggle' }, box, label);
+  return {
+    row,
+    set(v) { box.checked = v >= 0.5; onInput(v >= 0.5 ? 1 : 0); },
+  };
+}
+
 // 패널을 만든다. enabled가 아니면 아무것도 하지 않는 객체를 돌려준다.
 // hooks: { onLaunch(cfg), onDrop(), onScenario(kind), onArrows(bool), arrowsVisible }
 export function initDebug(enabled, hooks) {
@@ -156,9 +200,10 @@ export function initDebug(enabled, hooks) {
   panel.append(el('h3', { textContent: '튜닝 값 (TUNABLE)' }));
   const tunableSliders = {};
   for (const [group, keys] of Object.entries(TUNABLE_GROUPS)) {
-    const box = el('details', { className: 'dbg-group', open: group === '물리' }, el('summary', { textContent: `${group} (${keys.length})` }));
+    const box = el('details', { className: 'dbg-group', open: group === '물리' || group === '연출' }, el('summary', { textContent: `${group} (${keys.length})` }));
     for (const k of keys) {
-      const s = slider(tunableLabel(k), TUNABLE_RANGES[k], TUNABLE[k], (v) => { TUNABLE[k] = v; });
+      const set = (v) => { TUNABLE[k] = v; };
+      const s = TUNABLE_TOGGLES.includes(k) ? toggle(tunableLabel(k), TUNABLE[k], set) : slider(tunableLabel(k), TUNABLE_RANGES[k], TUNABLE[k], set);
       tunableSliders[k] = s;
       box.append(s.row);
     }

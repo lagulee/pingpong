@@ -1,13 +1,17 @@
 // main.js — 게임 진입점. 3단계: 로봇과 11점 1게임 (서브·점수·듀스·서브 교대는 shared/rules.js).
 // 흐름: 서브 대기 → (내 서브: 클릭으로 토스 → 드래그로 치기 / 로봇 서브: 자동) → 랠리 → 득점 사유 표시 → 다음 서브 … → 결과 화면
-// 물리는 고정 스텝, 화면은 직전·현재 물리 위치를 보간해 그린다.
-import { createRenderer, createBallView, createRacketView, createMarkerView } from './render.js';
+// 물리는 고정 스텝, 화면은 공 상태 기록을 "화면 시각"으로 보간해 그린다.
+// 4단계: 화면 시각 = 물리 시각 − lag (히트스톱·슬로모션은 lag만 늘린다). 소리·연출·판정 표시는
+// 물리 이벤트를 대기열에 넣었다가 화면이 그 순간을 보여 줄 때 낸다. 연출은 물리 상태를 바꾸지 않는다.
+import { createRenderer, createBallView, createRacketView, createMarkerView, createTrailView } from './render.js';
 import { createBall, makeLaunch, faceNormal, toWorld } from '../shared/physics.js';
 import {
   PHYSICS, PRACTICE, SWING, RENDER, TUNABLE, NET, VERSION, SHOT_LABELS, DIFFICULTIES, DIFFICULTY_LABELS, DEMO,
   REASON_LABELS, RULES,
 } from '../shared/constants.js';
-import { canHit, bouncedOn } from '../shared/rules.js';
+import { canHit, bouncedOn, matchPointSide } from '../shared/rules.js';
+import { createAudio, initSoundTest } from './audio.js';
+import { createFx, createBallHistory, createDisplayQueue, createPopupLayer, spinKind, TRAIL_COLORS } from './effects.js';
 import { initDebug, launchParams } from './debug.js';
 import { createMouseInput, rayPlaneY, analyzeDrag, createRng } from './input.js';
 import {
@@ -33,14 +37,60 @@ const ballView = createBallView(view.scene);
 const myRacket = createRacketView(view.scene, RENDER.COLOR_RACKET_ME, RENDER.RACKET_OPACITY_ME);
 const robotRacket = createRacketView(view.scene, RENDER.COLOR_RACKET_AI);
 const marker = createMarkerView(view.scene);
+const trail = createTrailView(view.scene);
 window.addEventListener('resize', view.resize);
+
+// ── 연출·소리 ──
+const params = new URLSearchParams(location.search);
+const audio = createAudio();
+const fx = createFx();
+const history = createBallHistory();  // 물리 스텝마다 공 상태 복사본
+const queue = createDisplayQueue();   // 화면 시각에 맞춰 낼 이벤트·득점 결과
+const popups = createPopupLayer(document.getElementById('popups'));
+let viewT = 0;                        // 화면이 보여 주는 시각
+let crowdRally = null;                // 관중 함성에 마지막으로 반영한 랠리 수
+
+// 시작 화면: 클릭하면 오디오를 켠다 (브라우저 정책상 첫 클릭 전에는 소리를 낼 수 없음)
+const startEl = document.getElementById('start');
+function unlockAudio() {
+  audio.unlock();
+  startEl.hidden = true;
+}
+startEl.addEventListener('click', unlockAudio);
+window.addEventListener('pointerdown', () => audio.unlock(), { once: true });
+
+// 음소거 버튼·음량 슬라이더 (이 브라우저에 기억)
+const muteBtn = document.getElementById('mute');
+const volumeEl = document.getElementById('volume');
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* 저장 못 해도 동작에는 지장 없음 */ } },
+};
+const savedVol = Number(store.get('pp-volume'));
+if (store.get('pp-volume') !== null && Number.isFinite(savedVol)) audio.setVolume(savedVol);
+audio.setMuted(store.get('pp-muted') === '1');
+volumeEl.value = audio.volume;
+function syncMute() { muteBtn.textContent = audio.muted ? '🔇' : '🔊'; muteBtn.title = audio.muted ? '소리 켜기 (M)' : '음소거 (M)'; }
+syncMute();
+function toggleMute() {
+  audio.setMuted(!audio.muted);
+  store.set('pp-muted', audio.muted ? '1' : '0');
+  syncMute();
+}
+muteBtn.addEventListener('click', (e) => { e.stopPropagation(); audio.unlock(); toggleMute(); muteBtn.blur(); });
+volumeEl.addEventListener('input', () => {
+  audio.setVolume(Number(volumeEl.value));
+  store.set('pp-volume', volumeEl.value);
+  if (audio.muted) toggleMute();
+});
+for (const el of [muteBtn, volumeEl]) el.addEventListener('pointerdown', (e) => e.stopPropagation());
+if (params.get('sound') === '1') initSoundTest(audio, document.body);
 
 // ── 게임 상태 ──
 let difficulty = 'NORMAL';
 let clock = 0;            // 게임 시각 (s), 고정 스텝마다 DT씩 증가
 let acc = 0;              // 고정 스텝 누적기
 let realAtFrame = 0;      // 마지막 프레임의 실제 시각 (s)
-let prevPos = null;       // 화면 보간용 직전 스텝 공 위치
 let seed = 1;             // 판마다 다른 시드 (판정 오차·로봇 선택)
 let freeStart = 0;        // 디버그 떨어뜨리기 시작 시각
 let shownResults = 0;     // 화면에 보여 준 득점 결과 수
@@ -52,7 +102,6 @@ function newGame() {
   robot = createAI(1, difficulty, createRng(seed * 31 + 7));
   game = createRally({ players: { [-1]: human, [1]: robot.player }, ais: [robot], rng: createRng(seed), firstServer: -1 });
   game.ball.t = clock;
-  prevPos = { ...game.ball.pos };
   shownResults = 0;
   messageUntil = 0;
   centerEl.textContent = '';
@@ -60,6 +109,10 @@ function newGame() {
   shotSubEl.textContent = '';
   robotShotEl.textContent = '';
   resultEl.hidden = true;
+  history.clear();
+  queue.clear();
+  fx.clock.reset();
+  viewT = clock;
   seed++;
 }
 
@@ -73,7 +126,7 @@ const mouse = createMouseInput(canvas, {
   onPress() {
     // 내 서브 차례: 클릭한 자리(라켓 x)에서 공을 띄운다
     const last = human.samples[human.samples.length - 1];
-    if (tossBall(game, -1, last ? last.x : 0, clock)) prevPos = { ...game.ball.pos };
+    tossBall(game, -1, last ? last.x : 0, clock);
   },
 });
 human.samples = mouse.samples;
@@ -85,22 +138,19 @@ function setDifficulty(d) {
 document.getElementById('again').addEventListener('click', () => newGame());
 
 // ── 디버그 패널 ──
-const debugEnabled = new URLSearchParams(location.search).get('debug') === '1';
+const debugEnabled = params.get('debug') === '1';
 const debug = initDebug(debugEnabled, {
   // 발사기: 내 쪽에서 로봇에게 쏜다 (로봇이 받아친다)
   // 발사기·시험 공은 연습 공: 점수에 넣지 않고, 끝나면 원래 서브 대기로 돌아간다
   onLaunch: (cfg) => {
     serveBall(game, makeLaunch({ ...launchParams(cfg), t: clock }), -1);
-    prevPos = { ...game.ball.pos };
   },
   onDrop: () => {
     placeBall(game, createBall({ pos: DEMO.DROP_POS, t: clock }));
-    prevPos = { ...game.ball.pos };
     freeStart = clock;
   },
   onScenario: (kind) => {
     queueScenario(game, kind, clock);
-    prevPos = { ...game.ball.pos };
     centerEl.textContent = `시험 공: ${REASON_LABELS[kind]} (${PRACTICE.SCENARIO_DELAY}초 뒤)`;
     messageUntil = clock + PRACTICE.SCENARIO_DELAY;
   },
@@ -117,6 +167,7 @@ window.addEventListener('keydown', (e) => {
   if (i >= 0) setDifficulty(DIFFICULTIES[i]);
   if (e.code === 'KeyR') newGame();
   if (e.code === 'KeyV') setArrows(!ballView.arrowsVisible);
+  if (e.code === 'KeyM') toggleMute();
 });
 
 // ── 판정 표시 ──
@@ -146,6 +197,13 @@ function showResult(r) {
   }
   centerEl.className = r.type !== 'point' ? 'center-neutral' : r.winner === -1 ? 'center-win' : 'center-lose';
   messageUntil = clock + PRACTICE.POINT_DELAY;
+  // 소리: 득점 효과음 + 랠리가 길었을수록 큰 함성. 경기가 끝나면 승리·패배 음악
+  if (r.type === 'point') {
+    if (r.matchOver && !r.practice) audio.playGameEnd(r.winner === -1);
+    else audio.playPoint(r.winner === -1);
+    audio.cheer(r.rally);
+  }
+  fx.onResult(r);
   if (r.matchOver && !r.practice) {
     const [me, rb] = r.score;
     resultTitleEl.textContent = r.winner === -1 ? '승리!' : '패배';
@@ -172,18 +230,30 @@ function updateScoreboard() {
 // ── 고정 스텝 ──
 function fixedStep() {
   const dt = PHYSICS.DT;
-  prevPos = { ...game.ball.pos };
+  if (!history.length) history.push(clock, game.ball);
+  const mp = matchPointSide(game.rules); // 이 랠리가 매치포인트였는지 (슬로모션)
   for (const e of stepMatch(game, dt)) {
-    if (e.type === 'racket') showShot(e);
+    queue.push({ t: e.t, event: structuredClone(e) }); // 연출에는 복사본만 넘긴다
     debug.onEvents([e]);
   }
-  // 공이 순간 이동했으면(서브 대기 자리 등) 보간하지 않는다
-  const p = game.ball.pos;
-  if (Math.hypot(p.x - prevPos.x, p.y - prevPos.y, p.z - prevPos.z) > 0.5) prevPos = { ...p };
-  while (shownResults < game.results.length) showResult(game.results[shownResults++]);
+  while (shownResults < game.results.length) {
+    const r = game.results[shownResults++];
+    queue.push({ t: r.t, result: { ...r, matchPoint: mp !== 0 } });
+  }
   if (game.free && clock - freeStart > DEMO.RESET_AFTER) endFree(game, clock);
   clock += dt;
   game.ball.t = clock;
+  history.push(clock, game.ball);
+}
+
+// 화면 시각에 도달한 이벤트·득점 결과: 소리, 흔들림·히트스톱, 팝업, 판정 글자
+function dispatch(item) {
+  if (item.result) { showResult(item.result); return; }
+  const e = item.event;
+  audio.playImpact(e.type, e.speed, e.shot?.shotType);
+  const r = fx.onEvent(e, -1);
+  if (r.popups.length) popups.show(r.popups, view.worldToScreen(e.pos));
+  if (e.type === 'racket') showShot(e);
 }
 
 // ── 그리기 ──
@@ -208,23 +278,29 @@ function frame(now) {
   realAtFrame = now / 1000;
   mouse.refresh(clock);
 
-  // 공 (두 스텝 사이 보간)
-  const alpha = acc / PHYSICS.DT;
+  // 화면 시각: 물리 시각에서 연출 지연(lag)을 뺀다. 히트스톱 중에는 멈추고, 슬로모션 중에는 느리게 흐른다.
+  const out = fx.advance(elapsed);
+  const prevView = viewT;
+  viewT = Math.max(prevView, clock - PHYSICS.DT + acc - out.lag);
+  for (const item of queue.popUntil(viewT)) dispatch(item);
+  view.setShake(out.shake);
+
+  // 공 (기록 사이 보간)
   const ball = game.ball;
-  const p0 = prevPos ?? ball.pos;
-  const pos = {
-    x: p0.x + (ball.pos.x - p0.x) * alpha,
-    y: p0.y + (ball.pos.y - p0.y) * alpha,
-    z: p0.z + (ball.pos.z - p0.z) * alpha,
-  };
-  ballView.update(pos, ball.vel, ball.spin, elapsed);
+  const shown = history.sample(viewT) ?? ball;
+  ballView.update(shown.pos, shown.vel, shown.spin, viewT - prevView);
+  if (TUNABLE.FX_TRAIL >= 0.5) {
+    const pts = history.trail(viewT, TUNABLE.TRAIL_TIME).map((q) => ({ pos: q.pos, color: TRAIL_COLORS[spinKind(q.vel, q.spin)] }));
+    if (pts.length) pts.push({ pos: shown.pos, color: pts[pts.length - 1].color });
+    trail.update(pts);
+  } else trail.update([]);
 
   // 라켓: 칠 수 있는(내 쪽에 바운드한) 공이 오면 도달 범위 안에서 앞뒤로 따라간다
   const rules = game.rules;
   const live = !game.free && (rules.phase === 'serving' || rules.phase === 'rally');
   const follow = (side) => (live && canHit(rules, side) && bouncedOn(rules, side) ? ball : null);
   myRacket.update(racketWorld(human, clock, follow(-1)), racketNormal(human, clock, -1));
-  const rp = racketWorld(robot.player, clock, follow(1)) ?? toWorld({ x: SWING.HOME.x, y: SWING.HOME_Y, z: SWING.HOME.z }, 1);
+  const rp = racketWorld(robot.player, viewT, follow(1) && shown) ?? toWorld({ x: SWING.HOME.x, y: SWING.HOME_Y, z: SWING.HOME.z }, 1);
   robotRacket.update(rp, racketNormal(robot.player, clock, 1));
 
   // 내가 칠 공의 예측 정점 (상대가 친 공이 나에게 오는 중) 또는 내 서브 타점
@@ -234,6 +310,12 @@ function frame(now) {
 
   debug.onFrame(elapsed, ball);
   view.render();
+
+  // 관중 함성(랠리 수가 바뀔 때만 반영해 득점 함성을 덮지 않는다), 매치포인트 심장 박동
+  const crowdNow = live && !game.practice ? rules.rally : 0;
+  if (crowdNow !== crowdRally) { audio.setCrowd(crowdNow); crowdRally = crowdNow; }
+  audio.setHeartbeat(live || rules.phase === 'waitingServe' ? matchPointSide(scoreState(game)) !== 0 && !game.practice : false);
+  audio.tick();
 
   updateScoreboard();
   if (clock >= messageUntil) {

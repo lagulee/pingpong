@@ -41,6 +41,16 @@ export function gameWinner(score, rules = RULES) {
   return 0;
 }
 
+// 매치포인트인 쪽: 그쪽이 1점을 더 내면 경기(매치)가 끝난다. 없으면 0. (연출: 심장 박동·슬로모션)
+export function matchPointSide(state, rules = RULES) {
+  for (const side of [-1, 1]) {
+    const score = [...state.score];
+    score[idx(side)]++;
+    if (gameWinner(score, rules) === side && state.games[idx(side)] + 1 > state.bestOf / 2) return side;
+  }
+  return 0;
+}
+
 export function createRules({ firstServer = -1, bestOf = RULES.BEST_OF } = {}) {
   return {
     score: [0, 0],

@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v3.0';
+export const VERSION = 'v4.0';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -136,9 +136,34 @@ const AI_TUNABLE = {
   AI_HARD_W_DRIVE: 40, AI_HARD_W_BLOCK: 10, AI_HARD_W_CUT: 15, AI_HARD_W_SIDE: 20, AI_HARD_W_SMASH: 15,
 };
 
+// 연출(4단계): FX_*·SND_* 이름의 켜기/끄기는 1 = 켬, 0 = 끔 (TUNABLE_TOGGLES)
+// 히트스톱·슬로모션은 화면 표시 시각만 늦추고 물리 시각은 그대로 둔다 (effects.js createViewClock).
+const FEEL_TUNABLE = {
+  FX_HITSTOP: 1, HITSTOP_FRAMES: 4,          // 스매시 순간 화면 정지 (60 fps 기준 프레임 수)
+  FX_SHAKE: 1, SHAKE_GAIN: 0.0018,           // 흔들림 진폭 = SHAKE_GAIN·타격 속도 (m per m/s)
+  SHAKE_MAX: 0.05, SHAKE_DECAY: 0.15,        // 진폭 상한 (m), 감쇠 시간 (s)
+  FX_TRAIL: 1, TRAIL_TIME: 0.22,             // 공 꼬리 길이 (화면 시간 s)
+  TRAIL_SPIN_MIN: 8,                         // 이 회전(rps) 이상이어야 구질 색을 입힌다
+  FX_POPUP: 1, POPUP_TIME: 0.9,              // PERFECT / SMASH! / EDGE! 팝업 표시 시간 (s)
+  FX_SLOWMO: 1, SLOWMO_RATE: 0.3,            // 매치포인트 결정 순간 화면 재생 속도 배율
+  SLOWMO_TIME: 0.9, CATCHUP_RATE: 2,         // 슬로모션 길이 (실제 s), 밀린 화면을 따라잡는 재생 배율
+  SND_PITCH: 1, SND_DECAY: 1,                // 모든 타격음 음높이·감쇠 시간 배율
+  SND_SPEED_REF: 10,                         // 소리 세기 g = 1 − e^(−속도/이 값) (m/s)
+  SND_PITCH_RACKET: 1, SND_PITCH_TABLE: 1, SND_PITCH_NET: 1, SND_PITCH_EDGE: 1, SND_PITCH_FLOOR: 1,
+  SND_CROWD: 1, CROWD_GAIN: 0.35,            // 관중 함성 최대 음량
+  CROWD_RALLY_FULL: 8,                       // 함성 = 1 − e^(−랠리 수/이 값)
+  SND_HEART: 1, HEART_BPM: 96, HEART_GAIN: 0.7, // 매치포인트 심장 박동
+  SND_JINGLE: 1,                             // 득점·게임 종료 효과음
+};
+
 export const TUNABLE_DEFAULTS = Object.freeze({
-  ...PHYSICS_TUNABLE, ...JUDGE_TUNABLE, ...SHOT_TUNABLE, ...AI_TUNABLE,
+  ...PHYSICS_TUNABLE, ...JUDGE_TUNABLE, ...SHOT_TUNABLE, ...AI_TUNABLE, ...FEEL_TUNABLE,
 });
+
+// 디버그 패널에서 슬라이더 대신 체크박스로 보이는 켜기/끄기 키
+export const TUNABLE_TOGGLES = Object.freeze([
+  'FX_HITSTOP', 'FX_SHAKE', 'FX_TRAIL', 'FX_POPUP', 'FX_SLOWMO', 'SND_CROWD', 'SND_HEART', 'SND_JINGLE',
+]);
 
 // 디버그 패널 묶음 이름 → 키 목록
 export const TUNABLE_GROUPS = Object.freeze({
@@ -146,6 +171,7 @@ export const TUNABLE_GROUPS = Object.freeze({
   '판정': Object.keys(JUDGE_TUNABLE),
   '구질': Object.keys(SHOT_TUNABLE),
   'AI': Object.keys(AI_TUNABLE),
+  '연출': Object.keys(FEEL_TUNABLE),
 });
 
 // 실제로 쓰는 튜닝 값 (디버그 패널이 이 객체를 직접 바꾼다)
@@ -223,6 +249,29 @@ export const TUNABLE_RANGES = Object.freeze({
   ...aiRanges('EASY'),
   ...aiRanges('NORMAL'),
   ...aiRanges('HARD'),
+  ...Object.fromEntries(TUNABLE_TOGGLES.map((k) => [k, r(0, 1, 1)])),
+  HITSTOP_FRAMES: r(0, 12, 1),
+  SHAKE_GAIN: r(0, 0.01, 0.0001),
+  SHAKE_MAX: r(0, 0.2, 0.005),
+  SHAKE_DECAY: r(0.02, 0.6, 0.01),
+  TRAIL_TIME: r(0.02, 0.6, 0.01),
+  TRAIL_SPIN_MIN: r(0, 60, 1),
+  POPUP_TIME: r(0.2, 3, 0.05),
+  SLOWMO_RATE: r(0.05, 1, 0.05),
+  SLOWMO_TIME: r(0, 3, 0.05),
+  CATCHUP_RATE: r(1.1, 5, 0.1),
+  SND_PITCH: r(0.25, 3, 0.01),
+  SND_DECAY: r(0.25, 4, 0.01),
+  SND_SPEED_REF: r(1, 40, 0.5),
+  SND_PITCH_RACKET: r(0.25, 3, 0.01),
+  SND_PITCH_TABLE: r(0.25, 3, 0.01),
+  SND_PITCH_NET: r(0.25, 3, 0.01),
+  SND_PITCH_EDGE: r(0.25, 3, 0.01),
+  SND_PITCH_FLOOR: r(0.25, 3, 0.01),
+  CROWD_GAIN: r(0, 1, 0.01),
+  CROWD_RALLY_FULL: r(1, 40, 1),
+  HEART_BPM: r(40, 180, 1),
+  HEART_GAIN: r(0, 1.5, 0.01),
 });
 
 // 구질 이름 (판정 결과 shotType) → 화면 표시
@@ -411,4 +460,117 @@ export const RENDER = Object.freeze({
   MARKER_OPACITY: 0.55,
   MARKER_INNER: 0.9,         // 고리 안쪽 반지름 비율
   FACE_TILT: 25,             // 화면용 라켓 면 기울기: 드래그가 위로 향할수록 덮고(−) 아래로 향할수록 연다(°)
+});
+
+// ── 4단계: 타격감 연출 (튜닝하지 않는 값. 세기·켜기/끄기는 TUNABLE의 '연출' 묶음) ──
+export const FEEL = Object.freeze({
+  FRAME_RATE: 60,            // 히트스톱 프레임 수를 초로 바꿀 때 기준 (모니터 주사율과 무관하게 같은 길이)
+  VIEW_LAG_MAX: 0.8,         // 화면 표시가 물리보다 늦을 수 있는 최대 시간 (s)
+  HISTORY_TIME: 1.5,         // 화면 보간용으로 기억하는 공 상태 길이 (s, VIEW_LAG_MAX + 꼬리 길이보다 길게)
+  TELEPORT: 0.5,             // 두 스텝 사이 공이 이보다 많이 움직이면 순간 이동으로 보고 보간·꼬리를 끊는다 (m)
+  SHAKE_FREQ_X: 31,          // 흔들림 진동수 (Hz). 두 축을 다르게 해 같은 모양이 반복되지 않게
+  SHAKE_FREQ_Z: 23,
+  TRAIL_MAX_POINTS: 96,      // 꼬리 점 최대 개수
+  TRAIL_POINT_SIZE: 0.04,    // 꼬리 점 크기 (m)
+  TRAIL_SPRITE_SIZE: 64,     // 꼬리 점 텍스처 픽셀
+  COLOR_TRAIL_TOP: 0xff3b30, // 탑스핀 빨강
+  COLOR_TRAIL_BACK: 0x3a8bff, // 백스핀 파랑
+  COLOR_TRAIL_SIDE: 0xb04dff, // 횡회전 보라
+  COLOR_TRAIL_NONE: 0xe8e8e8, // 회전 약함
+  POPUP_RISE: 70,            // 팝업이 떠오르는 거리 (px)
+  POPUP_STACK: 34,           // 같은 순간 팝업이 여러 개면 위로 쌓는 간격 (px)
+  POPUP_OFFSET_Y: -40,       // 공 화면 위치에서 위로 띄우는 거리 (px)
+  POPUPS: Object.freeze({
+    perfect: Object.freeze({ text: 'PERFECT', color: '#ffd84d', size: 34 }),
+    smash: Object.freeze({ text: 'SMASH!', color: '#ff5a3c', size: 46 }),
+    edge: Object.freeze({ text: 'EDGE!', color: '#7fe8ff', size: 40 }),
+  }),
+});
+
+// 소리 합성 레시피. 각 층(layer)은 사인파(tone) 또는 필터 거친 노이즈(noise)다.
+//  g = 1 − e^(−속도/SND_SPEED_REF) (0~1, 속도에 대해 단조 증가)
+//  음높이 = freq·배율·(1 + fGain·g), 감쇠 = decay·배율·(1 + dGain·g), 음량 = gain·(GAIN_FLOOR + (1 − GAIN_FLOOR)·g)
+//  sweep: 감쇠하는 동안 음높이(필터 주파수)가 freq·sweep까지 미끄러진다 (감기는 소리·묵직하게 떨어지는 소리)
+//  delay: 첫 층보다 늦게 시작 (s). 커트의 "사각"은 짧은 노이즈 알갱이 두 개.
+const tone = (freq, decay, gain, o = {}) => Object.freeze({ kind: 'tone', freq, decay, gain, sweep: 1, delay: 0, ...o });
+const noise = (filter, freq, decay, gain, o = {}) => Object.freeze({ kind: 'noise', filter, freq, decay, gain, q: 1, sweep: 1, delay: 0, ...o });
+export const SOUND = Object.freeze({
+  GAIN_FLOOR: 0.15,
+  FREQ_GAIN: 0.3,            // 층마다 지정하지 않으면 쓰는 fGain·dGain
+  DECAY_GAIN: 0.5,
+  ATTACK: 0.002,             // 소리 시작 경사 (s)
+  MASTER: 0.8,               // 기본 음량
+  NOISE_SECONDS: 1,          // 미리 만들어 두는 노이즈 길이 (s)
+  // 충돌 종류(물리 이벤트 type)별 기본 소리. racket은 구질별(RACKET_SHOTS)로 바뀐다.
+  IMPACT: Object.freeze({
+    bounce: Object.freeze([   // 테이블: 속 빈 "똑" + 상판 울림
+      tone(950, 0.07, 0.7), tone(210, 0.09, 0.35, { fGain: 0.15 }), noise('bandpass', 3000, 0.012, 0.3, { q: 1.5 }),
+    ]),
+    edge: Object.freeze([     // 모서리: 높고 갈라지는 "딱" (서로 어울리지 않는 두 음)
+      tone(1300, 0.05, 0.6), tone(1870, 0.04, 0.4), noise('highpass', 3500, 0.02, 0.6), tone(260, 0.06, 0.3, { fGain: 0.15 }),
+    ]),
+    net: Object.freeze([      // 네트: 먹먹하게 "툭" + 그물 스침
+      noise('lowpass', 700, 0.09, 0.5), tone(300, 0.04, 0.2, { sweep: 0.8 }), noise('bandpass', 2200, 0.05, 0.15, { q: 0.7, delay: 0.01 }),
+    ]),
+    floor: Object.freeze([    // 바닥: 낮고 둔하게
+      tone(520, 0.11, 0.5), tone(120, 0.15, 0.4, { fGain: 0.1 }), noise('lowpass', 1500, 0.03, 0.3),
+    ]),
+  }),
+  RACKET_SHOTS: Object.freeze({
+    drive: Object.freeze([    // "착" 감기는 소리: 위로 미끄러지는 노이즈 + 짧은 고음 마찰
+      noise('bandpass', 1800, 0.075, 0.6, { q: 2, sweep: 2.2 }), tone(950, 0.06, 0.45), noise('highpass', 3500, 0.03, 0.35, { delay: 0.006 }),
+    ]),
+    smash: Object.freeze([    // 묵직하고 날카롭게: 떨어지는 저음 + 아주 짧은 고음 파열
+      tone(160, 0.12, 0.9, { sweep: 0.45, fGain: 0.2 }), noise('highpass', 4500, 0.025, 1.0), tone(1400, 0.04, 0.4),
+    ]),
+    cut: Object.freeze([      // 짧고 사각거리게: 높은 노이즈 알갱이 두 개
+      noise('highpass', 5500, 0.03, 0.5), noise('highpass', 6500, 0.022, 0.35, { delay: 0.018 }), tone(1700, 0.02, 0.25),
+    ]),
+    side: Object.freeze([     // 옆으로 쓸어내리는 마찰 (드라이브의 반대 방향 미끄러짐)
+      noise('bandpass', 2600, 0.065, 0.55, { q: 2, sweep: 0.6 }), tone(1000, 0.05, 0.4),
+    ]),
+    block: Object.freeze([    // 받아 대기만: 작고 단단하게
+      tone(800, 0.035, 0.5), noise('bandpass', 1500, 0.015, 0.3, { q: 1.2 }),
+    ]),
+    mishit: Object.freeze([   // 빗맞음: 둔한 "퍽"
+      tone(420, 0.05, 0.6, { sweep: 0.8 }), noise('lowpass', 900, 0.04, 0.4),
+    ]),
+  }),
+  // 관중: 걸러진 노이즈를 느리게 출렁이게
+  CROWD_FILTERS: Object.freeze([Object.freeze({ freq: 450, q: 0.8 }), Object.freeze({ freq: 1100, q: 0.9 })]),
+  CROWD_BASE: 0.05,          // 랠리가 없을 때 웅성거림 (CROWD_GAIN에 곱함)
+  CROWD_LFO_HZ: 0.35,        // 출렁임 빠르기
+  CROWD_LFO_DEPTH: 0.3,
+  CROWD_SMOOTH: 0.4,         // 음량 변화 시간 상수 (s)
+  CHEER_GAIN: 1.6,           // 득점 순간 함성 = 현재 함성 × 이 값 + 랠리 보너스
+  CHEER_TIME: 1.2,           // 득점 함성이 가라앉는 시간 (s)
+  // 심장 박동: "쿵-쿵" 두 번
+  HEART_FREQ: 58, HEART_SWEEP: 0.65, HEART_DECAY: 0.16, HEART_SECOND: 0.28, HEART_SECOND_GAIN: 0.7,
+  SCHEDULE_AHEAD: 0.1,       // 박동을 미리 예약하는 시간 (s)
+  // 득점·게임 종료 효과음 (Hz, 음 하나 길이 s)
+  JINGLE_NOTE: 0.11,
+  JINGLE_GAIN: 0.25,
+  POINT_WIN: Object.freeze([660, 990]),
+  POINT_LOSE: Object.freeze([440, 330]),
+  GAME_WIN: Object.freeze([523, 659, 784, 1047, 1319]),
+  GAME_LOSE: Object.freeze([392, 349, 311, 262]),
+  GAME_NOTE: 0.16,
+});
+
+// 사운드 테스트 페이지(?sound=1)의 약·중·강 속도 (m/s)
+export const SOUND_TEST = Object.freeze({
+  LEVELS: Object.freeze(['약', '중', '강']),
+  SPEEDS: Object.freeze({
+    drive: Object.freeze([6, 8, 10]),
+    smash: Object.freeze([12, 15, 18]),
+    cut: Object.freeze([5, 6, 7]),
+    side: Object.freeze([6, 7.5, 9]),
+    block: Object.freeze([3, 5, 7]),
+    mishit: Object.freeze([8, 13, 18]),
+    bounce: Object.freeze([3, 7, 14]),
+    edge: Object.freeze([3, 7, 14]),
+    net: Object.freeze([2, 5, 10]),
+    floor: Object.freeze([2, 4, 7]),
+  }),
+  CROWD_RALLIES: Object.freeze([0, 5, 15]),
 });

@@ -66,6 +66,53 @@
       position: fixed; left: 10px; bottom: 8px; color: rgba(232, 238, 247, 0.55);
       font: 12px/1 ui-monospace, monospace; pointer-events: none;
     }
+    /* 시작 화면: 클릭으로 오디오 켜기 */
+    #start {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: rgba(6, 9, 14, 0.7); cursor: pointer; z-index: 20;
+    }
+    #start[hidden] { display: none; }
+    #start .box { text-align: center; color: #e8eef7; font: 500 16px/1.6 system-ui, sans-serif; }
+    #start h1 { margin: 0 0 8px; font: 900 52px/1.1 system-ui, sans-serif; letter-spacing: 0.02em; }
+    #start .go {
+      display: inline-block; margin-top: 18px; padding: 12px 30px; border-radius: 10px; background: #2f6bd8;
+      color: #fff; font: 800 20px/1 system-ui, sans-serif;
+    }
+    #start:hover .go { background: #3d7cf0; }
+    /* 음소거·음량 (왼쪽 아래, 버전 위) */
+    #audio-ui {
+      position: fixed; left: 8px; bottom: 26px; display: flex; align-items: center; gap: 6px;
+      padding: 4px 8px; border-radius: 8px; background: rgba(10, 14, 22, 0.55); z-index: 10;
+    }
+    #mute { border: 0; background: none; font-size: 20px; line-height: 1; cursor: pointer; padding: 0 2px; }
+    #volume { width: 90px; }
+    /* 판정 팝업: 공 위치에서 튀어 올랐다 사라짐 */
+    #popups { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+    .popup {
+      position: absolute; transform: translate(-50%, -50%); font-family: system-ui, sans-serif; font-weight: 900;
+      letter-spacing: 0.04em; text-shadow: 0 0 10px currentColor, 0 2px 4px #000; white-space: nowrap;
+      animation-name: popup-rise; animation-timing-function: cubic-bezier(0.2, 0.9, 0.3, 1); animation-fill-mode: forwards;
+    }
+    @keyframes popup-rise {
+      0% { transform: translate(-50%, -50%) scale(0.4); opacity: 0; }
+      15% { transform: translate(-50%, -50%) scale(1.25); opacity: 1; }
+      30% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+      100% { transform: translate(-50%, calc(-50% + var(--rise))) scale(1); opacity: 0; }
+    }
+    /* 사운드 테스트 (?sound=1) */
+    #soundtest {
+      position: fixed; left: 8px; top: 50%; transform: translateY(-50%); max-height: 80vh; overflow-y: auto;
+      padding: 8px 12px; border-radius: 10px; background: rgba(12, 16, 24, 0.9); color: #dfe7f2;
+      font: 12px/1.35 system-ui, sans-serif; z-index: 15;
+    }
+    #soundtest h3 { margin: 2px 0 6px; font-size: 13px; color: #9fc3ff; }
+    #soundtest .st-row { display: grid; grid-template-columns: 96px repeat(4, auto); gap: 4px; align-items: center; margin: 3px 0; }
+    #soundtest button {
+      background: #26324a; color: #e8eef7; border: 1px solid #3d4d6e; border-radius: 4px;
+      padding: 3px 8px; font: inherit; cursor: pointer;
+    }
+    #soundtest button:hover { background: #33446a; }
+    #soundtest .st-info { margin: 8px 0 0; max-width: 340px; white-space: pre-wrap; font: 11px/1.4 ui-monospace, monospace; color: #c9d3e0; }
     /* 디버그 패널 (?debug=1) */
     #debug {
       position: fixed; top: 0; right: 0; width: 300px; max-height: 100vh; overflow-y: auto;
@@ -89,6 +136,7 @@
     #debug .dbg-log { white-space: pre; font: 11px/1.4 ui-monospace, monospace; color: #c9d3e0; overflow-x: auto; }
     #debug .dbg-group { margin: 4px 0; border-left: 2px solid #33446a; padding-left: 6px; }
     #debug .dbg-group summary { cursor: pointer; color: #cfe0ff; margin: 2px 0; }
+    #debug .dbg-toggle { display: flex; gap: 6px; align-items: center; margin: 5px 0 2px; color: #ffd27a; }
   </style>
   <script type="importmap">
     {
@@ -124,7 +172,20 @@
       <button id="again" type="button">다시 하기</button>
     </div>
   </div>
+  <div id="popups"></div>
+  <div id="audio-ui">
+    <button id="mute" type="button">🔊</button>
+    <input id="volume" type="range" min="0" max="1" step="0.01" title="음량">
+  </div>
   <div id="version"></div>
+  <div id="start">
+    <div class="box">
+      <h1>1vs1 탁구</h1>
+      <div>클릭하면 소리가 켜지고 경기가 시작됩니다.</div>
+      <div>드래그로 치기 · M 음소거</div>
+      <div class="go">클릭해서 시작</div>
+    </div>
+  </div>
   <script>
     // 모듈 로드 실패(CDN 차단, WebGL 미지원 등)를 화면에 알린다.
     window.addEventListener('error', (e) => {

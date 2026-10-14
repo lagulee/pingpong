@@ -1,7 +1,7 @@
 // render.js — Three.js 장면 구성과 그리기.
 // 물리 좌표계(z가 위)와 Three.js 좌표계(y가 위)의 변환은 이 파일에서만 한다.
 import * as THREE from 'three';
-import { TABLE, NET, BALL, RACKET, RENDER, DEBUG_ARROW } from '../shared/constants.js';
+import { TABLE, NET, BALL, RACKET, RENDER, DEBUG_ARROW, FEEL } from '../shared/constants.js';
 
 // 물리 (x, y, z) → Three.js (x, z, -y)
 // 물리 y축(탁구대 길이)이 화면 안쪽으로 들어가도록 Three.js의 -z에 대응시킨다.
@@ -230,6 +230,55 @@ export function createMarkerView(scene) {
   };
 }
 
+// 공 꼬리: 점(Points)을 가산 혼합으로 그린다. 점 색 = 구질 색 × 밝기(오래된 점일수록 어둡게 → 투명해 보임)
+// update(points[{ pos, color }]) — pos는 물리 좌표, color는 0xRRGGBB, 오래된 것부터.
+function makeDotTexture() {
+  const n = FEEL.TRAIL_SPRITE_SIZE;
+  const c = document.createElement('canvas');
+  c.width = c.height = n;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(n / 2, n / 2, 0, n / 2, n / 2, n / 2);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.5, 'rgba(255,255,255,0.6)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, n, n);
+  return new THREE.CanvasTexture(c);
+}
+
+export function createTrailView(scene) {
+  const N = FEEL.TRAIL_MAX_POINTS;
+  const pos = new Float32Array(N * 3), col = new Float32Array(N * 3);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setDrawRange(0, 0);
+  const mat = new THREE.PointsMaterial({
+    size: FEEL.TRAIL_POINT_SIZE, map: makeDotTexture(), vertexColors: true, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+  });
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  scene.add(points);
+  const c = new THREE.Color();
+  return {
+    update(list) {
+      const n = Math.min(list.length, N);
+      for (let i = 0; i < n; i++) {
+        const q = list[list.length - n + i];
+        const v = toThree(q.pos);
+        pos[i * 3] = v.x; pos[i * 3 + 1] = v.y; pos[i * 3 + 2] = v.z;
+        const fade = ((i + 1) / n) ** 1.5; // 새 점일수록 밝게
+        c.setHex(q.color);
+        col[i * 3] = c.r * fade; col[i * 3 + 1] = c.g * fade; col[i * 3 + 2] = c.b * fade;
+      }
+      geo.setDrawRange(0, n);
+      geo.attributes.position.needsUpdate = true;
+      geo.attributes.color.needsUpdate = true;
+    },
+  };
+}
+
 // 장면을 만들고 그리기 함수들을 돌려준다.
 export function createRenderer(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -264,6 +313,12 @@ export function createRenderer(canvas) {
     camera.updateProjectionMatrix();
   }
 
+  // 화면 흔들림: 물리 좌표 이동량 { x, z }만큼 카메라를 옮긴다 (시선 방향은 그대로)
+  const camBase = toThree(RENDER.CAMERA_POS);
+  function setShake(off) {
+    camera.position.copy(camBase).add(toThree({ x: off.x, y: 0, z: off.z }));
+  }
+
   function render() {
     renderer.render(scene, camera);
   }
@@ -274,7 +329,13 @@ export function createRenderer(canvas) {
   function screenRay(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
     ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    // 흔들림이 마우스 → 라켓 위치에 섞이면 스윙 속도 판정이 흔들리므로, 흔들리지 않은 카메라로 계산한다
+    const shaken = camera.position.clone();
+    camera.position.copy(camBase);
+    camera.updateMatrixWorld();
     raycaster.setFromCamera(ndc, camera);
+    camera.position.copy(shaken);
+    camera.updateMatrixWorld();
     return { origin: fromThree(raycaster.ray.origin), dir: fromThree(raycaster.ray.direction) };
   }
 
@@ -286,5 +347,5 @@ export function createRenderer(canvas) {
   }
 
   resize();
-  return { renderer, scene, camera, resize, render, screenRay, worldToScreen };
+  return { renderer, scene, camera, resize, render, screenRay, worldToScreen, setShake };
 }
