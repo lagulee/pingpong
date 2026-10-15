@@ -26,7 +26,7 @@ import {
   createAI, createPlayer, createRally, stepMatch, serveBall, placeBall, endFree, tossBall, queueScenario,
   scoreState, racketWorld, serveGuide,
 } from './ai.js';
-import { createOnlineClient, createBallLag } from './net.js';
+import { createOnlineClient, createBallLag, courtShare } from './net.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('game');
@@ -63,7 +63,8 @@ const fx = createFx();
 const history = createBallHistory();  // 물리 스텝마다 공 상태 복사본
 const queue = createDisplayQueue();   // 화면 시각에 맞춰 낼 이벤트·득점 결과
 const popups = createPopupLayer($('popups'));
-const ballLag = createBallLag();      // 대전: 공만 늦게 보여 주는 시간 (상대 타격 합류)
+const ballLag = createBallLag();      // 대전: 공만 늦게 보여 주는 시간 (상대 쪽에서는 예상 지연만큼, 내 쪽에서는 0)
+let shownY = 0;                       // 지난 프레임에 보여 준 공의 내 기준 y (화면 지연 계산용)
 let viewT = 0;                        // 화면이 보여 주는 시각
 let crowdRally = null;                // 관중 함성에 마지막으로 반영한 랠리 수
 window.addEventListener('pointerdown', () => audio.unlock(), { once: true });
@@ -367,7 +368,7 @@ function startOnline(code, create) {
           queue.dropAfter(t);
           if (shownResults > game.results.length) shownResults = game.results.length;
         },
-        onRemote(msg, lag) { ballLag.start(lag); },
+        onRemote(msg, lag) { ballLag.observe(lag); },
         onServerResult: (r, matched) => onServerResult(r, matched),
         onReject(msg) {
           shotSubEl.textContent = `타격 무효 (${REJECT_LABELS[msg.reason] ?? msg.reason})`;
@@ -565,7 +566,8 @@ function racketNormal(player, t, side) {
 // 대전 화면 안내: 핑, 상대 끊김 대기, 내 연결 끊김
 function onlineHud(ms) {
   const p = client.ping;
-  pingEl.textContent = p === null ? '핑 —' : `핑 ${Math.round(p)} ms`;
+  // 핑(왕복) · 상대 공 지연(상대 타격을 실제로 늦게 알게 되는 시간의 예상값)
+  pingEl.textContent = p === null ? '핑 —' : `핑 ${Math.round(p)} ms · 상대 공 지연 ${Math.round(ballLag.expected * 1000)} ms`;
   pingEl.className = p === null ? '' : p < ONLINE.PING_GOOD ? 'good' : p < ONLINE.PING_OK ? 'ok' : 'bad';
   debug.setPing(p);
   let msg = '';
@@ -594,7 +596,10 @@ function frame(now) {
     const target = simT();
     viewT = Math.max(prevView, target - out.lag);
     view.setShake(out.shake);
-    ballViewT = viewT - ballLag.advance(elapsed, client.awaitingOpponent());
+    // 공은 상대 쪽에서 예상 지연만큼 늦게, 내 쪽으로 오며 지연 0으로 (상대 타격이 늦게 와도 멈칫·튐 없음)
+    if (client.ping !== null) ballLag.seed(client.ping / 1000);
+    const started = client.matchTime(ms) >= 0; // 카운트다운 중에는 경기 시각이 멈춰 있으므로 지연을 키우지 않는다
+    ballViewT = viewT - (started ? ballLag.advance(elapsed, courtShare(shownY)) : ballLag.lag);
     onlineHud(ms);
     const t = client.matchTime(ms);
     if (t < 0 && client.status === 'playing') { centerEl.className = 'center-neutral'; centerEl.textContent = `${Math.ceil(-t)}`; messageUntil = 0; }
@@ -612,11 +617,13 @@ function frame(now) {
     view.setShake(out.shake);
     ballViewT = viewT;
   }
-  for (const item of queue.popUntil(viewT)) dispatch(item);
+  // 소리·연출·판정 글자는 보이는 공에 맞춘다 (연습에서는 ballViewT = viewT)
+  for (const item of queue.popUntil(ballViewT)) dispatch(item);
 
   // 공 (기록 사이 보간)
   const ball = game.ball;
   const shown = history.sample(ballViewT) ?? ball;
+  shownY = toLocal(shown.pos, me).y;
   ballView.update(shown.pos, shown.vel, shown.spin, viewT - prevView);
   if (TUNABLE.FX_TRAIL >= 0.5) {
     const pts = history.trail(ballViewT, TUNABLE.TRAIL_TIME).map((q) => ({ pos: q.pos, color: TRAIL_COLORS[spinKind(q.vel, q.spin)] }));
@@ -631,8 +638,10 @@ function frame(now) {
   const follow = (side) => (live && canHit(rules, side) && bouncedOn(rules, side) ? ball : null);
   myRacket.update(racketWorld(human, t, follow(me)), racketNormal(human, t, me));
   const op = opp();
-  const rp = racketWorld(op, viewT, follow(-me) && shown) ?? toWorld({ x: SWING.HOME.x, y: SWING.HOME_Y, z: SWING.HOME.z }, -me);
-  robotRacket.update(rp, racketNormal(op, viewT, -me));
+  // 상대 라켓은 상대 쪽 공과 같은 지연으로 그린다 (라켓 위치도 같은 경로로 늦게 오므로 공과 맞아떨어진다)
+  const opT = online() ? viewT - ballLag.expected : viewT;
+  const rp = racketWorld(op, opT, follow(-me) && shown) ?? toWorld({ x: SWING.HOME.x, y: SWING.HOME_Y, z: SWING.HOME.z }, -me);
+  robotRacket.update(rp, racketNormal(op, opT, -me));
 
   // 내가 칠 공의 예측 정점 (상대가 친 공이 나에게 오는 중) 또는 내 서브 타점
   // 내 서브 (공을 들고 있거나, 토스했지만 아직 치지 않음): 가이드라인과 넓은 서브 도달 범위 고리

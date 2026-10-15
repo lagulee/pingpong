@@ -42,11 +42,15 @@ export function createWorld({ seed = 1, start = 1_000_000 } = {}) {
   // 소켓 한 쌍 (서버 쪽 ws는 Room에, 클라이언트 쪽은 net.js에)
   w.open = (lat) => {
     const delay = () => (typeof lat === 'function' ? lat(w.rng) : lat);
+    // WebSocket(TCP)은 순서를 지킨다: 지연이 흔들려도 먼저 보낸 메시지가 먼저 도착한다
+    let lastDown = 0, lastUp = 0;
+    const down = () => (lastDown = Math.max(w.time + delay(), lastDown));
+    const up = () => (lastUp = Math.max(w.time + delay(), lastUp));
     const server = {
       closed: false, att: null,
       serializeAttachment(a) { this.att = a; },
       deserializeAttachment() { return this.att; },
-      send(str) { if (!this.closed) w.at(w.time + delay(), () => { if (!client.closed) client.onmessage?.({ data: str }); }); },
+      send(str) { if (!this.closed) w.at(down(), () => { if (!client.closed) client.onmessage?.({ data: str }); }); },
       close() {
         if (this.closed) return;
         this.closed = true;
@@ -55,7 +59,7 @@ export function createWorld({ seed = 1, start = 1_000_000 } = {}) {
     };
     const client = {
       closed: false,
-      send(str) { if (!this.closed) w.at(w.time + delay(), () => { if (!server.closed) w.room.webSocketMessage(server, str); }); },
+      send(str) { if (!this.closed) w.at(up(), () => { if (!server.closed) w.room.webSocketMessage(server, str); }); },
       close() {
         if (this.closed) return;
         this.closed = true;
@@ -74,7 +78,8 @@ export function createWorld({ seed = 1, start = 1_000_000 } = {}) {
   };
 
   // AI 대전 클라이언트 하나: 편도 지연 lat, 내 시계 = 서버 시계 + clockOffset
-  w.addAI = ({ lat, clockOffset = 0, difficulty = 'NORMAL', nickname = 'AI', create = false, aiSeed = 1 }) => {
+  // hooks: net.js 훅을 더 붙일 때 (화면 흉내 등), rec.afterTick: 매 프레임 tick 뒤에 부른다
+  w.addAI = ({ lat, clockOffset = 0, difficulty = 'NORMAL', nickname = 'AI', create = false, aiSeed = 1, hooks = {} }) => {
     const rec = { points: [], rejects: [], sockets: [] };
     const client = createOnlineClient({
       // rec.blocked: 네트워크가 끊긴 것처럼 새 연결이 열리지 않는다
@@ -90,6 +95,7 @@ export function createWorld({ seed = 1, start = 1_000_000 } = {}) {
         return { ai, player: ai.player };
       },
       hooks: {
+        ...hooks,
         onServerResult: (r, matched) => rec.points.push({ ...r, matched }),
         onReject: (m) => rec.rejects.push(m),
         onOpp: (state) => { rec.opp = state; },
@@ -109,7 +115,7 @@ export function createWorld({ seed = 1, start = 1_000_000 } = {}) {
       w.queue.sort((a, b) => a.t - b.t || a.n - b.n);
       while (w.queue.length && w.queue[0].t <= w.time) w.queue.shift().fn();
       if (w.ctx.alarmAt !== null && w.ctx.alarmAt <= w.time) { w.ctx.alarmAt = null; w.room.alarm(); }
-      for (const c of w.clients) c.client.tick();
+      for (const c of w.clients) { c.client.tick(); c.afterTick?.(); }
     }
     return w.time < end;
   };

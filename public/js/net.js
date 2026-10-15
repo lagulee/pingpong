@@ -6,7 +6,7 @@
 import { PHYSICS, TUNABLE, ONLINE, VERSION, FEEL } from '../shared/constants.js';
 import { toLocal } from '../shared/physics.js';
 import { applyHit } from '../shared/match.js';
-import { canHit, bouncedOn, toServe } from '../shared/rules.js';
+import { toServe } from '../shared/rules.js';
 import { matchSnapshot, restoreMatch } from '../shared/host.js';
 import { createRally, stepMatch, replayStep, tossBall, holdServe, incoming, createPlayer } from './ai.js';
 import { racketPointAt, pruneSamples, createRng } from './input.js';
@@ -41,35 +41,36 @@ export function createClockSync(keep = ONLINE.SYNC_SAMPLES) {
   };
 }
 
-// ── 화면 합류: 공만 늦게 보여 주는 시간(lag, s) ───────────────────
-// 상대 타격 도착: 그 타격 순간(lag = 지금 − 타격 시각)부터 MERGE_TIME에 걸쳐 빨리 감아 lag 0으로 합류한다.
-// 상대 타격을 기다리는 중(공이 상대 도달 범위 안): 화면의 공 시계를 HOLD_RATE 배속으로 늦춘다(최대 HOLD_MAX).
-// 기다림이 타격 없이 끝나면(상대가 놓침) 그때의 lag에서 같은 방식으로 합류한다.
-export function mergeLag(L, since, mergeTime = ONLINE.MERGE_TIME) {
-  return since >= mergeTime ? 0 : L * (1 - since / mergeTime);
+// ── 화면 지연: 공만 늦게 보여 주는 시간(lag, s) ───────────────────
+// 상대 타격은 (상대 → 서버 → 나) 지연 L만큼 늦게 알게 된다. 공을 상대 쪽에서는 예상 지연만큼 늦게 보여 주면
+// 상대 타격 소식이 "제때" 도착해 공이 멈칫하거나 튀지 않는다. 공이 내 쪽으로 오는 동안 지연을 0으로 줄이므로
+// (화면 공이 조금 빨라짐) 내 코트에서는 화면 = 실제 물리 → 타격 판정과 보이는 공이 일치한다.
+// courtShare(y): 내 기준 좌표 y → 0(내 쪽) ~ 1(상대 쪽)
+export function courtShare(yLocal, p = ONLINE) {
+  return Math.min(1, Math.max(0, (yLocal - p.LAG_NEAR) / (p.LAG_FAR - p.LAG_NEAR)));
 }
 
 export function createBallLag(p = ONLINE) {
-  let lag = 0, merge = null;
+  let lag = 0, mean = null, dev = 0;
+  const expected = () => (mean === null ? 0 : Math.min(p.LAG_MAX, Math.max(0, mean + p.LAG_DEV_K * dev)));
   return {
     get lag() { return lag; },
-    get merging() { return !!merge; },
-    reset() { lag = 0; merge = null; },
-    start(L) {
-      merge = { L: Math.max(0, Math.min(L, FEEL.VIEW_LAG_MAX)), since: 0 };
-      lag = merge.L;
+    get expected() { return expected(); },
+    reset() { lag = 0; mean = null; dev = 0; },
+    // 처음 추정: 아직 상대 타격을 받기 전이면 왕복 시간(≈ 상대 편도 + 내 편도)으로 둔다
+    seed(sec) { if (mean === null && Number.isFinite(sec)) { mean = Math.max(0, sec); dev = 0; } },
+    // 상대 타격이 실제로 늦게 도착한 시간 L (s)
+    observe(L) {
+      if (!Number.isFinite(L)) return;
+      if (mean === null) { mean = L; dev = 0; return; }
+      dev += p.LAG_EMA * (Math.abs(L - mean) - dev);
+      mean += p.LAG_EMA * (L - mean);
     },
-    // 실제 경과 시간 dt, holding: 상대 타격을 기다리는 중인가
-    advance(dt, holding) {
-      if (merge) {
-        merge.since += dt;
-        lag = mergeLag(merge.L, merge.since, p.MERGE_TIME);
-        if (merge.since >= p.MERGE_TIME) merge = null;
-      } else if (holding) {
-        lag = Math.min(p.HOLD_MAX, lag + dt * (1 - p.HOLD_RATE));
-      } else if (lag > 0) {
-        merge = { L: lag, since: 0 };
-      }
+    // 실제 경과 dt, share: 지금 보이는 공 위치의 courtShare → 새 lag
+    advance(dt, share) {
+      const target = expected() * share;
+      if (target > lag) lag = Math.min(target, lag + p.LAG_RATE_UP * dt);
+      else lag = Math.max(target, lag - p.LAG_RATE_DOWN * dt);
       return lag;
     },
   };
@@ -469,17 +470,6 @@ export function createOnlineClient(opts) {
     const g = c.game;
     if (!g || c.status !== 'playing' || c.oppAway !== null) return false;
     return tossBall(g, c.me, x, g.ball.t, params);
-  };
-
-  // 상대가 칠 차례인 공이 상대 도달 범위 안에 있는가 (화면: 상대 타격을 기다리며 공을 늦춘다)
-  c.awaitingOpponent = () => {
-    const g = c.game;
-    if (!g) return false;
-    const r = g.rules, opp = -c.me;
-    if (!(r.phase === 'serving' || r.phase === 'rally') || !canHit(r, opp)) return false;
-    const serve = r.phase === 'serving' && r.lastHitter === 0;
-    if (!serve && !bouncedOn(r, opp)) return false;
-    return toLocal(g.ball.pos, opp).y <= g.players[opp].yPlane + params.REACH_Y;
   };
 
   c.leave = () => {

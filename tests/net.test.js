@@ -1,7 +1,7 @@
 // 5단계 대전 클라이언트의 순수 함수: 시계 동기화(NTP), 화면 합류(빨리 감기), 토스 실패 규칙
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { clockSample, createClockSync, mergeLag, createBallLag } from '../public/js/net.js';
+import { clockSample, createClockSync, createBallLag, courtShare } from '../public/js/net.js';
 import { createRng } from '../public/js/input.js';
 import { createRules, applyEvent } from '../public/shared/rules.js';
 import { ONLINE, REASON_LABELS } from '../public/shared/constants.js';
@@ -48,39 +48,48 @@ test('시계 동기화: 왕복 시간이 가장 짧은 표본을 쓰고, 최근 
   assert.equal(s.offset, 10, '오래된 표본은 버림');
 });
 
-test('[8] 화면 합류: 상대 타격 순간부터 MERGE_TIME(0.1 s)에 걸쳐 빨리 감아 지연 0으로 연속 합류', () => {
-  const T = ONLINE.MERGE_TIME;
-  assert.equal(T, 0.1);
-  const L = 0.08;
-  assert.equal(mergeLag(L, 0), L);
-  assert.equal(mergeLag(L, T), 0);
-  assert.equal(mergeLag(L, 1), 0);
-  // 단조 감소, 화면 공 시계 배속 = 1 + L/T (예: 80 ms 늦게 받으면 1.8배속)
-  let prev = L;
-  for (let s = 0.001; s <= T; s += 0.001) {
-    const v = mergeLag(L, s);
-    assert.ok(v <= prev + 1e-12);
-    assert.ok(Math.abs((prev - v) / 0.001 - L / T) < 1e-6, '일정한 배속');
-    prev = v;
-  }
-  // 상대 타격을 기다리는 동안 늦추고(최대 HOLD_MAX), 타격이 오면 그 순간부터 합류
+test('[8] 화면 지연: 상대 쪽에서는 예상 지연만큼, 내 코트에서는 0. 지연은 정해진 속도 안에서만 변한다', () => {
+  // 공 위치 → 비율: 내 코트(LAG_NEAR 안쪽) 0, 상대 엔드 쪽(LAG_FAR 바깥) 1, 사이는 단조 증가
+  assert.equal(courtShare(-1.37), 0);
+  assert.equal(courtShare(ONLINE.LAG_NEAR), 0);
+  assert.equal(courtShare(ONLINE.LAG_FAR), 1);
+  assert.equal(courtShare(1.6), 1);
+  let prev = -1;
+  for (let y = -1.5; y <= 1.6; y += 0.05) { const v = courtShare(y); assert.ok(v >= prev); prev = v; }
+
+  // 예상 지연: 첫 추정은 핑, 상대 타격이 실제로 늦게 온 시간을 지수 평균 + 흔들림 여유로
   const lag = createBallLag();
-  for (let i = 0; i < 60; i++) lag.advance(1 / 60, true);
-  assert.ok(Math.abs(lag.lag - ONLINE.HOLD_MAX) < 1e-9, `기다림 ${lag.lag}`);
-  lag.start(0.09);
-  assert.equal(lag.lag, 0.09);
-  let frames = 0;
-  while (lag.lag > 0 && frames < 100) { lag.advance(1 / 240, false); frames++; }
-  assert.ok(Math.abs(frames / 240 - T) < 2 / 240, `${frames} 프레임`);
-  // 타격 없이 기다림이 끝나면(상대가 놓침) 그때의 지연에서 같은 방식으로 합류
-  const miss = createBallLag();
-  for (let i = 0; i < 6; i++) miss.advance(1 / 60, true);
-  const held = miss.lag;
-  assert.ok(held > 0);
-  miss.advance(1 / 60, false);
-  assert.ok(miss.merging && miss.lag <= held);
-  for (let i = 0; i < 12; i++) miss.advance(1 / 60, false);
-  assert.equal(miss.lag, 0);
+  assert.equal(lag.expected, 0);
+  lag.seed(0.12);
+  assert.ok(Math.abs(lag.expected - 0.12) < 1e-12);
+  lag.seed(0.5); // 이미 추정이 있으면 무시
+  assert.ok(Math.abs(lag.expected - 0.12) < 1e-12);
+  for (let i = 0; i < 40; i++) lag.observe(0.08);
+  assert.ok(Math.abs(lag.expected - 0.08) < 0.005, `수렴 ${lag.expected}`);
+  const steady = lag.expected;
+  lag.observe(0.2); // 흔들림이 생기면 여유가 커진다
+  assert.ok(lag.expected > steady + 0.024);
+  for (let i = 0; i < 100; i++) lag.observe(5);
+  assert.equal(lag.expected, ONLINE.LAG_MAX, '상한');
+
+  // 지연은 목표(예상 × 비율)를 향해 LAG_RATE_UP/DOWN 이하의 속도로만 움직인다 → 화면 공 0.5~4배속
+  const l2 = createBallLag();
+  l2.seed(0.2);
+  const dt = 1 / 60;
+  let v = 0;
+  for (let i = 0; i < 60; i++) {
+    const nv = l2.advance(dt, 1);
+    assert.ok(nv - v <= ONLINE.LAG_RATE_UP * dt + 1e-12);
+    v = nv;
+  }
+  assert.ok(Math.abs(v - 0.2) < 1e-12, '상대 쪽: 예상 지연');
+  for (let i = 0; i < 60; i++) {
+    const nv = l2.advance(dt, 0);
+    assert.ok(v - nv <= ONLINE.LAG_RATE_DOWN * dt + 1e-12);
+    v = nv;
+  }
+  assert.equal(v, 0, '내 코트: 지연 0');
+  assert.ok(Math.ceil(0.2 / (ONLINE.LAG_RATE_DOWN * dt)) <= 5, '0.2 s 지연도 5프레임 안에 0');
 });
 
 test('[9] 대전 규칙(retoss: false): 토스한 공을 치지 못하면 서브 실점 tossMiss, 연습은 토스 다시', () => {

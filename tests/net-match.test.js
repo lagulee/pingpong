@@ -52,3 +52,64 @@ for (const [latA, latB, seed] of [[30, 30, 1], [80, 80, 2], [30, 80, 3]]) {
     assert.ok(w.ctx.puts < 200, `저장 ${w.ctx.puts}회`);
   });
 }
+
+// v5.1: 실제 인터넷처럼 편도 지연이 흔들리고 가끔 튀는 네트워크
+const jittery = (base, j, p, spike) => (rng) => base + -Math.log(1 - rng()) * j + (rng() < p ? rng() * spike : 0);
+
+test('[6] 원격 AI 경기 (편도 100 ms + 지터 30 ms + 3% 확률로 최대 300 ms 튐): 거부 0, 점수 일치', () => {
+  const lat = jittery(100, 30, 0.03, 300);
+  const { A, B, done, host } = remoteGame({ latA: lat, latB: lat, seed: 2 });
+  assert.ok(done);
+  const score = host.game.rules.score;
+  for (const c of [A, B]) {
+    assert.deepEqual(c.client.game.rules.score, score);
+    assert.deepEqual(c.points.map(key), host.game.results.map(key));
+  }
+  assert.equal(A.rejects.length + B.rejects.length, 0, JSON.stringify([...A.rejects, ...B.rejects].slice(0, 3)));
+});
+
+test('[8] 화면 지연 (편도 80 ms): 보이는 공의 시간이 거꾸로 가지 않고, 내가 칠 때는 화면 = 실제 물리', async () => {
+  const { createBallHistory } = await import('../public/js/effects.js');
+  const { createBallLag, courtShare } = await import('../public/js/net.js');
+  const { toLocal } = await import('../public/shared/physics.js');
+  const { createWorld } = await import('./net-harness.js');
+  const w = createWorld({ seed: 4 });
+  w.code = 'K7QM';
+  const A = w.addAI({ lat: 80, create: true, aiSeed: 5 });
+  w.run(() => A.client.status === 'waiting', { maxMs: 5000 });
+  // B 화면을 main.js와 같은 방식으로 흉내 낸다: 공 기록·되감기·지연 관측
+  const history = createBallHistory();
+  const lag = createBallLag();
+  let hitThisFrame = false;
+  const B = w.addAI({
+    lat: 80, aiSeed: 6,
+    hooks: {
+      onStep(events, replay) {
+        history.push(B.client.game.ball.t, B.client.game.ball);
+        if (!replay && events.some((e) => e.type === 'racket' && e.side === B.client.me)) hitThisFrame = true;
+      },
+      onRewind: (t) => history.truncate(t),
+      onRemote: (m, L) => lag.observe(L),
+    },
+  });
+  let myHits = 0, badHits = 0, lastView = -Infinity, backwards = 0, shownY = 0, maxLag = 0;
+  B.afterTick = () => {
+    const c = B.client;
+    if (!c.game || c.matchTime() < 0) return; // 카운트다운 중에는 경기 시각이 멈춰 있다
+    if (c.ping !== null) lag.seed(c.ping / 1000);
+    const l = lag.advance(1 / 60, courtShare(shownY));
+    maxLag = Math.max(maxLag, l);
+    const viewT = c.game.ball.t - l;
+    if (viewT < lastView - 1e-9) backwards++;
+    lastView = viewT;
+    const s = history.sample(viewT);
+    if (s) shownY = toLocal(s.pos, c.me).y;
+    if (hitThisFrame) { myHits++; if (l > 0.02) badHits++; hitThisFrame = false; }
+  };
+  w.run(() => B.client.status === 'over', { maxMs: 20 * 60 * 1000 });
+  assert.equal(B.client.status, 'over');
+  assert.equal(backwards, 0, '화면 시간이 거꾸로 감');
+  assert.ok(maxLag > 0.1, `상대 쪽 지연이 실제로 쓰임 (최대 ${maxLag.toFixed(3)} s)`);
+  assert.ok(myHits > 20, `내 타격 ${myHits}`);
+  assert.ok(badHits / myHits <= 0.05, `칠 때 화면 지연 > 20 ms: ${badHits}/${myHits}`);
+});
