@@ -11,7 +11,7 @@ import {
 } from './render.js';
 import { createBall, makeLaunch, faceNormal, toWorld, toLocal } from '../shared/physics.js';
 import {
-  PHYSICS, PRACTICE, SWING, RENDER, TUNABLE, TUNABLE_DEFAULTS, TUNABLE_TOGGLES, NET, VERSION, SHOT_LABELS,
+  PHYSICS, PRACTICE, SWING, RENDER, TUNABLE, TUNABLE_DEFAULTS, TUNABLE_ONLINE_FREE, NET, VERSION, SHOT_LABELS,
   DIFFICULTIES, DIFFICULTY_LABELS, DEMO, REASON_LABELS, RULES, SERVE, SERVE_GUIDE, PAUSE, ONLINE, ONLINE_ERRORS,
   REJECT_LABELS,
 } from '../shared/constants.js';
@@ -21,7 +21,9 @@ import {
   createFx, createBallHistory, createDisplayQueue, createPopupLayer, spinKind, TRAIL_COLORS, frameSteps,
 } from './effects.js';
 import { initDebug, launchParams, SCENARIO_LABELS } from './debug.js';
-import { createMouseInput, rayPlaneY, analyzeDrag, createRng } from './input.js';
+import {
+  createMouseInput, rayPlaneY, analyzeDrag, createRng, cameraFor, tunableCamera, dragScaleFor,
+} from './input.js';
 import {
   createAI, createPlayer, createRally, stepMatch, serveBall, placeBall, endFree, tossBall, queueScenario,
   scoreState, racketWorld, serveGuide,
@@ -154,7 +156,6 @@ function resetView(t) {
 
 function newGame() {
   me = -1;
-  view.setSide(-1);
   human = createPlayer(-1);
   if (mouse) {
     mouse.samples.length = 0; // 시계가 바뀌므로(대전 ↔ 연습) 이전 샘플은 버린다
@@ -228,6 +229,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyV') setArrows(!ballView.arrowsVisible);
   if (e.code === 'KeyM') toggleMute();
   if (e.code === 'KeyG') TUNABLE.FX_SERVE_GUIDE = TUNABLE.FX_SERVE_GUIDE >= 0.5 ? 0 : 1;
+  if (e.code === 'KeyC') classicView = !classicView; // 새 시점 ↔ 기존 시점 (대전에서도 가능)
   if (online() || mode === 'menu') return; // 아래는 연습 전용
   const i = ['Digit1', 'Digit2', 'Digit3'].indexOf(e.code);
   if (i >= 0) setDifficulty(DIFFICULTIES[i]);
@@ -392,9 +394,8 @@ function beginOnline() {
   setPaused(false);
   // 대전 중에는 물리·판정 값을 서버와 같은 기본값으로 고정한다 (연출 켜기/끄기는 그대로)
   if (!practiceTunables) practiceTunables = { ...TUNABLE }; // 재접속(resume) 때 다시 덮어쓰지 않게
-  for (const [k, v] of Object.entries(TUNABLE_DEFAULTS)) if (!TUNABLE_TOGGLES.includes(k)) TUNABLE[k] = v;
+  for (const [k, v] of Object.entries(TUNABLE_DEFAULTS)) if (!TUNABLE_ONLINE_FREE.includes(k)) TUNABLE[k] = v;
   debug.setLocked(true);
-  view.setSide(me);
   guideCache.clear();
   resetView(0);
   lobbyEl.hidden = true;
@@ -558,7 +559,7 @@ function guideFor(x) {
 
 // ── 그리기 ──
 function racketNormal(player, t, side) {
-  const d = analyzeDrag(player.samples, t);
+  const d = analyzeDrag(player.samples, t, TUNABLE, player.dragScale ?? 1);
   const tilt = d.speed > TUNABLE.BLOCK_SPEED ? -d.sin * RENDER.FACE_TILT : 0;
   return toWorld(faceNormal(tilt, 0), side);
 }
@@ -578,6 +579,25 @@ function onlineHud(ms) {
   netMsgEl.textContent = msg;
   netMsgEl.hidden = !msg;
   if (client.status === 'error') showNetError(client.errorCode);
+}
+
+// ── 시점 (6단계) ──
+// 새 시점(TUNABLE CAM_*, 왼쪽 위) / 기존 시점(C 키). 내 자리(me)에 맞게 돌리고, 바뀌었을 때만 카메라를 다시 놓는다.
+// 시점에 따라 마우스 1 px가 라켓 평면에서 움직이는 거리가 달라지므로, 내 드래그 속도를 기존 시점 기준으로 맞춘다(dragScale).
+let classicView = false;
+let camKey = '';
+let dragScale = 1;
+function updateCamera() {
+  const base = classicView ? RENDER.CAMERA_CLASSIC : tunableCamera();
+  const cam = cameraFor(base, me);
+  const key = JSON.stringify([cam, view.aspect()]);
+  if (key !== camKey) {
+    camKey = key;
+    view.setCamera(cam);
+    const k = dragScaleFor(base, view.aspect());
+    dragScale = Number.isFinite(k) && k > 0 ? k : 1; // 캔버스 크기가 0인 순간 등
+  }
+  human.dragScale = dragScale;
 }
 
 let lastTime = null;
@@ -660,6 +680,7 @@ function frame(now) {
   marker.update(ringPos, tossed || holdingServe ? TUNABLE.SERVE_HIT_RADIUS : TUNABLE.HIT_RADIUS, smashable);
 
   debug.onFrame(elapsed, ball);
+  updateCamera();
   view.render();
 
   // 관중 함성(랠리 수가 바뀔 때만 반영해 득점 함성을 덮지 않는다), 매치포인트 심장 박동

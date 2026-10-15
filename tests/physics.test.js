@@ -9,13 +9,15 @@ import { BALL, TABLE, NET, PHYSICS, RACKET, TUNABLE, TUNABLE_DEFAULTS } from '..
 
 const R = BALL.RADIUS;
 const DT = PHYSICS.DT;
+// 엔진 검증은 실제 중력(9.8)으로 한다. 게임은 게임용 중력 TUNABLE.G_GAME(v6.0)을 쓰고, 그 스케일링은 physics-gravity.test.js에서 확인한다.
+const REAL = { ...TUNABLE_DEFAULTS, G_GAME: PHYSICS.G };
 
 // 이벤트가 maxEvents개 나올 때까지(또는 시간 초과) 진행하고 모든 이벤트를 모은다.
 function simulate(b, { seconds = 3, opts = {}, until = () => false } = {}) {
   const events = [];
   const n = Math.round(seconds / DT);
   for (let i = 0; i < n; i++) {
-    for (const e of step(b, DT, opts)) events.push({ ...e, vel: { ...b.vel }, spin: { ...b.spin } });
+    for (const e of step(b, DT, { params: REAL, ...opts })) events.push({ ...e, vel: { ...b.vel }, spin: { ...b.spin } });
     if (until(b, events)) break;
   }
   return events;
@@ -44,7 +46,7 @@ test('[2] 같은 초기 속도에서 비행 거리: 탑스핀 < 무회전 < 백�
     const b = makeLaunch({ pos: { x: 0, y: -1.2, z: 0.25 + R }, speed: 5, elevation: 15, topspin });
     // 테이블·바닥 충돌을 피해 같은 높이(z = R)로 돌아올 때까지만 자유 비행으로 비교한다.
     const y0 = b.pos.y;
-    for (let i = 0; i < 2000 && !(b.vel.z < 0 && b.pos.z <= R); i++) integrate(b, DT);
+    for (let i = 0; i < 2000 && !(b.vel.z < 0 && b.pos.z <= R); i++) integrate(b, DT, REAL);
     return b.pos.y - y0;
   };
   const top = range(60), none = range(0), back = range(-60);
@@ -64,7 +66,7 @@ test('[3] 횡회전 공이 회전 방향과 맞는 쪽으로 휜다', () => {
   // 마그누스 힘 ω × v = (−ω_z v_y, 0, 0)이 −x(진행 방향 왼쪽)를 향한다.
   const curve = (sidespin) => {
     const b = makeLaunch({ pos: { x: 0, y: -1.2, z: 0.25 + R }, speed: 5, elevation: 15, sidespin });
-    for (let i = 0; i < 60; i++) integrate(b, DT);
+    for (let i = 0; i < 60; i++) integrate(b, DT, REAL);
     return b.pos.x;
   };
   const ccw = curve(50), cw = curve(-50), none = curve(0);
@@ -117,7 +119,7 @@ test('[5] 30 m/s로 라켓을 향해 날아가는 공이 라켓을 통과하지 
 test('[5-추가] 움직이는 라켓에 맞은 공은 라켓 속도를 받아 나간다', () => {
   const racket = { pos: { x: 0, y: 0.6, z: 0.3 }, normal: { x: 0, y: -1, z: 0 }, vel: { x: 0, y: -5, z: 0 } };
   const b = createBall({ pos: { x: 0, y: 0, z: 0.3 }, vel: { x: 0, y: 10, z: 0 } });
-  const params = { ...TUNABLE, C_D: 0 }; // 공기저항을 빼고 충돌 응답만 확인
+  const params = { ...REAL, C_D: 0 }; // 공기저항을 빼고 충돌 응답만 확인
   const ev = simulate(b, { seconds: 0.2, opts: { rackets: [racket], params }, until: (s, e) => e.length > 0 });
   // 상대 속도 15 m/s → 반사 후 −5 − e·15
   assert.ok(Math.abs(ev[0].vel.y - (-5 - TUNABLE.E_RACKET * 15)) < 0.05, `${ev[0].vel.y}`);
@@ -146,10 +148,10 @@ test('[7] 공기 중 비행 동안 역학적 에너지가 증가하지 않는다
   ];
   for (const c of cases) {
     const b = makeLaunch({ pos: { x: 0, y: 0, z: 3 }, ...c });
-    let E = mechanicalEnergy(b);
+    let E = mechanicalEnergy(b, REAL);
     for (let i = 0; i < 240; i++) {
-      integrate(b, DT);
-      const E2 = mechanicalEnergy(b);
+      integrate(b, DT, REAL);
+      const E2 = mechanicalEnergy(b, REAL);
       assert.ok(E2 <= E + 1e-15, `${JSON.stringify(c)} 스텝 ${i}: ${E} → ${E2}`);
       E = E2;
     }
@@ -242,7 +244,7 @@ test('발사기 프리셋: 모두 네트를 넘어 건너편 코트에 먼저 �
   const firstBounce = {};
   for (const [name, cfg] of Object.entries(LAUNCHER.PRESETS)) {
     const b = makeLaunch(launchParams(cfg));
-    const [e] = simulate(b, { until: (s, ev) => ev.length > 0 });
+    const [e] = simulate(b, { opts: { params: TUNABLE }, until: (s, ev) => ev.length > 0 }); // 발사기는 게임 중력
     assert.ok(e.type === 'bounce' && e.pos.y > 0, `${name}: 첫 이벤트 ${e.type} y=${e.pos.y.toFixed(2)}`);
     firstBounce[name] = e;
   }

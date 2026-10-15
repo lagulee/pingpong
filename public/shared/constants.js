@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v5.2';
+export const VERSION = 'v6.0';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -56,6 +56,9 @@ export const PHYSICS = Object.freeze({
 // 디버그 패널에서 바꿀 수 있는 값의 기본값
 // 묶음: 물리 / 판정(드래그·타이밍·조준) / 구질(구질별 결과) / AI(난이도별 로봇 수치)
 const PHYSICS_TUNABLE = {
+  // 게임용 중력 (v6.0). 실제 중력 PHYSICS.G(9.8)의 0.6배: 같은 거리를 √0.6 ≈ 0.77배 속도로, 1/√0.6 ≈ 1.29배 오래 난다.
+  // 회전(마그누스)의 효과는 중력에 비해 1/√0.6 ≈ 1.29배로 커 보인다. 엔진 검증 테스트는 PHYSICS.G로 따로 돌린다.
+  G_GAME: 5.88,
   C_D: 0.5,                  // 항력계수
   K_M: 0.004,                // 마그누스 계수: 가속도 a = K_M·(ω × v)  (질량으로 나눈 값)
   SPIN_DECAY: 0.3,           // 회전 감쇠율 (1/s): 매 스텝 ω ← ω·(1 − SPIN_DECAY·dt)
@@ -76,7 +79,7 @@ const JUDGE_TUNABLE = {
   BLOCK_SPEED: 0.25,         // 이보다 느리면 블록 (m/s)
   SPEED_FULL: 3.5,           // 세기 s = 1이 되는 드래그 속도 (m/s)
   SMASH_SPEED: 2.8,          // 아래로 이보다 빠르면 스매시 시도 (m/s)
-  SMASH_MIN_HEIGHT: 0.20,    // 스매시 가능 높이: 공 중심이 네트 위 이만큼 이상 (m)
+  SMASH_MIN_HEIGHT: 0.50,    // 스매시 가능 높이: 공 중심이 네트 위 이만큼 이상 (m). v6.0: 0.20 → 0.50 (공이 높게 날아 바운드도 높아짐)
   DIR_SIN: 0.5,              // sinθ가 이보다 크면 위쪽, −이보다 작으면 아래쪽 드래그
   CURVE_MIN: 0.18,           // 곡률(현에서 벗어난 최대 거리 / 현 길이)이 이 이상이면 사이드스핀
   HIT_RADIUS: 0.18,          // 라켓 중심에서 좌우·높이 도달 범위 (m)
@@ -98,7 +101,7 @@ const JUDGE_TUNABLE = {
   AIM_X_MAX: 0.66,           // 목표 x 한계 (m)
   DEPTH_GAIN: 0.25,          // 드라이브 목표 깊이 += DEPTH_GAIN·(sinθ − 0.7): 올려 칠수록 깊게
   NET_CLEAR: 0.06,           // 조준 시 네트 위 최소 여유 (m)
-  BLOCK_PUSH: 1.5,           // 블록 때 라켓을 앞으로 미는 속도 (m/s)
+  BLOCK_PUSH: 0.8,           // 블록 때 라켓을 앞으로 미는 속도 (m/s). v6.0: 1.5 → 0.8 (게임 중력에서 반사 공이 덜 떨어져 길게 나감)
   WEAK_PITCH: 0,             // 버튼 없이 맞은 약한 블록의 면 기울기 (°, + 위로 열림)
   MISHIT_SPEED: 18,          // 낮은 공 스매시(실타) 속도 (m/s)
   MISHIT_AIM_Z: 0.06,        // 실타가 향하는 네트 위치 높이 (m)
@@ -109,18 +112,23 @@ const JUDGE_TUNABLE = {
 // LAMBDA_TOP / LAMBDA_BACK: 들어온 공이 탑스핀 / 백스핀일 때 그 회전 효과가 남는 비율(0 = 완벽히 대응, 1 = 그대로).
 //   예) 백스핀 공을 블록(BLOCK_LAMBDA_BACK = 1) → 아래로 떨어져 네트, 탑스핀 공을 커트(CUT_LAMBDA_TOP 큼) → 뜬다.
 const SHOT_TUNABLE = {
-  DRIVE_V_MIN: 5, DRIVE_V_MAX: 7.5, DRIVE_SPIN_MIN: 30, DRIVE_SPIN_MAX: 80,   // v5.2: 최대 8.5 → 7.5 (회전이 보이게). 최소 5 아래는 탑스핀에 눌려 네트에 걸림
-  DRIVE_DEPTH: 0.7 /* v5.2: 0.85 → 0.7 (느려진 공이 닿는 깊이) */, DRIVE_PITCH: -25, DRIVE_LAMBDA_TOP: 0.1, DRIVE_LAMBDA_BACK: 0.3,
-  SMASH_V_MIN: 10, SMASH_V_MAX: 15, SMASH_SPIN_MIN: 5, SMASH_SPIN_MAX: 15,
+  // v6.0 높은 포물선 조준: 드라이브·커트·사이드는 세기로 목표 정점 높이(APEX_WEAK → APEX_STRONG, 탁구대 윗면 기준 m)를 정하고,
+  // 착지점과 정점이 맞도록 속도·발사각을 함께 푼다(physics.js solveArc). V_MIN~V_MAX는 그 속도의 한계다.
+  DRIVE_V_MIN: 2.5, DRIVE_V_MAX: 5.8, DRIVE_SPIN_MIN: 30, DRIVE_SPIN_MAX: 80,
+  DRIVE_APEX_WEAK: 1.15, DRIVE_APEX_STRONG: 0.75,
+  DRIVE_DEPTH: 0.7, DRIVE_PITCH: -25, DRIVE_LAMBDA_TOP: 0.1, DRIVE_LAMBDA_BACK: 0.3,
+  SMASH_V_MIN: 10, SMASH_V_MAX: 15, SMASH_SPIN_MIN: 5, SMASH_SPIN_MAX: 15, // 스매시는 v6.0에서도 그대로(가장 낮은 각 조준): 느려진 다른 공과 대비
   SMASH_DEPTH: 0.95, SMASH_PITCH: -15, SMASH_LAMBDA_TOP: 0.05, SMASH_LAMBDA_BACK: 0.3,
-  CUT_V_MIN: 4.5, CUT_V_MAX: 5.3, CUT_SPIN_MIN: 15, CUT_SPIN_MAX: 40,   // 백스핀 (rps). v5.2: 최대 6 → 5.3 (최소 4.5는 엔드라인 뒤에서 네트를 넘겨 깊이 보내는 물리적 하한)
-  CUT_DEPTH: 0.6, CUT_PITCH: 40, CUT_LAMBDA_TOP: 0.8, CUT_LAMBDA_BACK: 0.1,
-  SIDE_V_MIN: 4.6, SIDE_V_MAX: 6.5, SIDE_SPIN_MIN: 30, SIDE_SPIN_MAX: 60, // 횡회전 (rps). v5.2: 5–7.5 → 4.6–6.5
+  CUT_V_MIN: 2.3, CUT_V_MAX: 4.1, CUT_SPIN_MIN: 15, CUT_SPIN_MAX: 40,   // 백스핀 (rps)
+  CUT_APEX_WEAK: 0.9, CUT_APEX_STRONG: 0.7,
+  CUT_DEPTH: 0.9 /* v6.0: 0.6 → 0.9 (높게 뜬 짧은 커트는 네트 앞에서 수직으로 튀어 받을 수 없음) */, CUT_PITCH: 40, CUT_LAMBDA_TOP: 0.8, CUT_LAMBDA_BACK: 0.1,
+  SIDE_V_MIN: 2.5, SIDE_V_MAX: 5.0, SIDE_SPIN_MIN: 30, SIDE_SPIN_MAX: 60, // 횡회전 (rps)
+  SIDE_APEX_WEAK: 1.1, SIDE_APEX_STRONG: 0.8,
   SIDE_TOP_MIN: 10, SIDE_TOP_MAX: 20, SIDE_DEPTH: 0.8, SIDE_PITCH: -10, SIDE_LAMBDA_TOP: 0.2, SIDE_LAMBDA_BACK: 0.4,
   BLOCK_DEPTH: 0.75, BLOCK_LAMBDA_TOP: 0.1, BLOCK_LAMBDA_BACK: 1.0,
   // 서브: 속도는 세기로 보간, 회전은 판정된 구질(드라이브 = 탑, 커트 = 백, 사이드 = 횡)의 범위를 쓴다
-  SERVE_V_MIN: 3.5, SERVE_V_MAX: 5.5, SERVE_DEPTH: 0.9, SERVE_SPIN_SCALE: 0.45,
-  SERVE_ASSIST_V: 7.5,       // 서브 속도 보조 상한: 고른 속도로 들어가는 서브가 없으면 이 속도까지 올려 본다 (m/s)
+  SERVE_V_MIN: 2.7, SERVE_V_MAX: 4.3, SERVE_DEPTH: 0.9, SERVE_SPIN_SCALE: 0.45, // v6.0: 3.5–5.5의 √0.6배 (게임 중력)
+  SERVE_ASSIST_V: 5.8,       // 서브 속도 보조 상한 (v6.0: 7.5 → 5.8): 고른 속도로 들어가는 서브가 없으면 이 속도까지 올려 본다 (m/s)
   SERVE_ERR_SCALE: 0.3,      // 서브 방향·속도 오차 배율 (1 = 랠리와 같음). 작을수록 타이밍이 어긋나도 잘 들어간다
 };
 
@@ -133,10 +141,10 @@ const AI_TUNABLE = {
   AI_EASY_W_DRIVE: 70, AI_EASY_W_BLOCK: 30, AI_EASY_W_CUT: 0, AI_EASY_W_SIDE: 0, AI_EASY_W_SMASH: 0,
   AI_NORMAL_DELAY: 0.22, AI_NORMAL_MOVE: 2.5, AI_NORMAL_TIMING: 0.05, AI_NORMAL_S_MIN: 0.3, AI_NORMAL_S_MAX: 0.55,
   AI_NORMAL_AIM_X: 0.3, AI_NORMAL_JITTER: 0.002,
-  AI_NORMAL_W_DRIVE: 60, AI_NORMAL_W_BLOCK: 15, AI_NORMAL_W_CUT: 15, AI_NORMAL_W_SIDE: 10, AI_NORMAL_W_SMASH: 0,
+  AI_NORMAL_W_DRIVE: 60, AI_NORMAL_W_BLOCK: 15, AI_NORMAL_W_CUT: 15, AI_NORMAL_W_SIDE: 10, AI_NORMAL_W_SMASH: 20, // v6.0 스매시 0 → 20 (높은 공일 때만)
   AI_HARD_DELAY: 0.12, AI_HARD_MOVE: 4.0, AI_HARD_TIMING: 0.02, AI_HARD_S_MIN: 0.5, AI_HARD_S_MAX: 1.0,
   AI_HARD_AIM_X: 0.6, AI_HARD_JITTER: 0.001,
-  AI_HARD_W_DRIVE: 40, AI_HARD_W_BLOCK: 10, AI_HARD_W_CUT: 15, AI_HARD_W_SIDE: 20, AI_HARD_W_SMASH: 15,
+  AI_HARD_W_DRIVE: 40, AI_HARD_W_BLOCK: 10, AI_HARD_W_CUT: 15, AI_HARD_W_SIDE: 20, AI_HARD_W_SMASH: 60, // v6.0 스매시 15 → 60 (높은 공이 드물어짐)
 };
 
 // 연출(4단계): FX_*·SND_* 이름의 켜기/끄기는 1 = 켬, 0 = 끔 (TUNABLE_TOGGLES)
@@ -151,7 +159,7 @@ const FEEL_TUNABLE = {
   FX_SLOWMO: 1, SLOWMO_RATE: 0.3,            // 매치포인트 결정 순간 화면 재생 속도 배율
   SLOWMO_TIME: 0.9, CATCHUP_RATE: 2,         // 슬로모션 길이 (실제 s), 밀린 화면을 따라잡는 재생 배율
   SND_PITCH: 1, SND_DECAY: 1,                // 모든 타격음 음높이·감쇠 시간 배율
-  SND_SPEED_REF: 10,                         // 소리 세기 g = 1 − e^(−속도/이 값) (m/s)
+  SND_SPEED_REF: 7.7,                        // (v6.0: 10 → 7.7, 느려진 공의 소리 크기 유지) 소리 세기 g = 1 − e^(−속도/이 값) (m/s)
   SND_PITCH_RACKET: 1, SND_PITCH_TABLE: 1, SND_PITCH_NET: 1, SND_PITCH_EDGE: 1, SND_PITCH_FLOOR: 1,
   SND_CROWD: 1, CROWD_GAIN: 0.35,            // 관중 함성 최대 음량
   CROWD_RALLY_FULL: 8,                       // 함성 = 1 − e^(−랠리 수/이 값)
@@ -160,14 +168,26 @@ const FEEL_TUNABLE = {
   FX_SERVE_GUIDE: 1,                         // 내 서브 가이드라인 (예상 궤적 점선·바운드 지점·타점 고리)
 };
 
+// 카메라 (v6.0): 내 엔드 왼쪽 위에서 내려다보는 시점 (물리 좌표, side −1 기준. side +1은 180° 돌린다 → 자기 기준 왼쪽 위).
+// 비스듬히 보면 공의 깊이(y)가 화면 가로 이동으로 보여 높이와 헷갈리지 않고, 높은 포물선(정점 약 1.2 m)도 화면에 들어온다.
+// C 키로 기존 시점(RENDER.CAMERA_CLASSIC)과 바꾼다. 화면 전용 값이라 대전 중에도 바꿀 수 있다.
+const CAMERA_TUNABLE = {
+  CAM_X: -0.7, CAM_Y: -3.0, CAM_Z: 1.45,
+  CAM_TX: 0.12, CAM_TY: 0.3, CAM_TZ: -0.15,
+  CAM_FOV: 50,
+};
+
 export const TUNABLE_DEFAULTS = Object.freeze({
-  ...PHYSICS_TUNABLE, ...JUDGE_TUNABLE, ...SHOT_TUNABLE, ...AI_TUNABLE, ...FEEL_TUNABLE,
+  ...PHYSICS_TUNABLE, ...JUDGE_TUNABLE, ...SHOT_TUNABLE, ...AI_TUNABLE, ...FEEL_TUNABLE, ...CAMERA_TUNABLE,
 });
 
 // 디버그 패널에서 슬라이더 대신 체크박스로 보이는 켜기/끄기 키
 export const TUNABLE_TOGGLES = Object.freeze([
   'FX_HITSTOP', 'FX_SHAKE', 'FX_TRAIL', 'FX_POPUP', 'FX_SLOWMO', 'SND_CROWD', 'SND_HEART', 'SND_JINGLE', 'FX_SERVE_GUIDE',
 ]);
+
+// 대전 중에도 바꿀 수 있는 키 (판정에 영향 없는 화면·소리 값). 나머지는 서버와 같은 기본값으로 고정한다.
+export const TUNABLE_ONLINE_FREE = Object.freeze([...TUNABLE_TOGGLES, ...Object.keys(CAMERA_TUNABLE)]);
 
 // 디버그 패널 묶음 이름 → 키 목록
 export const TUNABLE_GROUPS = Object.freeze({
@@ -176,6 +196,7 @@ export const TUNABLE_GROUPS = Object.freeze({
   '구질': Object.keys(SHOT_TUNABLE),
   'AI': Object.keys(AI_TUNABLE),
   '연출': Object.keys(FEEL_TUNABLE),
+  '카메라': Object.keys(CAMERA_TUNABLE),
 });
 
 // 실제로 쓰는 튜닝 값 (디버그 패널이 이 객체를 직접 바꾼다)
@@ -195,7 +216,9 @@ const aiRanges = (D) => ({
   [`AI_${D}_JITTER`]: r(0, 0.02, 0.0005),
   ...Object.fromEntries(['DRIVE', 'BLOCK', 'CUT', 'SIDE', 'SMASH'].map((s) => [`AI_${D}_W_${s}`, r(0, 100, 1)])),
 });
+const apexRanges = (P) => ({ [`${P}_APEX_WEAK`]: r(0.3, 1.6, 0.01), [`${P}_APEX_STRONG`]: r(0.3, 1.6, 0.01) });
 export const TUNABLE_RANGES = Object.freeze({
+  G_GAME: r(4.9, 9.8, 0.01),  // 0.5배 아래는 풍선처럼 보여 범위에서 뺀다
   C_D: r(0, 1.5, 0.01),
   K_M: r(0, 0.015, 0.0001),
   SPIN_DECAY: r(0, 3, 0.01),
@@ -242,6 +265,9 @@ export const TUNABLE_RANGES = Object.freeze({
   ...shotRanges('SMASH', 35),
   ...shotRanges('CUT', 20),
   ...shotRanges('SIDE', 30),
+  ...apexRanges('DRIVE'),
+  ...apexRanges('CUT'),
+  ...apexRanges('SIDE'),
   SIDE_TOP_MIN: r(0, 150, 1),
   SIDE_TOP_MAX: r(0, 150, 1),
   BLOCK_DEPTH: r(0.2, 1.37, 0.01),
@@ -279,6 +305,9 @@ export const TUNABLE_RANGES = Object.freeze({
   CROWD_RALLY_FULL: r(1, 40, 1),
   HEART_BPM: r(40, 180, 1),
   HEART_GAIN: r(0, 1.5, 0.01),
+  CAM_X: r(-2, 2, 0.01), CAM_Y: r(-5, -1.5, 0.01), CAM_Z: r(0.3, 3, 0.01),
+  CAM_TX: r(-1, 1, 0.01), CAM_TY: r(-1.5, 1.5, 0.01), CAM_TZ: r(-1, 1, 0.01),
+  CAM_FOV: r(25, 90, 1),
 });
 
 // 구질 이름 (판정 결과 shotType) → 화면 표시
@@ -292,22 +321,27 @@ export const DIFFICULTY_LABELS = Object.freeze({ EASY: '쉬움', NORMAL: '보통
 // 타격·조작 (튜닝하지 않는 값). 위치는 "자기 쪽이 y < 0, +y로 친다"는 각 플레이어 기준 좌표.
 export const SWING = Object.freeze({
   HOME_Y: -1.6,              // 예측할 공이 없을 때 라켓 평면 y (m)
-  Y_MIN: -TABLE.LENGTH / 2 - 0.6,  // 라켓 평면 y 자동 범위
-  Y_MAX: -TABLE.LENGTH / 2 + 0.3,
+  Y_MIN: -TABLE.LENGTH / 2 - 0.3,  // 라켓 평면 y 자동 범위. v6.0: 엔드라인 뒤 0.6 → 0.3 m (탁구대 쪽으로 당김),
+  Y_MAX: -TABLE.LENGTH / 2 + 0.67, //  앞쪽 0.3 → 0.67 m (짧게 떨어진 공은 탁구대 위로 손을 뻗어 친다)
   X_MAX: 1.2,                // 라켓 x 한계 (m)
   Z_MIN: -0.05,              // 라켓 높이 한계 (탁구대 윗면 기준, m)
-  Z_MAX: 0.9,
+  Z_MAX: 1.3,                // v6.0: 0.9 → 1.3 (높아진 공을 내려치는 스매시 스윙이 위에서 시작할 수 있게)
   HOME: Object.freeze({ x: 0, z: 0.2 }),  // 로봇 대기 위치
   MAX_SAMPLE_AGE: 0.5,       // 이보다 오래된 마우스 샘플은 버린다 (s)
   AIM_ITER: 14,              // 조준 이분법 반복 횟수
   AIM_SCAN: 10,              // 조준 전에 각도 구간을 고르게 훑는 칸 수
   AIM_ROUNDS: 3,             // 방향각 보정 횟수
-  AIM_MAX_T: 1.2,            // 조준 시뮬레이션 최대 시간 (s)
+  AIM_MAX_T: 1.2,            // 조준 시뮬레이션 최대 시간 (s, 실제 중력 기준. simTime이 게임 중력에 맞게 늘린다)
   AIM_PITCH_MIN: -30,        // 조준 발사각 탐색 범위 (°)
   AIM_PITCH_MAX: 40,
   BLOCK_PITCH_MIN: -45,      // 블록 면 기울기 탐색 범위 (°)
   BLOCK_PITCH_MAX: 60,
-  PREDICT_T: 2.0,            // 궤적 예측 최대 시간 (s)
+  PREDICT_T: 2.0,            // 궤적 예측 최대 시간 (s, 실제 중력 기준. simTime이 게임 중력에 맞게 늘린다)
+  SIM_T_MARGIN: 1.5,         // 높은 포물선(v6.0)을 위해 시뮬레이션 시간에 곱하는 여유
+  ARC_ITER: 10,              // 정점 조준(solveArc) 뉴턴 반복 최대 횟수
+  ARC_TOL: 0.004,            // 정점 조준 허용 오차 (착지·정점, m)
+  ARC_DV: 0.01,              // 정점 조준 미분용 속도 변화 (m/s)
+  ARC_MIN_RISE: 0.08,        // 목표 정점은 타점보다 최소 이만큼 높게 (m)
   PREDICT_AFTER: 0.3,        // 정점 뒤로 더 예측해 두는 시간 (s)
   REF_SIN: 0.7,              // 목표 깊이 보정 기준 sinθ
   AI_SWING_TIME: 0.12,       // 로봇 스윙(가상 드래그) 시간 (s)
@@ -351,7 +385,7 @@ export const SERVE = Object.freeze({
   TOSS_Y: -1.55,             // 엔드라인(−1.37) 뒤에서 토스한다 (m)
   TOSS_Z: 0.10,              // 토스를 시작하는 손 높이 (탁구대 윗면 기준, m)
   TOSS_X_MAX: 0.6,           // 토스 좌우 위치 한계 (m)
-  TOSS_SPEED: 3.0,           // 위로 띄우는 속도 (m/s) → 약 44 cm 올라가고, 토스 뒤 약 0.54 s에 타점 높이(HIT_Z)로 내려온다
+  TOSS_HEIGHT: 0.46,         // 토스로 띄우는 높이 (m, 공기저항 무시). 속도 = √(2·G_GAME·높이) → 기본 중력에서 2.32 m/s (v6.0: 속도 3.0 고정 → 높이 기준)
   HIT_Z: 0.30,               // 떨어지는 공을 이 높이에서 치는 것을 기준(정점 대비 타이밍)으로 한다 (m). 늦게 쳐도 들어갈 여유를 두려고 높게
   PITCH_MIN: -55,            // 서브 발사각 탐색 범위 (°)
   PITCH_MAX: 20,
@@ -365,7 +399,7 @@ export const SERVE_GUIDE = Object.freeze({
   STRENGTH: 0.5,             // 가이드 스윙 세기 (0~1)
   SWING_TIME: 0.1,           // 가이드 스윙(가상 드래그) 길이 (s)
   POINT_STEP: 3,             // 물리 스텝 몇 개마다 점선 점을 하나 찍는지
-  MAX_T: 1.5,                // 궤적을 그리는 최대 시간 (s)
+  MAX_T: 2.2,                // 궤적을 그리는 최대 시간 (s, v6.0: 1.5 → 2.2 느려진 서브)
   QUANT_X: 0.05,             // 라켓 x를 이 간격으로 반올림해 계산 결과를 재사용한다 (m)
   DASH: 0.05,                // 점선 칠한 길이 (m)
   GAP: 0.035,                // 점선 빈 길이 (m)
@@ -386,7 +420,7 @@ export const PRACTICE = Object.freeze({
   FEED_DELAY: 1.0,           // 시작·랠리 종료 후 로봇이 공을 보내기까지 (s)
   END_DELAY: 1.5,            // 랠리 종료 표시 시간 (s)
   FEED_POS: Object.freeze({ x: 0, y: -1.5, z: 0.25 }), // 로봇 기준 공 보내는 위치
-  FEED_SPEED: 7,
+  FEED_SPEED: 5.4,           // v6.0: 7 → 5.4 (게임 중력 √0.6배)
   FEED_TOPSPIN: 20,
   FEED_DEPTH: 0.85,          // 내 쪽 네트에서 떨어질 거리 (m)
   FEED_X_RANGE: 0.3,
@@ -399,14 +433,14 @@ export const PRACTICE = Object.freeze({
 
 // 디버그 규칙 시험 공 (렛·투 바운드·발리를 일부러 만든다). 위치·속도는 보내는 쪽 기준 좌표
 export const SCENARIO = Object.freeze({
-  LET_SPEEDS: Object.freeze([4, 4.5, 5, 3.5, 5.5]), // 네트 인 서브를 찾을 속도 후보 (m/s)
+  LET_SPEEDS: Object.freeze([3.1, 3.5, 3.9, 2.7, 4.3]), // 네트 인 서브를 찾을 속도 후보 (m/s, v6.0: √0.6배)
   LET_PITCH_STEP: 0.1,       // 발사각 훑는 간격 (°)
   LET_TOPSPIN: 10,           // rps
   LET_MARGIN: 0.1,           // 엔드라인에서 이만큼 안쪽에 떨어져야 함 (m)
-  SHORT_SPEED: 4,            // 투 바운드용 짧은 백스핀 공: 네트 가까이(0.24 m) → 0.76 m에 두 번째 바운드
+  SHORT_SPEED: 3.1,          // 투 바운드용 짧은 백스핀 공 (v6.0: 4 → 3.1)
   SHORT_TOPSPIN: -25,
   SHORT_TARGET: Object.freeze({ x: 0, y: 0.3 }),
-  LONG_SPEED: 9,             // 발리용 긴 공
+  LONG_SPEED: 7,             // 발리용 긴 공 (v6.0: 9 → 7)
   LONG_Z: 0.25,              // 내 라켓 평면을 지나는 높이 (m)
   LONG_PITCH_MIN: -10,
   LONG_PITCH_MAX: 25,
@@ -416,7 +450,7 @@ export const SCENARIO = Object.freeze({
 // 공 발사기 (디버그 패널). 회전은 rps(초당 회전수)로 입력받는다.
 export const LAUNCHER = Object.freeze({
   START_Y: -TABLE.LENGTH / 2 - 0.2,  // 가까운 엔드라인 뒤 20 cm에서 발사
-  DEFAULTS: Object.freeze({ speed: 7, elevation: 12, azimuth: 0, topspin: 0, sidespin: 0, height: 0.25, x: 0 }),
+  DEFAULTS: Object.freeze({ speed: 5.4, elevation: 12, azimuth: 0, topspin: 0, sidespin: 0, height: 0.25, x: 0 }),
   RANGES: Object.freeze({
     speed: { min: 0, max: 30, step: 0.1 },        // m/s
     elevation: { min: -30, max: 60, step: 0.5 },  // 발사각(°), 위가 +
@@ -426,13 +460,13 @@ export const LAUNCHER = Object.freeze({
     height: { min: 0.02, max: 1, step: 0.01 },    // 탁구대 윗면 기준 공 중심 높이(m)
     x: { min: -0.7, max: 0.7, step: 0.01 },       // 좌우 위치(m)
   }),
-  // 프리셋 버튼: 모두 건너편 코트에 한 번 떨어지도록 맞춘 값
+  // 프리셋 버튼: 모두 건너편 코트에 한 번 떨어지도록 맞춘 값 (v6.0: 게임 중력에 맞춰 속도 √0.6배, 탑스핀은 발사각 17 → 25°)
   PRESETS: Object.freeze({
-    none: Object.freeze({ speed: 7, elevation: 12, azimuth: 0, topspin: 0, sidespin: 0, height: 0.25, x: 0 }),
-    topspin: Object.freeze({ speed: 8, elevation: 17, azimuth: 0, topspin: 60, sidespin: 0, height: 0.25, x: 0 }),
-    backspin: Object.freeze({ speed: 5.5, elevation: 8, azimuth: 0, topspin: -40, sidespin: 0, height: 0.25, x: 0 }),
-    sideLeft: Object.freeze({ speed: 7, elevation: 12, azimuth: 0, topspin: 0, sidespin: 40, height: 0.25, x: 0.3 }),
-    sideRight: Object.freeze({ speed: 7, elevation: 12, azimuth: 0, topspin: 0, sidespin: -40, height: 0.25, x: -0.3 }),
+    none: Object.freeze({ speed: 5.4, elevation: 12, azimuth: 0, topspin: 0, sidespin: 0, height: 0.25, x: 0 }),
+    topspin: Object.freeze({ speed: 6.5, elevation: 25, azimuth: 0, topspin: 60, sidespin: 0, height: 0.25, x: 0 }),
+    backspin: Object.freeze({ speed: 4.3, elevation: 8, azimuth: 0, topspin: -40, sidespin: 0, height: 0.25, x: 0 }),
+    sideLeft: Object.freeze({ speed: 5.4, elevation: 12, azimuth: 0, topspin: 0, sidespin: 40, height: 0.25, x: 0.3 }),
+    sideRight: Object.freeze({ speed: 5.4, elevation: 12, azimuth: 0, topspin: 0, sidespin: -40, height: 0.25, x: -0.3 }),
   }),
 });
 
@@ -455,11 +489,11 @@ export const DEBUG_ARROW = Object.freeze({
 
 // 렌더링 설정 (물리 좌표계 기준 위치)
 export const RENDER = Object.freeze({
-  CAMERA_FOV: 50,                                   // 세로 시야각(도)
   CAMERA_NEAR: 0.05,
   CAMERA_FAR: 100,
-  CAMERA_POS: Object.freeze({ x: 0, y: -2.9, z: 0.85 }),    // 자기 엔드 뒤 약간 위
-  CAMERA_TARGET: Object.freeze({ x: 0, y: 0.35, z: -0.1 }), // 탁구대 중앙보다 약간 먼 쪽
+  // 기존 시점(v5.2까지): C 키로 바꿔 볼 수 있다. 새 시점은 TUNABLE의 CAM_* (카메라 묶음)
+  CAMERA_CLASSIC: Object.freeze({ pos: Object.freeze({ x: 0, y: -2.9, z: 0.85 }), target: Object.freeze({ x: 0, y: 0.35, z: -0.1 }), fov: 50 }),
+  DRAG_REF_POINT: Object.freeze({ x: 0, y: -1.3, z: 0.5 }), // 시점별 마우스 감도(mm/화면)를 재는 기준 타점
   MAX_PIXEL_RATIO: 2,
   FLOOR_SIZE: 30,
   COLOR_BACKGROUND: 0x10141c,

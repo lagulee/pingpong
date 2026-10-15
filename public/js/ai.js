@@ -4,7 +4,7 @@
 // 이 파일은 'three'·DOM을 쓰지 않는다 (Node의 자동 랠리 테스트가 그대로 불러 쓴다).
 import {
   step, predictPath, positionAt, solveAim, ballToLocal, ballToWorld, toWorld, toLocal, createBall, vec,
-  tossTimeAt, makeLaunch, serveLanding,
+  tossTimeAt, makeLaunch, serveLanding, simTime,
 } from '../shared/physics.js';
 import { NET, TABLE, PHYSICS, SWING, PRACTICE, SERVE, RULES, SCENARIO, TUNABLE, SERVE_GUIDE } from '../shared/constants.js';
 import { applyEvent, canHit, startRally, toServe } from '../shared/rules.js';
@@ -345,7 +345,7 @@ function hitPhase(game, t, dt, events, params) {
     // 버튼 없이 라켓이 놓여 있던 경우와 로봇은 치지 않는다.
     if (isEarly(rules, side) && (kind === 'weak' || p.robot)) continue;
     const shot = classifyShot(p.samples, ball, {
-      t, side, apexT: p.apexT, rng: game.rng, params, pressed: kind !== 'weak', serve: serveHit,
+      t, side, apexT: p.apexT, rng: game.rng, params, pressed: kind !== 'weak', serve: serveHit, dragScale: p.dragScale ?? 1,
     });
     p.lastShot = shot;
     game.lastShot = { side, ...shot };
@@ -446,7 +446,7 @@ export function findLongBall(planeY, z, t = 0, params = TUNABLE) {
     const ball = makeLaunch({ pos: PRACTICE.FEED_POS, speed: SCENARIO.LONG_SPEED, elevation: el, t });
     const b = createBall(ball);
     let cross = null;
-    for (let i = 0; i < Math.round(SWING.PREDICT_T / PHYSICS.DT); i++) {
+    for (let i = 0; i < Math.round(simTime(SWING.PREDICT_T, params) / PHYSICS.DT); i++) {
       const y0 = b.pos.y;
       if (step(b, PHYSICS.DT, { params }).length) break; // 무엇엔가 닿음: 탈락
       if (y0 < planeY && b.pos.y >= planeY) { cross = { t: b.t, pos: vec(b.pos.x, b.pos.y, b.pos.z) }; break; }

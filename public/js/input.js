@@ -5,10 +5,10 @@
 // 마우스 샘플 { t, x, y, b }: t = 게임 시각(s), (x, y) = 라켓 평면 위 좌표(m, x 좌우·y 높이), b = 버튼 누름.
 // 모든 판정은 플레이어 기준 좌표("자기 쪽 y < 0, +y로 친다")에서 하고, 결과만 세계 좌표로 돌려준다.
 import {
-  vec, add, sub, scale, length, cross, createBall, makeLaunch, solveAim, solveBlock, solveServe,
+  vec, add, sub, scale, length, cross, createBall, makeLaunch, solveAim, solveArc, solveBlock, solveServe,
   faceNormal, racketResponse, ballToLocal, toWorld,
 } from '../shared/physics.js';
-import { NET, SWING, TUNABLE } from '../shared/constants.js';
+import { NET, SWING, TUNABLE, RENDER } from '../shared/constants.js';
 
 const DEG = Math.PI / 180;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -39,6 +39,58 @@ export function rayPlaneY(origin, dir, planeY) {
     z: clamp(origin.z + s * dir.z, SWING.Z_MIN, SWING.Z_MAX),
   };
 }
+
+// ── 시점(카메라)과 마우스 감도 (6단계) ────────────────────────────
+// render.js(Three.js)와 같은 원근 투영을 순수 함수로 계산한다: 카메라 cam = { pos, target, fov(세로 °) }, 위쪽 = +z.
+export function cameraBasis(cam) {
+  const norm = (a) => scale(a, 1 / length(a));
+  const f = norm(sub(cam.target, cam.pos));
+  const r = norm(cross(f, vec(0, 0, 1)));
+  return { f, r, u: cross(r, f), tan: Math.tan((cam.fov * Math.PI) / 360) };
+}
+
+// 화면 정규 좌표(ndcX, ndcY: −1~1, 위가 +)에서 나가는 광선이 평면 y = planeY와 만나는 점 (물리 좌표). 없으면 null
+export function screenToPlane(cam, aspect, ndcX, ndcY, planeY) {
+  const { f, r, u, tan } = cameraBasis(cam);
+  const dir = add(f, add(scale(r, ndcX * tan * aspect), scale(u, ndcY * tan)));
+  if (Math.abs(dir.y) < 1e-9) return null;
+  const s = (planeY - cam.pos.y) / dir.y;
+  return s > 0 ? add(cam.pos, scale(dir, s)) : null;
+}
+
+// 물리 좌표 → 화면 정규 좌표
+export function planeToScreen(cam, aspect, p) {
+  const { f, r, u, tan } = cameraBasis(cam);
+  const d = sub(p, cam.pos);
+  const z = d.x * f.x + d.y * f.y + d.z * f.z;
+  return { x: (d.x * r.x + d.y * r.y + d.z * r.z) / z / (tan * aspect), y: (d.x * u.x + d.y * u.y + d.z * u.z) / z / tan };
+}
+
+// 기준 타점(RENDER.DRAG_REF_POINT)에서 화면 높이 1%만큼 마우스를 움직였을 때 라켓 평면에서 움직이는 거리 (m, 가로·세로 평균)
+export function dragGain(cam, aspect = 16 / 9) {
+  const p = RENDER.DRAG_REF_POINT;
+  const c = planeToScreen(cam, aspect, p);
+  const at = (dx, dy) => screenToPlane(cam, aspect, c.x + dx, c.y + dy, p.y);
+  const o = at(0, 0), h = at(0.02, 0), v = at(0, 0.02);
+  const d = (a) => Math.hypot(a.x - o.x, a.z - o.z);
+  return (d(h) / aspect + d(v)) / 2;
+}
+
+// 사람 드래그 속도 배율: 기존 시점(RENDER.CAMERA_CLASSIC)에서 같은 손놀림이 내는 속도로 바꾼다.
+// 시점이 높고 멀어지면 화면 1 px가 라켓 평면에서 더 길어져(약 1.4배) 같은 손놀림이 더 빠른 스윙으로 판정되기 때문.
+// 사용자가 맞춰 둔 판정 임계값(SMASH_SPEED 등)이 시점과 무관하게 같은 뜻을 갖는다. 로봇·서버는 1.
+export const dragScaleFor = (cam, aspect) => dragGain(RENDER.CAMERA_CLASSIC, aspect) / dragGain(cam, aspect);
+
+// 내 자리(side)의 카메라: side +1은 z축으로 180° 돌린다 (자기 기준 같은 시점)
+export function cameraFor(cam, side) {
+  const flip = (p) => (side < 0 ? vec(p.x, p.y, p.z) : vec(-p.x, -p.y, p.z));
+  return { pos: flip(cam.pos), target: flip(cam.target), fov: cam.fov };
+}
+
+// TUNABLE의 새 시점 (CAM_*)
+export const tunableCamera = (params = TUNABLE) => ({
+  pos: vec(params.CAM_X, params.CAM_Y, params.CAM_Z), target: vec(params.CAM_TX, params.CAM_TY, params.CAM_TZ), fov: params.CAM_FOV,
+});
 
 // ── 샘플 다루기 ──────────────────────────────────────────
 // 시각 t 이전(포함)의 가장 최근 샘플. 없으면 null. (샘플은 시간 순서)
@@ -76,7 +128,8 @@ export function pruneSamples(samples, t) {
 //   위치는 샘플 사이를 선형 보간하고, 접촉 시각 t 뒤 샘플은 쓰지 않는다.
 // avgSpeed: |u|
 // kappa: CURVE_WINDOW 동안 경로가 현(시작→끝)에서 벗어난 최대 거리 / 현 길이 (부호: 현 기준 왼쪽 +).
-export function analyzeDrag(samples, t, params = TUNABLE) {
+// speedScale: 속도(u, speed, avgSpeed)에 곱하는 배율 (사람의 시점 보정 dragScaleFor, 기본 1). 방향·곡률은 그대로.
+export function analyzeDrag(samples, t, params = TUNABLE, speedScale = 1) {
   const none = { u: { x: 0, y: 0 }, speed: 0, sin: 0, theta: 0, kappa: 0 };
   const end = sampleAt(samples, t);
   if (!end) return none;
@@ -107,7 +160,8 @@ export function analyzeDrag(samples, t, params = TUNABLE) {
     }
     kappa /= chord;
   }
-  return { u, speed, avgSpeed, sin, theta: Math.atan2(u.y, u.x), kappa };
+  const k = speedScale;
+  return { u: { x: u.x * k, y: u.y * k }, speed: speed * k, avgSpeed: avgSpeed * k, sin, theta: Math.atan2(u.y, u.x), kappa };
 }
 
 // 시각 t 직전 W초 안에서, 길이 d인 구간의 평균 속도 중 최댓값 (t 뒤 샘플은 쓰지 않음)
@@ -195,7 +249,7 @@ export function aimTarget(type, drag, racketX, params = TUNABLE) {
 // samples: 마우스 샘플, ballState: 접촉 순간 공(세계 좌표)
 // ctx: { t(접촉 시각, 기본 ballState.t), side(−1/+1, 기본 −1), apexT(예측 정점 시각), rng, params,
 //        racketX(라켓 x, 기준 좌표, 기본 마지막 샘플 x), pressed(버튼, 기본 true),
-//        serve(서브: 자기 코트 → 상대 코트로 조준, 기본 false) }
+//        serve(서브: 자기 코트 → 상대 코트로 조준, 기본 false), dragScale(사람 시점 보정, 기본 1) }
 // 반환: { shotType, vel, spin, quality: { timing, accuracy, strength, dtApex, weak, target } }
 export function classifyShot(samples, ballState, ctx = {}) {
   const params = ctx.params ?? TUNABLE;
@@ -204,7 +258,7 @@ export function classifyShot(samples, ballState, ctx = {}) {
   const rng = ctx.rng ?? (() => 0.5); // 기본: 오차 없음
   const pressed = ctx.pressed ?? true;
   const b = ballToLocal(ballState, side);
-  const drag = analyzeDrag(samples, t, params);
+  const drag = analyzeDrag(samples, t, params, ctx.dragScale ?? 1);
   const racketX = ctx.racketX ?? sampleAt(samples, t)?.x ?? b.pos.x;
   const serve = !!ctx.serve;
   let shotType = judgeType(drag, b.pos.z, params, pressed);
@@ -244,7 +298,7 @@ export function classifyShot(samples, ballState, ctx = {}) {
     }
   } else {
     const P = PREFIX[shotType];
-    const speed = lerpP(params, P, 'V', strength);
+    let speed = lerpP(params, P, 'V', strength);
     let topspin = 0, sidespin = 0;
     const spin = lerpP(params, P, 'SPIN', strength);
     if (shotType === 'drive') topspin = spin * Math.max(0.4, drag.sin);
@@ -258,7 +312,18 @@ export function classifyShot(samples, ballState, ctx = {}) {
     }
     const target = aimTarget(shotType, drag, racketX, params);
     quality.target = target;
-    const aim = solveAim({ pos: b.pos, speed, topspin, sidespin, target, t }, params);
+    // 6단계 높은 포물선: 세기로 목표 정점 높이를 정하고 속도·발사각을 함께 푼다 (스매시는 가장 낮은 각 그대로)
+    let aim;
+    if (params[`${P}_APEX_WEAK`] != null) {
+      const apex = params[`${P}_APEX_WEAK`] + strength * (params[`${P}_APEX_STRONG`] - params[`${P}_APEX_WEAK`]);
+      aim = solveArc({
+        pos: b.pos, topspin, sidespin, target, t, apex, vMin: params[`${P}_V_MIN`], vMax: params[`${P}_V_MAX`],
+      }, params);
+      speed = aim.speed;
+      quality.apex = aim.apex;
+    } else {
+      aim = solveAim({ pos: b.pos, speed, topspin, sidespin, target, t }, params);
+    }
     const launch = makeLaunch({
       pos: b.pos, t,
       speed: speed * (1 + err.speed),
@@ -331,7 +396,7 @@ export function checkHit(player, ball, t, dt, params = TUNABLE, radius = params.
   const yp = player.yPlane;
   const crosses = (y) => b.vel.y < 0 && b.pos.y >= y && b.pos.y + b.vel.y * dt < y;
   if (s.b && Math.abs(b.pos.y - yp) <= params.REACH_Y) {
-    const drag = analyzeDrag(player.samples, t, params);
+    const drag = analyzeDrag(player.samples, t, params, player.dragScale ?? 1);
     if (drag.speed >= params.BLOCK_SPEED) {
       // 휘두르는 라켓이 공에 "닿는 순간" 친다: 스윙 방향으로 봤을 때 라켓 중심이 공 중심에 도달(또는 지나침).
       // 스윙을 시작하자마자(아직 가속 중일 때) 치지 않도록 하기 위함. 도달 범위 뒤끝에서는 마지막 기회로 친다.

@@ -59,7 +59,8 @@ const SAMPLES = {
   block: (b) => drag({ ux: 0.02, uy: 0.01, x1: b.pos.x, z1: b.pos.z, t1: b.t }),
 };
 const LOW = () => incoming({ z: 0.25 });
-const HIGH = () => incoming({ y: -1.3, z: 0.55, vy: -3 });
+// 높은 공: v6.0에서 스매시 높이가 네트 + 50 cm(0.65 m)로 올라 0.55 → 0.75 m
+const HIGH = () => incoming({ y: -1.3, z: 0.75, vy: -3 });
 
 // ── input.md 검증 테스트 ─────────────────────────────────────
 
@@ -90,7 +91,7 @@ test('[2] 낮은 공에 스매시 동작을 하면 스매시로 판정되지 않
     assert.equal(event.over, false);
     assert.ok(ball.pos.y < 0);
   }
-  // 경계: 네트 + 20 cm 이상이면 스매시
+  // 경계: 네트 + SMASH_MIN_HEIGHT 이상이면 스매시
   const hi = incoming({ z: NET.HEIGHT + TUNABLE.SMASH_MIN_HEIGHT + 0.01 });
   assert.equal(classifyShot(SAMPLES.smash(hi), hi).shotType, 'smash');
 });
@@ -393,16 +394,16 @@ test('사람형 스윙: 휘두르기 시작한 순간이 아니라 라켓이 공
   }
   // 정점 근처에서 시작하면 PERFECT 범위
   assert.equal(humanSwing({ dir: 1, dist: 0.35, dur: 0.15, off: 0.12, startRel: -0.07 }).quality.timing, 'PERFECT');
-  // 높은 공을 빠르게 내려치면 스매시, 천천히 내리면 커트
+  // 높은 공을 빠르게 내려치면 스매시, 천천히 내리면 커트 (높은 공 z: v6.0 스매시 높이 0.65 m에 맞춰 0.45 → 0.75)
   for (const startRel of [-0.1, -0.06, -0.04]) {
-    assert.equal(humanSwing({ dir: -1, dist: 0.3, dur: 0.12, off: 0.1, startRel, z: 0.45 }).shotType, 'smash', `짧은 스매시 시작 ${startRel}`);
-    assert.equal(humanSwing({ dir: -1, dist: 0.4, dur: 0.12, off: 0.12, startRel, z: 0.45 }).shotType, 'smash', `스매시 시작 ${startRel}`);
+    assert.equal(humanSwing({ dir: -1, dist: 0.3, dur: 0.12, off: 0.1, startRel, z: 0.75 }).shotType, 'smash', `짧은 스매시 시작 ${startRel}`);
+    assert.equal(humanSwing({ dir: -1, dist: 0.4, dur: 0.12, off: 0.12, startRel, z: 0.75 }).shotType, 'smash', `스매시 시작 ${startRel}`);
   }
   for (const startRel of [-0.12, -0.08]) {
     assert.equal(humanSwing({ dir: -1, dist: 0.2, dur: 0.2, off: 0.08, startRel }).shotType, 'cut', `커트 시작 ${startRel}`);
   }
   // 빠른 커트(25 cm / 0.12~0.15 s)도 낮은 공에서 실타(네트), 높은 공에서 스매시가 되지 않고 커트다
-  for (const [dur, z] of [[0.15, 0.2], [0.12, 0.2], [0.15, 0.45], [0.12, 0.45]]) {
+  for (const [dur, z] of [[0.15, 0.2], [0.12, 0.2], [0.15, 0.75], [0.12, 0.75]]) {
     for (const startRel of [-0.08, -0.05]) {
       const r = humanSwing({ dir: -1, dist: 0.25, dur, off: 0.08, startRel, z });
       assert.equal(r.shotType, 'cut', `빠른 커트 ${dur}s, 공 높이 ${z}, 시작 ${startRel}: ${r.shotType}`);

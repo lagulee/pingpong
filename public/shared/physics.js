@@ -37,9 +37,15 @@ export function dragCoefficient(params = TUNABLE) {
   return (0.5 * params.C_D * PHYSICS.AIR_DENSITY * AREA) / BALL.MASS;
 }
 
+// 중력가속도: 게임은 TUNABLE.G_GAME(게임용 중력, v6.0), 엔진 검증 테스트는 G_GAME = PHYSICS.G(9.8)를 넘긴다.
+export const gravity = (params = TUNABLE) => params.G_GAME ?? PHYSICS.G;
+
+// 시뮬레이션 최대 시간: 실제 중력 기준 시간 base를 게임 중력에 맞게 늘린다 (체공 시간 ∝ 1/√g) + 높은 포물선 여유
+export const simTime = (base, params = TUNABLE) => base * SWING.SIM_T_MARGIN * Math.sqrt(PHYSICS.G / gravity(params));
+
 // 역학적 에너지(병진 운동 + 위치)  — 검증용
-export function mechanicalEnergy(b) {
-  return BALL.MASS * (0.5 * dot(b.vel, b.vel) + PHYSICS.G * b.pos.z);
+export function mechanicalEnergy(b, params = TUNABLE) {
+  return BALL.MASS * (0.5 * dot(b.vel, b.vel) + gravity(params) * b.pos.z);
 }
 
 // ── 자유 비행 적분 (반암시적 오일러: 속도 먼저 → 새 속도로 위치) ──
@@ -48,10 +54,11 @@ export function integrate(b, dt, params = TUNABLE) {
   const drag = -dragCoefficient(params) * length(v);
   const mag = cross(w, v);
   const km = params.K_M;
+  const g = gravity(params);
   const a = vec(
     drag * v.x + km * mag.x,
     drag * v.y + km * mag.y,
-    drag * v.z + km * mag.z - PHYSICS.G,
+    drag * v.z + km * mag.z - g,
   );
   v.x += a.x * dt; v.y += a.y * dt; v.z += a.z * dt;
   b.pos.x += v.x * dt; b.pos.y += v.y * dt; b.pos.z += v.z * dt;
@@ -245,7 +252,7 @@ export const ballToWorld = ballToLocal;
 // 반환: { events, bounce, apex: { t, pos, vel } | null, states: [{ t, pos }] }
 export function predictPath(ball, side, opts = {}) {
   const params = opts.params ?? TUNABLE;
-  const maxT = opts.maxT ?? SWING.PREDICT_T;
+  const maxT = opts.maxT ?? simTime(SWING.PREDICT_T, params);
   const after = opts.after ?? SWING.PREDICT_AFTER; // 정점 뒤로 더 기록할 시간 (늦게 치는 경우용)
   const b = cloneBall(ball);
   const dt = PHYSICS.DT;
@@ -286,7 +293,7 @@ export function positionAt(states, t) {
 export function flightLanding(ball, params = TUNABLE, clear = params.NET_CLEAR ?? 0) {
   const b = cloneBall(ball);
   const dt = PHYSICS.DT;
-  const n = Math.round(SWING.AIM_MAX_T / dt);
+  const n = Math.round(simTime(SWING.AIM_MAX_T, params) / dt);
   const netTop = NET.HEIGHT + R + clear;
   for (let i = 0; i < n; i++) {
     const y0 = b.pos.y, z0 = b.pos.z;
@@ -348,6 +355,88 @@ export function solveAim({ pos, speed, topspin = 0, sidespin = 0, target, t = 0 
   return { elevation, azimuth, ball: launch(elevation, azimuth), landing };
 }
 
+// ── 정점 조준 (v6.0, 기준 좌표, +y로 친다) ──────────────────────
+// 속도 벡터 u(m/s)로 친 공. 회전(rps)은 makeLaunch와 같이 진행 방향 기준이다.
+function launchVel(pos, u, topspin, sidespin, t) {
+  const speed = length(u);
+  return makeLaunch({
+    pos, speed, t, topspin, sidespin,
+    elevation: Math.asin(Math.max(-1, Math.min(1, u.z / speed))) / DEG,
+    azimuth: Math.atan2(u.x, u.y) / DEG,
+  });
+}
+
+// 공을 면 충돌 없이 날려, 최고점 높이와 탁구대 윗면 높이(공 중심 z = R)로 내려오는 지점을 잰다.
+// 네트·탁구대 경계에서 끊기지 않는 매끄러운 함수라 뉴턴법에 쓴다(실제 착지는 flightLanding으로 다시 확인).
+function arcShape(ball, params) {
+  const b = cloneBall(ball);
+  const dt = PHYSICS.DT;
+  const n = Math.round(simTime(SWING.AIM_MAX_T, params) / dt);
+  let top = b.pos.z;
+  for (let i = 0; i < n; i++) {
+    const p0 = copy(b.pos);
+    integrate(b, dt, params);
+    if (b.pos.z > top) top = b.pos.z;
+    if (b.vel.z < 0 && p0.z >= R && b.pos.z < R) {
+      const c = lerp(p0, b.pos, (p0.z - R) / (p0.z - b.pos.z));
+      return { x: c.x, y: c.y, top };
+    }
+  }
+  return { x: b.pos.x, y: b.pos.y, top };
+}
+
+// 3×3 연립방정식 J·d = r (크라메르 공식). 특이하면 null
+function solve3(J, r) {
+  const det = (m) => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+    - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+    + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+  const D = det(J);
+  if (!(Math.abs(D) > 1e-12)) return null;
+  return [0, 1, 2].map((k) => det(J.map((row, i) => row.map((v, j) => (j === k ? r[i] : v)))) / D);
+}
+
+// 높은 포물선 조준: pos에서 친 공이 target(x, y)에 떨어지고 최고점이 apex(탁구대 윗면 기준 m)가 되도록
+// 속도와 발사각을 함께 푼다. 공기저항 없는 포물선으로 초깃값을 잡고, 속도 벡터 3성분에 대한 뉴턴법으로
+// (착지 x, 착지 y, 최고점) 3개 조건을 맞춘다 (반복마다 비행 4번).
+// 필요한 속도가 [vMin, vMax] 밖이거나, 풀리지 않거나, 실제로 네트에 걸리면 한계 속도로 solveAim(가장 낮은 각)을 쓴다.
+// 반환: { elevation, azimuth, ball, landing, speed, apex, clamped }
+export function solveArc({ pos, topspin = 0, sidespin = 0, target, apex, t = 0, vMin = 0, vMax = Infinity }, params = TUNABLE) {
+  const g = gravity(params);
+  const H = Math.max(apex, pos.z + SWING.ARC_MIN_RISE);
+  const vz0 = Math.sqrt(2 * g * (H - pos.z));
+  const T = vz0 / g + Math.sqrt(2 * Math.max(H - R, 0.01) / g);
+  let u = vec((target.x - pos.x) / T, (target.y - pos.y) / T, vz0);
+  const resid = (v) => {
+    const s = arcShape(launchVel(pos, v, topspin, sidespin, t), params);
+    return [s.x - target.x, s.y - target.y, s.top - H];
+  };
+  let r = resid(u);
+  const big = (q) => Math.max(...q.map(Math.abs));
+  for (let it = 0; it < SWING.ARC_ITER && big(r) > SWING.ARC_TOL; it++) {
+    const h = SWING.ARC_DV;
+    const cols = [vec(h, 0, 0), vec(0, h, 0), vec(0, 0, h)].map((e) => resid(add(u, e)).map((q, i) => (q - r[i]) / h));
+    const J = [0, 1, 2].map((i) => cols.map((c) => c[i]));
+    const d = solve3(J, r.map((q) => -q));
+    if (!d) break;
+    let step_ = vec(d[0], d[1], d[2]);
+    const L = length(step_);
+    if (L > 2) step_ = scale(step_, 2 / L); // 한 번에 너무 멀리 가지 않게
+    u = add(u, step_);
+    r = resid(u);
+  }
+  const speed = length(u);
+  const fallback = () => {
+    const v = Math.min(vMax, Math.max(vMin, Number.isFinite(speed) ? speed : vMax));
+    return { ...solveAim({ pos, speed: v, topspin, sidespin, target, t }, params), speed: v, apex: null, clamped: true };
+  };
+  if (!(big(r) <= SWING.ARC_TOL * 5) || speed < vMin || speed > vMax) return fallback();
+  const ball = launchVel(pos, u, topspin, sidespin, t);
+  const landing = flightLanding(ball, params);
+  if (landing.short || !Number.isFinite(landing.y)) return fallback();
+  const elevation = Math.asin(u.z / speed) / DEG, azimuth = Math.atan2(u.x, u.y) / DEG;
+  return { elevation, azimuth, ball, landing, speed, apex: H + r[2], clamped: false };
+}
+
 // 라켓 면 법선: pitch(°, + 위로 열림), yaw(°, + 오른쪽 +x)
 export function faceNormal(pitch, yaw = 0) {
   const p = pitch * DEG, y = yaw * DEG;
@@ -386,7 +475,7 @@ export function inPlayFor(ball, side, params = TUNABLE) {
   const p = ball.pos;
   if (Math.abs(p.x) <= TABLE.WIDTH / 2 + R && Math.abs(p.y) <= TABLE.LENGTH / 2 + R && p.z >= 0) return true; // 탁구대 위
   const b = cloneBall(ball);
-  const n = Math.round(SWING.PREDICT_T / PHYSICS.DT);
+  const n = Math.round(simTime(SWING.PREDICT_T, params) / PHYSICS.DT);
   for (let i = 0; i < n; i++) {
     for (const e of step(b, PHYSICS.DT, { params })) {
       if (e.type === 'bounce' || e.type === 'edge') return e.side === side;
@@ -404,7 +493,7 @@ export function inPlayFor(ball, side, params = TUNABLE) {
 export function serveLanding(ball, params = TUNABLE, clear = params.NET_CLEAR ?? 0) {
   const b = cloneBall(ball);
   const dt = PHYSICS.DT;
-  const n = Math.round(SWING.AIM_MAX_T / dt);
+  const n = Math.round(simTime(SWING.AIM_MAX_T, params) / dt);
   const netTop = NET.HEIGHT + R + clear;
   let own = null, netCord = false, low = false;
   for (let i = 0; i < n; i++) {
@@ -505,17 +594,19 @@ function solveServeWith({ pos, speed, topspin = 0, sidespin = 0, target, t = 0 }
   return { elevation, azimuth, ball: launch(elevation, azimuth), landing, valid: valid(landing) };
 }
 
-// 서브 토스: 기준 좌표 x에서 손 높이로부터 공을 위로 띄운다 (회전 없음)
-export function makeToss(x, t = 0) {
+// 서브 토스: 기준 좌표 x에서 손 높이로부터 공을 위로 띄운다 (회전 없음).
+// 띄우는 높이(SERVE.TOSS_HEIGHT)가 같도록 속도 = √(2·g·높이) (게임 중력을 바꿔도 토스 높이는 그대로)
+export function makeToss(x, t = 0, params = TUNABLE) {
   const cx = Math.max(-SERVE.TOSS_X_MAX, Math.min(SERVE.TOSS_X_MAX, x));
-  return createBall({ pos: vec(cx, SERVE.TOSS_Y, SERVE.TOSS_Z), vel: vec(0, 0, SERVE.TOSS_SPEED), t });
+  const speed = Math.sqrt(2 * gravity(params) * SERVE.TOSS_HEIGHT);
+  return createBall({ pos: vec(cx, SERVE.TOSS_Y, SERVE.TOSS_Z), vel: vec(0, 0, speed), t });
 }
 
 // 토스한 공이 떨어지면서 높이 z를 지나는 시각 (공기저항 포함, 고정 스텝). 못 지나면 null
 export function tossTimeAt(ball, z, params = TUNABLE) {
   const b = cloneBall(ball);
   const dt = PHYSICS.DT;
-  for (let i = 0; i < Math.round(SWING.PREDICT_T / dt); i++) {
+  for (let i = 0; i < Math.round(simTime(SWING.PREDICT_T, params) / dt); i++) {
     const z0 = b.pos.z;
     integrate(b, dt, params);
     if (b.vel.z < 0 && z0 >= z && b.pos.z < z) return b.t - dt * (b.pos.z - z) / (b.pos.z - z0);

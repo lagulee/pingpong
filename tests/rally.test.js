@@ -61,7 +61,9 @@ test('로봇이 만든 가상 샘플이 의도한 구질로 판정된다', () =>
     for (let seed = 1; seed <= 20; seed++) {
       const params = only(type);
       params.AI_HARD_W_DRIVE = 1e-6; // 고를 수 없을 때만 드라이브
-      playRally(seed, 'HARD', 'HARD', params, (e, game) => {
+      // v6.0: 세게 친 공은 낮게 날아 바운드도 낮다. 스매시 기회(높은 공)는 약하게 높이 친 공에서 나오므로
+      // 스매시는 쉬움 로봇(약한 공)을 상대로 확인한다. 쉬움 로봇은 스매시를 고르지 않는다(W_SMASH 0).
+      playRally(seed, 'HARD', type === 'SMASH' ? 'EASY' : 'HARD', params, (e, game) => {
         if (e.type !== 'racket') return;
         const ai = game.ais.find((x) => x.player.side === e.side);
         if (ai.lastPlanType === type) { picked++; if (e.shot.shotType === shot) match++; }

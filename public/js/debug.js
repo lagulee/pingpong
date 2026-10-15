@@ -2,7 +2,7 @@
 // TUNABLE 슬라이더(묶음별, 즉시 반영), "현재 값 복사", 공 발사기, 규칙 시험 공, 화살표 표시, FPS, 최근 구질 판정·물리 이벤트.
 // 순수 함수(changedTunables, launchParams, tunableLabel)는 DOM 없이 테스트할 수 있도록 분리한다.
 import {
-  TUNABLE, TUNABLE_DEFAULTS, TUNABLE_RANGES, TUNABLE_GROUPS, TUNABLE_TOGGLES, LAUNCHER, SHOT_LABELS,
+  TUNABLE, TUNABLE_DEFAULTS, TUNABLE_RANGES, TUNABLE_GROUPS, TUNABLE_TOGGLES, TUNABLE_ONLINE_FREE, LAUNCHER, SHOT_LABELS,
 } from '../shared/constants.js';
 
 const TUNABLE_LABELS = {
@@ -86,6 +86,10 @@ const TUNABLE_LABELS = {
   HEART_GAIN: '심장 박동 음량',
   SND_JINGLE: '득점·게임 종료 효과음',
   FX_SERVE_GUIDE: '내 서브 가이드라인 (점선 궤적·바운드 지점)',
+  G_GAME: '게임 중력 (m/s², 실제 9.8)',
+  CAM_X: '카메라 위치 x (m, − 왼쪽)', CAM_Y: '카메라 위치 y (m, 내 엔드 뒤 −)', CAM_Z: '카메라 높이 (m)',
+  CAM_TX: '카메라 바라보는 점 x (m)', CAM_TY: '카메라 바라보는 점 y (m)', CAM_TZ: '카메라 바라보는 점 높이 (m)',
+  CAM_FOV: '카메라 시야각 (°, 세로)',
 };
 
 // 구질·AI 키는 규칙적으로 이름을 붙인다
@@ -94,6 +98,7 @@ const SHOT_KEYS = {
   V_MIN: '속도 최소 (m/s)', V_MAX: '속도 최대 (m/s)', SPIN_MIN: '회전 최소 (rps)', SPIN_MAX: '회전 최대 (rps)',
   TOP_MIN: '탑스핀 최소 (rps)', TOP_MAX: '탑스핀 최대 (rps)', DEPTH: '목표 깊이 (m)', PITCH: '면 각도 (°)',
   LAMBDA_TOP: '탑스핀 공 회전 영향', LAMBDA_BACK: '백스핀 공 회전 영향',
+  APEX_WEAK: '목표 정점 · 약하게 (m)', APEX_STRONG: '목표 정점 · 세게 (m)',
 };
 const DIFF_NAMES = { EASY: '쉬움', NORMAL: '보통', HARD: '어려움' };
 const AI_KEYS = {
@@ -194,7 +199,7 @@ export function initDebug(enabled, hooks) {
 
   const panel = el('div', { id: 'debug' });
   document.body.append(panel);
-  const lockNote = el('div', { className: 'dbg-lock', hidden: true, textContent: '대전 중: 서버와 같은 기본값으로 고정 (연출 켜기/끄기만 바꿀 수 있음)' });
+  const lockNote = el('div', { className: 'dbg-lock', hidden: true, textContent: '대전 중: 서버와 같은 기본값으로 고정 (연출 켜기/끄기·카메라만 바꿀 수 있음)' });
   const pingEl = el('div', { className: 'dbg-info' });
   panel.append(lockNote, pingEl);
 
@@ -208,13 +213,13 @@ export function initDebug(enabled, hooks) {
   const tunableSliders = {};
   const lockables = []; // 대전 중 잠그는 입력 (물리·판정 값, 발사기, 규칙 시험)
   for (const [group, keys] of Object.entries(TUNABLE_GROUPS)) {
-    const box = el('details', { className: 'dbg-group', open: group === '물리' || group === '연출' }, el('summary', { textContent: `${group} (${keys.length})` }));
+    const box = el('details', { className: 'dbg-group', open: group === '물리' || group === '연출' || group === '카메라' }, el('summary', { textContent: `${group} (${keys.length})` }));
     for (const k of keys) {
       const set = (v) => { TUNABLE[k] = v; };
       const s = TUNABLE_TOGGLES.includes(k) ? toggle(tunableLabel(k), TUNABLE[k], set) : slider(tunableLabel(k), TUNABLE_RANGES[k], TUNABLE[k], set);
       tunableSliders[k] = s;
       box.append(s.row);
-      if (!TUNABLE_TOGGLES.includes(k)) lockables.push(s.row);
+      if (!TUNABLE_ONLINE_FREE.includes(k)) lockables.push(s.row);
     }
     panel.append(box);
   }

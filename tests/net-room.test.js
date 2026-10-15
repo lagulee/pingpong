@@ -85,8 +85,8 @@ test('[3] 비정상 hit 거부: 차례 아님 · 과속 · 과회전 · 라켓�
     assert.ok(got, `seq ${msg.seq} 거부되어야 함`);
     assert.equal(got.reason, reason, `seq ${msg.seq}`);
   }
-  // 이후 정상 서브로 경기가 계속된다
-  w.run(() => A.points.length >= 2, { maxMs: 60_000 });
+  // 이후 정상 서브로 경기가 계속된다 (v6.0: 공이 느려져 AI 랠리가 길어졌으므로 가상 시간 한도 60 → 300 s)
+  w.run(() => A.points.length >= 2, { maxMs: 300_000 });
   assert.ok(host.game.results.length >= 2);
   assert.deepEqual(A.client.game.rules.score, host.game.rules.score);
 });

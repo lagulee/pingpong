@@ -337,9 +337,7 @@ export function createRenderer(canvas) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(RENDER.COLOR_BACKGROUND);
 
-  const camera = new THREE.PerspectiveCamera(RENDER.CAMERA_FOV, 1, RENDER.CAMERA_NEAR, RENDER.CAMERA_FAR);
-  camera.position.copy(toThree(RENDER.CAMERA_POS));
-  camera.lookAt(toThree(RENDER.CAMERA_TARGET));
+  const camera = new THREE.PerspectiveCamera(RENDER.CAMERA_CLASSIC.fov, 1, RENDER.CAMERA_NEAR, RENDER.CAMERA_FAR);
 
   scene.add(new THREE.AmbientLight(0xffffff, RENDER.AMBIENT_INTENSITY));
   const key = new THREE.DirectionalLight(0xffffff, RENDER.KEY_LIGHT_INTENSITY);
@@ -362,19 +360,22 @@ export function createRenderer(canvas) {
   }
 
   // 화면 흔들림: 물리 좌표 이동량 { x, z }만큼 카메라를 옮긴다 (시선 방향은 그대로)
-  let camBase = toThree(RENDER.CAMERA_POS);
+  let camBase = new THREE.Vector3();
   function setShake(off) {
     camera.position.copy(camBase).add(toThree({ x: off.x, y: 0, z: off.z }));
   }
 
-  // 내 자리(side): +1이면 카메라를 z축으로 180° 돌려 반대쪽 엔드 뒤에서 본다 (대전 모드)
-  function setSide(side) {
-    const flip = (p) => (side < 0 ? p : { x: -p.x, y: -p.y, z: p.z });
-    camBase = toThree(flip(RENDER.CAMERA_POS));
+  // 시점: cam = { pos, target, fov } (물리 좌표, 내 자리에 맞게 이미 돌린 값. input.js cameraFor).
+  // 대전에서 side +1이면 z축으로 180° 돌아간 시점이라 자기 기준 같은(왼쪽 위) 시점이 된다.
+  function setCamera(cam) {
+    camBase = toThree(cam.pos);
     camera.position.copy(camBase);
-    camera.lookAt(toThree(flip(RENDER.CAMERA_TARGET)));
+    camera.lookAt(toThree(cam.target));
+    camera.fov = cam.fov;
+    camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
   }
+  setCamera(RENDER.CAMERA_CLASSIC);
 
   function render() {
     renderer.render(scene, camera);
@@ -404,5 +405,6 @@ export function createRenderer(canvas) {
   }
 
   resize();
-  return { renderer, scene, camera, resize, render, screenRay, worldToScreen, setShake, setSide };
+  const aspect = () => camera.aspect;
+  return { renderer, scene, camera, resize, render, screenRay, worldToScreen, setShake, setCamera, aspect };
 }
