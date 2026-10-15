@@ -337,7 +337,14 @@ function showNetError(code) {
 }
 
 // 반환: 첫 화면 단계의 결과 ('inUse'면 다른 코드로 다시 시도)
+// 내가 접속한 Cloudflare 데이터센터 코드 (/api/where, 대전 시작 때 한 번)
+let myColo = null;
+function fetchWhere() {
+  fetch('/api/where').then((r) => r.json()).then((w) => { myColo = w.colo ?? null; }).catch(() => {});
+}
+
 function startOnline(code, create) {
+  fetchWhere();
   return new Promise((resolve) => {
     menuEl.hidden = true;
     lobbyEl.hidden = false;
@@ -568,7 +575,9 @@ function racketNormal(player, t, side) {
 function onlineHud(ms) {
   const p = client.ping;
   // 핑(왕복) · 상대 공 지연(상대 타격을 실제로 늦게 알게 되는 시간의 예상값)
-  pingEl.textContent = p === null ? '핑 —' : `핑 ${Math.round(p)} ms · 상대 공 지연 ${Math.round(ballLag.expected * 1000)} ms`;
+  // 접속 지점(내가 붙은 Cloudflare 데이터센터) → 방 서버 위치: 핑이 높을 때 경로가 멀리 돌아가는지 확인용
+  const route = myColo || client.serverColo ? ` · 경로 ${myColo ?? '?'} → 서버 ${client.serverColo ?? '?'}` : '';
+  pingEl.textContent = (p === null ? '핑 —' : `핑 ${Math.round(p)} ms · 상대 공 지연 ${Math.round(ballLag.expected * 1000)} ms`) + route;
   pingEl.className = p === null ? '' : p < ONLINE.PING_GOOD ? 'good' : p < ONLINE.PING_OK ? 'ok' : 'bad';
   debug.setPing(p);
   let msg = '';

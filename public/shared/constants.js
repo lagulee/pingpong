@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v6.0';
+export const VERSION = 'v6.1';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -678,6 +678,12 @@ export const ONLINE = Object.freeze({
   LOBBY_IDLE: 600,           // 대기실에서 이 시간 동안 시작하지 않으면 방을 닫는다 (s)
   PING_GOOD: 60,             // 핑 표시 색: 이 값 미만 초록 (ms)
   PING_OK: 120,              //            이 값 미만 노랑, 이상 빨강 (ms)
+  // 방 서버(Durable Object) 위치 (v6.1). 힌트가 없으면 방을 처음 연 요청이 들어온 Cloudflare 접속 지점 근처에 생기는데,
+  // 한국 통신사 경로가 미국·동남아 접속 지점으로 돌아가면 방 서버도 그쪽에 생겨 핑이 커진다.
+  // 동북아(일본·한국) → 아시아·태평양 순으로 시도하고, 런타임이 모르는 힌트면 다음 것을 쓴다. 힌트는 최선 노력(보장 아님).
+  LOCATION_HINTS: Object.freeze(['apac-ne', 'apac']),
+  WHERE_URL: 'https://www.cloudflare.com/cdn-cgi/trace', // 방 서버가 자기 위치(colo)를 알아내는 주소 (방마다 한 번)
+  WHERE_TIMEOUT: 1000,       // 위치 확인 최대 대기 (ms). 실패하면 위치 표시만 빠진다
 });
 
 // 대전 오류 코드 → 화면 문구

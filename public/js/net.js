@@ -99,6 +99,7 @@ export function createOnlineClient(opts) {
     serverRules: null,       // 서버가 마지막으로 확정한 규칙 상태 (점수판은 이것만 보여 준다)
     oppAway: null,           // 상대 재접속 마감 (내 시각 ms) 또는 null
     connected: false, errorCode: null, endMsg: null,
+    serverColo: null,        // 방 서버(Durable Object)가 있는 데이터센터 코드 (예: NRT). 모르면 null
     stats: { rejects: 0, corrected: 0, confirmed: 0, corrections: 0, rewinds: 0, remote: 0 },
     sync,
     get ping() { return sync.lastRtt; },
@@ -363,6 +364,7 @@ export function createOnlineClient(opts) {
     switch (msg.type) {
       case 'joined':
         c.me = msg.you;
+        c.serverColo = msg.server ?? null; // 방 서버 위치 (Cloudflare 데이터센터 코드)
         c.token = msg.token;
         c.code = msg.code;
         c.players = msg.players;

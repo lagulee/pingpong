@@ -204,7 +204,7 @@ export class Host {
           const back = p.away !== null;
           p.away = null;
           p.ready = this.phase === 'playing' ? false : p.ready;
-          this.io.send(id, { type: 'joined', you: s, token: p.token, code: this.code, players: this.players(), resume: this.phase === 'playing' });
+          this.io.send(id, { type: 'joined', you: s, token: p.token, code: this.code, players: this.players(), resume: this.phase === 'playing', server: this.serverColo ?? null });
           if (back) this.send(-s, { type: 'opp', state: 'back' });
           this.lobby();
           this.save();
@@ -221,7 +221,7 @@ export class Host {
     const s = this.slots[-1] ? 1 : -1; // 방을 만든 사람이 −1 쪽
     if (!taken.length) this.lobbySince = this.io.now();
     this.slots[s] = { side: s, nick: cleanNick(msg.nickname), token: makeToken(this.io.rng), conn: id, ready: false, rtt: null, away: null };
-    this.io.send(id, { type: 'joined', you: s, token: this.slots[s].token, code: this.code, players: this.players(), resume: false });
+    this.io.send(id, { type: 'joined', you: s, token: this.slots[s].token, code: this.code, players: this.players(), resume: false, server: this.serverColo ?? null });
     this.lobby();
     this.save();
     this.schedule();

@@ -31,6 +31,13 @@ paths:
 - 끊긴 쪽은 `RECONNECT_RETRY`(1 s)마다 `token`으로 다시 `join`한다. 다시 들어오면 시계를 다시 맞추고 `ready` → `resume`(현재 경기 상태)을 받아 이어서 진행한다.
 - 경기 중 `leave` = 기권.
 
+## 방 서버 위치 (v6.1)
+
+- Durable Object는 힌트가 없으면 방을 처음 연 요청이 들어온 Cloudflare 접속 지점 근처에 생기고, 한 번 생기면 옮겨지지 않는다. 한국 통신사 경로가 미국·동남아 접속 지점으로 돌아가면 방 서버도 그쪽에 생겨 핑이 커진다.
+- 그래서 `worker.js`의 `roomStub`이 `get(id, { locationHint })`로 `ONLINE.LOCATION_HINTS`(`apac-ne` 동북아 → `apac`)를 차례로 시도한다. 런타임이 모르는 힌트로 오류가 나면 다음 힌트, 마지막엔 힌트 없이 만든다(입장이 막히지 않음). 힌트는 최선 노력이며 처음 만들 때만 적용된다.
+- 진단 표시: 방 서버는 처음 연결 때 `ONLINE.WHERE_URL`(cdn-cgi/trace)로 자기 데이터센터 코드를 알아내 `joined.server`로 보내고, 클라이언트는 `/api/where`(내 요청의 `cf.colo`)로 내 접속 지점을 알아낸다. 화면 오른쪽 위에 `경로 접속지점 → 서버 위치`(예: `ICN → NRT`)를 핑과 함께 보여 준다. 위치 확인이 실패하면 `?`.
+- 사용자 → 접속 지점 구간(통신사 라우팅)은 코드로 바꿀 수 없다. 그 구간이 멀면(예: 접속 지점 LAX) 화면 표시로 확인할 수 있다.
+
 ## 방 정리 (무료 한도)
 
 - 상태 저장(`ctx.storage.put`)은 입장·준비·시작·득점·끊김·경기 끝에만 한다 (한 경기 약 20~35회). 잠들었다 깨어나면 생성자에서 저장된 상태로 `Host.restore`.
@@ -45,7 +52,7 @@ paths:
 | 종류 | 방향 | 내용 |
 |---|---|---|
 | `join` | C→S | `{ nickname, version, create, token? }` (`create`: 방 만들기, `token`: 재접속) |
-| `joined` | S→C | `{ you(−1/+1), token, code, players, resume }` |
+| `joined` | S→C | `{ you(−1/+1), token, code, players, resume, server }` (`server`: 방 서버 데이터센터 코드 또는 null, v6.1) |
 | `lobby` | S→C | `{ players: [{ side, nick, ready, online }] }` |
 | `error` | S→C | `{ code }`: `full` · `noRoom` · `inUse` · `version` (보낸 뒤 연결을 닫는다) |
 | `ready` | C→S | `{ rtt }` 시계를 맞춘 뒤 준비 완료 |

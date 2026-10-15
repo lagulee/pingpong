@@ -2,6 +2,18 @@
 // 여기서는 WebSocket Hibernation API·저장소·알람을 Host의 io로 연결하는 얇은 껍데기만 둔다.
 // cloudflare:workers를 import하지 않는 일반 클래스라 Node 테스트에서 가짜 ctx로 직접 만들 수 있다.
 import { Host } from '../public/shared/host.js';
+import { ONLINE } from '../public/shared/constants.js';
+
+// 이 방 서버가 있는 Cloudflare 데이터센터 코드 (예: NRT, ICN, LAX). 모르면 null
+export async function whereAmI(fetchFn = fetch) {
+  try {
+    const res = await fetchFn(ONLINE.WHERE_URL, { signal: AbortSignal.timeout(ONLINE.WHERE_TIMEOUT) });
+    const m = (await res.text()).match(/^colo=([A-Z0-9]+)$/m);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
 
 const STORE_KEY = 'host';
 
@@ -41,6 +53,11 @@ export class Room {
   async fetch(request) {
     if (request.headers.get('Upgrade') !== 'websocket') return new Response('WebSocket 전용 주소입니다.', { status: 426 });
     const code = new URL(request.url).pathname.split('/').pop();
+    // 방 서버 위치를 한 번 알아 둔다 (입장 응답 joined에 실어 보내 화면에 표시: 핑이 높을 때 원인 확인용)
+    if (!this.whereTried) {
+      this.whereTried = true;
+      this.host.serverColo = await whereAmI();
+    }
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.accept(server, code);
