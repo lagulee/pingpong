@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v5.1';
+export const VERSION = 'v5.2';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -109,13 +109,13 @@ const JUDGE_TUNABLE = {
 // LAMBDA_TOP / LAMBDA_BACK: 들어온 공이 탑스핀 / 백스핀일 때 그 회전 효과가 남는 비율(0 = 완벽히 대응, 1 = 그대로).
 //   예) 백스핀 공을 블록(BLOCK_LAMBDA_BACK = 1) → 아래로 떨어져 네트, 탑스핀 공을 커트(CUT_LAMBDA_TOP 큼) → 뜬다.
 const SHOT_TUNABLE = {
-  DRIVE_V_MIN: 5, DRIVE_V_MAX: 8.5, DRIVE_SPIN_MIN: 30, DRIVE_SPIN_MAX: 80,
-  DRIVE_DEPTH: 0.85, DRIVE_PITCH: -25, DRIVE_LAMBDA_TOP: 0.1, DRIVE_LAMBDA_BACK: 0.3,
+  DRIVE_V_MIN: 5, DRIVE_V_MAX: 7.5, DRIVE_SPIN_MIN: 30, DRIVE_SPIN_MAX: 80,   // v5.2: 최대 8.5 → 7.5 (회전이 보이게). 최소 5 아래는 탑스핀에 눌려 네트에 걸림
+  DRIVE_DEPTH: 0.7 /* v5.2: 0.85 → 0.7 (느려진 공이 닿는 깊이) */, DRIVE_PITCH: -25, DRIVE_LAMBDA_TOP: 0.1, DRIVE_LAMBDA_BACK: 0.3,
   SMASH_V_MIN: 10, SMASH_V_MAX: 15, SMASH_SPIN_MIN: 5, SMASH_SPIN_MAX: 15,
   SMASH_DEPTH: 0.95, SMASH_PITCH: -15, SMASH_LAMBDA_TOP: 0.05, SMASH_LAMBDA_BACK: 0.3,
-  CUT_V_MIN: 4.5, CUT_V_MAX: 6, CUT_SPIN_MIN: 15, CUT_SPIN_MAX: 40,     // 백스핀 (rps)
+  CUT_V_MIN: 4.5, CUT_V_MAX: 5.3, CUT_SPIN_MIN: 15, CUT_SPIN_MAX: 40,   // 백스핀 (rps). v5.2: 최대 6 → 5.3 (최소 4.5는 엔드라인 뒤에서 네트를 넘겨 깊이 보내는 물리적 하한)
   CUT_DEPTH: 0.6, CUT_PITCH: 40, CUT_LAMBDA_TOP: 0.8, CUT_LAMBDA_BACK: 0.1,
-  SIDE_V_MIN: 5, SIDE_V_MAX: 7.5, SIDE_SPIN_MIN: 30, SIDE_SPIN_MAX: 60, // 횡회전 (rps)
+  SIDE_V_MIN: 4.6, SIDE_V_MAX: 6.5, SIDE_SPIN_MIN: 30, SIDE_SPIN_MAX: 60, // 횡회전 (rps). v5.2: 5–7.5 → 4.6–6.5
   SIDE_TOP_MIN: 10, SIDE_TOP_MAX: 20, SIDE_DEPTH: 0.8, SIDE_PITCH: -10, SIDE_LAMBDA_TOP: 0.2, SIDE_LAMBDA_BACK: 0.4,
   BLOCK_DEPTH: 0.75, BLOCK_LAMBDA_TOP: 0.1, BLOCK_LAMBDA_BACK: 1.0,
   // 서브: 속도는 세기로 보간, 회전은 판정된 구질(드라이브 = 탑, 커트 = 백, 사이드 = 횡)의 범위를 쓴다
