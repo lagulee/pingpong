@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v7.4';
+export const VERSION = 'v7.5';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -252,6 +252,9 @@ const CAMERA_TUNABLE = {
   CAM_X: -0.7, CAM_Y: -3.0, CAM_Z: 1.45,
   CAM_TX: 0.12, CAM_TY: 0.3, CAM_TZ: -0.15,
   CAM_FOV: 50,
+  // 시점 거리 배율 (v7.5, 사용자 요청: 더 멀리서 보기). 카메라를 바라보는 점에서 이 배만큼 멀리 둔다(방향·시야각 그대로).
+  // 모든 시점(새·정면·모바일)에 적용. 설정 ⚙ 슬라이더·마우스 휠로 바꾸고 이 브라우저에 기억한다. 드래그 판정은 dragScaleFor가 보정
+  CAM_DIST: 1,
 };
 
 export const TUNABLE_DEFAULTS = Object.freeze({
@@ -402,6 +405,7 @@ export const TUNABLE_RANGES = Object.freeze({
   CAM_X: r(-2, 2, 0.01), CAM_Y: r(-5, -1.5, 0.01), CAM_Z: r(0.3, 3, 0.01),
   CAM_TX: r(-1, 1, 0.01), CAM_TY: r(-1.5, 1.5, 0.01), CAM_TZ: r(-1, 1, 0.01),
   CAM_FOV: r(25, 90, 1),
+  CAM_DIST: r(0.8, 1.8, 0.05),
   TOUCH_OFFSET_PX: r(0, 150, 1),
   TOUCH_SPEED_GAIN: r(0.2, 3, 0.01),
   TOUCH_LIFT_HOLD: r(0, 0.3, 0.005),

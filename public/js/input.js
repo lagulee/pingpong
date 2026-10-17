@@ -92,6 +92,12 @@ export function cameraFor(cam, side) {
   return { pos: flip(cam.pos), target: flip(cam.target), fov: cam.fov };
 }
 
+// 시점 거리 배율(CAM_DIST): 바라보는 점에서 k배 멀리 (방향·시야각 그대로)
+export function zoomCamera(cam, k) {
+  const t = cam.target, p = cam.pos;
+  return { pos: vec(t.x + (p.x - t.x) * k, t.y + (p.y - t.y) * k, t.z + (p.z - t.z) * k), target: t, fov: cam.fov };
+}
+
 // TUNABLE의 새 시점 (CAM_*)
 export const tunableCamera = (params = TUNABLE) => ({
   pos: vec(params.CAM_X, params.CAM_Y, params.CAM_Z), target: vec(params.CAM_TX, params.CAM_TY, params.CAM_TZ), fov: params.CAM_FOV,

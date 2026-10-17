@@ -11,7 +11,7 @@ import {
 } from './render.js';
 import { createBall, makeLaunch, faceNormal, toWorld, toLocal, carriedSpin } from '../shared/physics.js';
 import {
-  PHYSICS, PRACTICE, SWING, RENDER, TUNABLE, TUNABLE_DEFAULTS, TUNABLE_ONLINE_FREE, NET, VERSION, SHOT_LABELS,
+  PHYSICS, PRACTICE, SWING, RENDER, TUNABLE, TUNABLE_DEFAULTS, TUNABLE_RANGES, TUNABLE_ONLINE_FREE, NET, VERSION, SHOT_LABELS,
   DIFFICULTIES, DIFFICULTY_LABELS, DEMO, REASON_LABELS, RULES, SERVE, SERVE_GUIDE, PAUSE, ONLINE, ONLINE_ERRORS,
   REJECT_LABELS, MOBILE, FEEL, SHOT_KEYS, SHOT_BUTTONS,
 } from '../shared/constants.js';
@@ -22,7 +22,7 @@ import {
 } from './effects.js';
 import { initDebug, launchParams, SCENARIO_LABELS } from './debug.js';
 import {
-  createMouseInput, rayPlaneY, analyzeDrag, createRng, cameraFor, tunableCamera, dragScaleFor, createShotKeys, shotKeysOf,
+  createMouseInput, rayPlaneY, analyzeDrag, createRng, cameraFor, tunableCamera, zoomCamera, dragScaleFor, createShotKeys, shotKeysOf,
   controlMode,
 } from './input.js';
 import {
@@ -304,6 +304,7 @@ function syncSettings() {
   syncMute();
   volumeEl.value = audio.volume;
   $('set-view').checked = classicView;
+  syncDist();
   for (const [id, key] of Object.entries(TOGGLE_INPUTS)) $(id).checked = TUNABLE[key] >= 0.5;
 }
 function setSettingsOpen(v) {
@@ -324,6 +325,25 @@ tap(settingsBtn, () => setSettingsOpen(settingsEl.hidden));
 tap($('settings-close'), () => setSettingsOpen(false));
 for (const b of $('set-control').children) tap(b, () => setControl(b.dataset.v));
 $('set-view').addEventListener('change', () => { classicView = $('set-view').checked; });
+// 시점 거리 (7단계 수정): 설정 슬라이더 · 게임 화면 위 마우스 휠. 이 브라우저에 기억한다 (화면 전용 값이라 대전 중에도 바뀜)
+function syncDist() {
+  $('set-dist').value = TUNABLE.CAM_DIST;
+  $('set-dist-val').textContent = `${TUNABLE.CAM_DIST.toFixed(2)}×`;
+}
+function setCamDist(v) {
+  const { min, max, step } = TUNABLE_RANGES.CAM_DIST;
+  TUNABLE.CAM_DIST = Number(Math.min(max, Math.max(min, Math.round(v / step) * step)).toFixed(2));
+  store.set('pp-camdist', String(TUNABLE.CAM_DIST));
+  syncDist();
+}
+Object.assign($('set-dist'), TUNABLE_RANGES.CAM_DIST);
+const savedDist = Number(store.get('pp-camdist'));
+if (store.get('pp-camdist') !== null && Number.isFinite(savedDist)) setCamDist(savedDist);
+$('set-dist').addEventListener('input', () => setCamDist(Number($('set-dist').value)));
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  setCamDist(TUNABLE.CAM_DIST + Math.sign(e.deltaY) * TUNABLE_RANGES.CAM_DIST.step);
+}, { passive: false });
 for (const [id, key] of Object.entries(TOGGLE_INPUTS)) $(id).addEventListener('change', () => { TUNABLE[key] = $(id).checked ? 1 : 0; });
 for (const el of [settingsBtn, settingsEl]) {
   el.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -874,7 +894,8 @@ let classicView = false;
 let camKey = '';
 let dragScale = 1;
 function updateCamera() {
-  const base = classicView ? RENDER.CAMERA_CLASSIC : mobile ? mobileCamera() : tunableCamera();
+  // 시점 거리(CAM_DIST, 7단계 수정)는 판정 보정(dragScaleFor)보다 먼저 적용해 멀리서 봐도 같은 손놀림 = 같은 스윙
+  const base = zoomCamera(classicView ? RENDER.CAMERA_CLASSIC : mobile ? mobileCamera() : tunableCamera(), TUNABLE.CAM_DIST);
   const cam = cameraFor(base, me);
   const key = JSON.stringify([cam, view.aspect()]);
   if (key !== camKey) {
