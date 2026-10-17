@@ -343,3 +343,27 @@ test('모바일: 화면 버튼(왼손)은 손가락 샘플의 k가 되고, 버�
   assert.equal(buttonAt(samples, 1.02), 'cut');
   assert.equal(tr.down(2, 300, 300, 1.03), false, '캔버스 위 두 번째 손가락은 여전히 무시');
 });
+
+// v7.2 사용자 피드백: 빨간 고리에서 스매시를 해도 네트에 걸림. 고리 색은 예측 정점 높이로 정하는데 판정은 맞은 순간 높이로 해서,
+// 정점보다 일찍·늦게 치면 기준 아래에서 맞아 실타가 됐다 → 사람은 고리 높이(ringZ)로 판정, 맞은 높이 하한 SMASH_RING_FLOOR
+test('빨간 고리 스매시: 정점보다 일찍·늦게 쳐 맞은 높이가 기준보다 낮아도 스매시로 들어가고, 노란 고리는 그대로 실타', () => {
+  const H = NET.HEIGHT + TUNABLE.SMASH_MIN_HEIGHT;
+  const floor = NET.HEIGHT + TUNABLE.SMASH_RING_FLOOR;
+  const smash = (z, ringZ, top = 0) => {
+    const b = incoming({ z, vz: -1.5, topspin: top });
+    const r = classifyShot(swing({ k: 'smash', speed: 3.5, dir: -1, z1: z }), b, { apexT: 1.1, ringZ });
+    return { r, out: outcome(b, r).kind };
+  };
+  for (const z of [floor, (floor + H) / 2, H - 0.01]) for (const top of [0, 60, -50]) {
+    const { r, out } = smash(z, H + 0.1, top);
+    assert.equal(r.shotType, 'smash', `빨간 고리, 맞은 높이 ${z.toFixed(2)}`);
+    assert.equal(out, 'in', `빨간 고리, 맞은 높이 ${z.toFixed(2)}, 탑 ${top}`);
+  }
+  assert.equal(smash(H - 0.1, H - 0.05).r.shotType, 'mishit', '노란 고리는 실타');
+  assert.equal(smash(H - 0.1).r.shotType, 'mishit', '고리 정보 없음(로봇)은 맞은 높이로');
+  const late = smash(floor - 0.03, H + 0.1);
+  assert.equal(late.r.shotType, 'mishit', '빨간 고리라도 너무 늦게(하한 아래) 치면 실타');
+  assert.equal(late.out, 'net');
+  // 사람 타격은 화면 고리 높이를 넘긴다 (ai.js hitPhase)
+  assert.match(read('js/ai.js'), /ringZ: serveHit \|\| p\.robot \? undefined : p\.apexPos\?\.z/);
+});

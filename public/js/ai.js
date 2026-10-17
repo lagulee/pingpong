@@ -398,6 +398,7 @@ function hitPhase(game, t, dt, events, params) {
     const shot = classifyShot(p.samples, ball, {
       t, side, apexT: p.apexT, rng: game.rng, params, pressed: kind !== 'weak', serve: serveHit, dragScale: p.dragScale ?? 1,
       spinIn: carriedSpin(game.inSpin, t, params) ?? undefined, smashSpeed: p.smashSpeed,
+      ringZ: serveHit || p.robot ? undefined : p.apexPos?.z, // 사람: 화면 고리 높이로 스매시 판정 (로봇은 맞은 높이로 고른다)
     });
     p.lastShot = shot;
     game.lastShot = { side, ...shot };

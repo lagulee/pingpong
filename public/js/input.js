@@ -300,7 +300,8 @@ export function aimTarget(type, drag, racketX, params = TUNABLE) {
 //        racketX(라켓 x, 기준 좌표, 기본 마지막 샘플 x), pressed(버튼, 기본 true),
 //        serve(서브: 자기 코트 → 상대 코트로 조준, 기본 false), dragScale(사람 시점 보정, 기본 1),
 //        button(구질 버튼, 기본 샘플의 k로 buttonAt), spinIn(판정용 들어온 회전, 세계 좌표 rad/s. 기본 공의 물리 회전),
-//        smashSpeed(스매시 기준 스윙 속도, 기본 SMASH_SPEED. 터치는 TOUCH_SMASH_SPEED) }
+//        smashSpeed(스매시 기준 스윙 속도, 기본 SMASH_SPEED. 터치는 TOUCH_SMASH_SPEED),
+//        ringZ(화면 고리 = 예측 정점의 높이. 이 높이가 스매시 높이 이상(빨간 고리)이면 맞은 높이가 조금 낮아도 스매시) }
 // 반환: { shotType, vel, spin, quality: { timing, accuracy, strength, dtApex, weak, target, button, spinIn, stack } }
 export function classifyShot(samples, ballState, ctx = {}) {
   const params = ctx.params ?? TUNABLE;
@@ -315,7 +316,11 @@ export function classifyShot(samples, ballState, ctx = {}) {
   const serve = !!ctx.serve;
   const button = ctx.button !== undefined ? ctx.button : buttonAt(samples, t, params);
   const smashSpeed = ctx.smashSpeed ?? params.SMASH_SPEED;
-  let shotType = judgeType(drag, b.pos.z, params, pressed, button, smashSpeed);
+  // 스매시 높이는 화면의 고리(예측 정점 높이 ringZ)와 맞춘다 (7단계 수정): 빨간 고리면 정점보다 조금 일찍·늦게 쳐서
+  // 맞은 높이가 스매시 높이보다 낮아도, 네트 + SMASH_RING_FLOOR 이상이면 스매시로 본다 (그보다 낮으면 넣을 각이 없어 실타)
+  const ringOk = (ctx.ringZ ?? -Infinity) >= NET.HEIGHT + params.SMASH_MIN_HEIGHT && b.pos.z >= NET.HEIGHT + params.SMASH_RING_FLOOR;
+  const smashZ = ringOk ? Math.max(b.pos.z, ctx.ringZ) : b.pos.z;
+  let shotType = judgeType(drag, smashZ, params, pressed, button, smashSpeed);
   // 서브에서는 스매시 버튼을 막는다 (일반 서브)
   if (serve && (shotType === 'smash' || shotType === 'mishit')) shotType = 'normal';
   const parts = spinParts(b);

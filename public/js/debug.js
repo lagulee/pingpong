@@ -23,6 +23,7 @@ const TUNABLE_LABELS = {
   SPEED_FULL: '세기 1이 되는 최고 속도 (m/s)',
   SMASH_SPEED: '스매시 버튼: 스윙 최고 속도 이상 (m/s)',
   SMASH_MIN_HEIGHT: '스매시 가능 높이: 네트 위 (m)',
+  SMASH_RING_FLOOR: '빨간 고리일 때 스매시 최저 타점: 네트 위 (m)',
   BUTTON_WINDOW: '구질 버튼 인정 시간 (접촉 전, s)',
   SPIN_CARRY: '판정용 회전 비율 (상대가 친 회전 × 감쇠 × 이 값)',
   HIT_RADIUS: '라켓 도달 반경 좌우·높이 (m)',
