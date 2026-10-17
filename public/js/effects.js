@@ -199,6 +199,21 @@ export function reactTo(e, me = -1, p = TUNABLE) {
   return r;
 }
 
+// ── 진동 (6단계 모바일) ─────────────────────────────────
+// 화면 시각에 도달한 물리 이벤트 → 진동 길이 (ms, 0 = 진동 없음).
+// 내 라켓 타격: VIB_HIT_MIN~MAX를 소리 세기와 같은 g = 1 − e^(−속도/SND_SPEED_REF)로 (속도에 대해 단조 증가),
+// 내 코트 바운드: VIB_BOUNCE. 상대 타격·상대 코트 바운드는 진동하지 않는다.
+export function vibrationMs(e, me = -1, p = TUNABLE) {
+  if (!on(p.FX_VIBRATE)) return 0;
+  if (e.type === 'racket') {
+    if (e.side !== me) return 0;
+    const g = 1 - Math.exp(-Math.max(0, e.speed) / p.SND_SPEED_REF);
+    return Math.round(p.VIB_HIT_MIN + (p.VIB_HIT_MAX - p.VIB_HIT_MIN) * g);
+  }
+  if ((e.type === 'bounce' || e.type === 'edge') && e.pos.y * me > 0) return Math.round(p.VIB_BOUNCE);
+  return 0;
+}
+
 // 득점 결과에 슬로모션을 걸지: 매치포인트였던 랠리가 끝나는 순간(경기 끝 또는 매치포인트를 막아 낸 순간)
 export function slowmoFor(result, p = TUNABLE) {
   return on(p.FX_SLOWMO) && !result.practice && result.type === 'point' && !!(result.matchPoint || result.matchOver);

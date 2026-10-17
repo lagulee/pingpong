@@ -6,6 +6,7 @@ paths:
   - "public/js/audio.js"
   - "public/js/effects.js"
   - "public/js/debug.js"
+  - "public/js/mobile.js"
 ---
 
 # 렌더링·타격감·디버그 사양
@@ -46,10 +47,22 @@ paths:
 
 ## 디버그 패널 (debug.js, `?debug=1`)
 
-- `constants.js`의 `TUNABLE` 값을 모두 슬라이더로 표시하고 즉시 반영한다. 묶음: 물리(게임 중력 `G_GAME` 포함) / 판정 / 구질(목표 정점 높이 포함) / AI / 연출 / 카메라.
+- `constants.js`의 `TUNABLE` 값을 모두 슬라이더로 표시하고 즉시 반영한다. 묶음: 물리(게임 중력 `G_GAME` 포함) / 판정 / 구질(목표 정점 높이 포함) / AI / 연출 / 카메라 / 모바일.
 - 공의 속도·회전 벡터 화살표, 최근 구질 판정 결과, FPS, 핑을 표시한다.
 - **"현재 값 복사" 버튼**: 바뀐 값만 JSON으로 클립보드에 복사한다. 사용자가 이를 세션에 붙여 넣으면 Claude가 `constants.js`에 반영한다.
 - 공 발사기: 원하는 속도·회전으로 공을 쏘아 물리를 눈으로 확인할 수 있게 한다.
+
+## 모바일 모드 (6단계 모바일, v6.2)
+
+- **감지** (`mobile.js` `detectMobile`): `?mobile=1`이면 켜고 `?mobile=0`이면 끈다. 그 밖에는 손가락 화면(`pointer: coarse`)이면서 화면 짧은 변이 `MOBILE.MAX_SHORT_SIDE`(1100 px) 이하일 때 켠다. 모드는 화면·품질·진동만 바꾸고, 터치 입력은 모드와 무관하게 작동한다(input.md).
+- **화면**: `body.mobile` CSS로 바꾼다. 세로면 "가로로 돌려 주세요" 덮개, 전체 화면 버튼 ⛶(+ 가로 고정, 지원할 때만. 아이폰 사파리는 요소 전체 화면이 없어 버튼을 숨김), 노치 여백 `env(safe-area-inset-*)`. 스크롤·확대·길게 누르기는 `touch-action: none`, `user-select: none`, `-webkit-touch-callout: none`, viewport `user-scalable=no`, iOS `gesturestart` 막기로 막는다.
+- **버튼(44 px 이상, 오른쪽 위)**: ⏸(P), 🔊(M), 👁 시점(C), 🎯 서브 가이드(G), ⛶. 일시정지 화면에 난이도 쉬움·보통·어려움, 새 게임(R), 화살표(V). 음량 슬라이더와 HUD 제목은 숨긴다. 첫 화면에서 닉네임 입력칸에 자동 포커스하지 않는다(화면 키보드).
+- **시점** (`touch.js` `mobileCamera`): PC 시점(`CAM_*`)에서 시야각 `MOB_CAM_FOV` 50 → 54°, 바라보는 점 높이 `MOB_CAM_TZ` −0.15 → −0.45 m만 바꾼다. PC 구도 그대로면 가로 휴대폰에서 타점이 화면 아래 65~80%에 있어, 라켓을 손가락 위에 띄우면 서브 타점 아래에 쓸 자리가 40 px뿐이었다(브라우저 점검). 대신 네트 위 약 1.4 m보다 높은 공은 화면 위로 잘린다. 세로 구도는 화면 비율과 무관하다.
+- **성능** (물리 스텝은 그대로, 그리기만): 픽셀 비율 상한 `MOB_PIXEL_RATIO` 1.5, 그림자 지도 `MOB_SHADOW_SIZE` 1024(부드러운 그림자 끔, 공 그림자는 유지), 기기 픽셀 비율 2 이상이면 안티에일리어싱 끔(새로고침 때), 꼬리 점 개수 `MOB_TRAIL_SCALE` 0.5배. 자동 품질(`FX_AUTO_QUALITY`): 2 s 평균 FPS가 `MOB_FPS_MIN`(50)보다 낮으면 픽셀 비율을 0.25씩 낮춘다(최소 1.0).
+- **진동** (`effects.js` `vibrationMs`, `FX_VIBRATE`): 내 라켓 타격 `VIB_HIT_MIN~MAX`(12~35 ms, 소리 세기와 같은 g로 단조 증가), 내 코트 바운드 `VIB_BOUNCE`(6 ms). 소리와 같은 화면 시각에 낸다. `navigator.vibrate`가 없으면(아이폰 사파리) 조용히 생략한다.
+- **소리**: 잠금 해제를 첫 클릭 한 번이 아니라 `pointerdown`·`touchend`·`click`마다 다시 시도한다(iOS는 다른 앱에서 돌아온 뒤 다시 켜야 할 때가 있음). iOS 무음 스위치를 켜도 소리가 나게 `navigator.audioSession.type = 'playback'`(`SND_SILENT_SWITCH`, 지원하는 브라우저만. 다른 앱 음악이 멈출 수 있음).
+- **화면 꺼짐 방지**: 연습·대전 중(일시정지 아닐 때) Screen Wake Lock. 화면을 다시 보면 다시 잡는다.
+- **디버그 패널**: ⚙ 버튼으로 접고 편다(모바일은 접힌 채 시작, 왼쪽 아래). "모바일" 묶음에 터치·품질·진동 값, 표시에 프레임 평균·최대 시간과 현재 픽셀 비율.
 
 ## 검증
 
@@ -57,3 +70,5 @@ paths:
 - [ ] 이펙트 계산 함수(흔들림 진폭, 소리 매개변수)가 속도에 따라 단조 증가한다.
 - [ ] 모든 `public/js/*.js`가 문법 오류 없이 import된다 (`node --check` 또는 import 테스트).
 - [ ] 보고 시 사용자가 눈과 귀로 확인할 체크리스트를 함께 제시한다.
+- [x] (`tests/touch.test.js`) 모바일 감지, 자동 품질(단계적 하향·최소값·긴 프레임 제외·끄기), 진동 길이(속도에 단조 증가, 상대 타격·상대 코트 0), 모바일 튜닝 값의 묶음·대전 허용.
+- 브라우저 점검(세션용, `npm test` 밖): Playwright 크로미움 Pixel 7 흉내 + npm에서 받은 실제 `three@0.170.0`(jsDelivr가 막혀 있어 요청을 가로채 제공) + `wrangler dev`. 세로 안내, 가로 버튼 44 px, 연습 → 터치 토스 → 터치 스윙(드라이브·커트·스매시 판정), 휴대폰이 만든 방에 PC가 입장 → 대전 → 휴대폰 나가기 = PC 기권승.

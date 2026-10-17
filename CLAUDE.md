@@ -44,6 +44,7 @@ pingpong/
 │  └─ js/
 │     ├─ main.js  render.js  input.js  ai.js
 │     ├─ audio.js effects.js net.js    debug.js
+│     └─ touch.js mobile.js            # 6단계 모바일: 터치 → 샘플, 모바일 모드
 ├─ server/
 │  ├─ worker.js            # 진입점, WebSocket 업그레이드, 방 라우팅
 │  └─ room.js              # Durable Object: host.js를 감싸는 얇은 껍데기
@@ -57,10 +58,10 @@ pingpong/
 | 파일 | 내용 | 적용 경로 |
 |---|---|---|
 | `.claude/rules/physics.md` | 규격, 운동 방정식, 바운드, 충돌, 물리 검증 | `public/shared/physics.js`, `constants.js`, `tests/physics*` |
-| `.claude/rules/input.md` | 드래그 타격, 구질 판정, AI 로봇 | `public/js/input.js`, `ai.js`, `tests/input*`, `tests/rally*` |
+| `.claude/rules/input.md` | 드래그·터치 타격, 구질 판정, AI 로봇 | `public/js/input.js`, `touch.js`, `ai.js`, `tests/input*`, `tests/rally*`, `tests/touch*` |
 | `.claude/rules/game-rules.md` | 탁구 규칙, 점수, 서브 | `public/shared/rules.js`, `tests/rules*` |
 | `.claude/rules/network.md` | 동기화, 시계 맞추기, 방, 서버 판정 | `public/js/net.js`, `public/shared/host.js`, `match.js`, `server/**`, `wrangler.jsonc`, `tests/net*` |
-| `.claude/rules/feel.md` | 렌더링, 사운드, 이펙트, 디버그 패널 | `public/index.html`, `public/js/main.js`, `render.js`, `audio.js`, `effects.js`, `debug.js` |
+| `.claude/rules/feel.md` | 렌더링, 사운드, 이펙트, 디버그 패널, 모바일 모드 | `public/index.html`, `public/js/main.js`, `render.js`, `audio.js`, `effects.js`, `debug.js`, `mobile.js` |
 
 ## 5. 좌표계와 기본 규격
 
@@ -190,3 +191,9 @@ pingpong/
 - [6단계] 테스트: 의도한 상수 변경으로 바뀐 입력만 갱신했다(판정 기준은 그대로) — 스매시 시험 공 높이 0.55/0.45 → 0.75 m(스매시 높이 상향), 로봇 스매시 판정 시험은 상대를 쉬움 로봇으로(높은 공은 약한 공에서 나옴), 대전 거부 시험의 가상 시간 한도 60 → 300 s(랠리가 길어짐), 발사기 프리셋은 게임 중력으로 확인. 회귀 지문(`match-golden.json`)은 의도한 상수 변경이라 다시 기록했다. `npm test` 시간 49 → 약 95 s(랠리가 길고 공이 오래 남).
 - [6단계] 버전: 6단계 첫 푸시 = v6.0.
 - [6단계 수정] v6.1 핑 개선 (사용자 피드백: 핑이 너무 높게 나옴). 측정: 로컬 실제 서버(`wrangler dev`)에서 AI 대전 중 핑 0.9~3.7 ms, 서버 계산은 메시지당 평균 0.5 ms 이하(최대 `hit` 7.8 ms) → 코드·측정 방식이 아니라 방 서버 위치·경로 문제로 판단. 방 Durable Object를 위치 힌트 `apac-ne`(동북아) → `apac` 순으로 만들고(런타임이 모르는 힌트면 다음 것, 마지막엔 힌트 없이), 화면에 `경로 내 접속 지점 → 방 서버 위치`(Cloudflare 데이터센터 코드)를 표시해 원인을 확인할 수 있게 했다. 5단계의 "위치 힌트 넣지 않음" 결정을 바꾼 것이다. 사용자 → 접속 지점 구간(통신사 라우팅)은 코드로 바꿀 수 없다.
+- [6단계 수정] v6.2 모바일 모드 (사용자 계획 승인, 추천값). 조작은 **한 손가락 직접 조작**: 손가락이 닿아 있음 = 버튼 누름(대고 멈추면 조준 블록, 쓸면 스윙), 라켓은 손가락 위 `TOUCH_OFFSET_PX`. 두 손가락 분할(스윙하는 손가락이 라켓을 움직이지 않아 `checkHit`과 맞지 않음)·트랙패드식(다시 대는 동작이 많음)은 뺐다. `touch.js`가 터치를 같은 샘플 `{ t, x, y, b }`로 바꾸고 `classifyShot`·`checkHit`·서버는 그대로다. 손가락을 새로 대면 샘플을 비운다(순간 이동을 속도로 재면 스매시 오판), 떼도 `TOUCH_LIFT_HOLD` 0.08 s는 누름(유예 끝의 `b = false` 샘플을 뗀 순간 미리 넣음).
+- [6단계 수정] v6.2 터치 감도 = `dragScaleFor` × `TOUCH_SPEED_GAIN`(0.7, 추정) × 화면 높이 / 900 px. 판정 속도는 화면 비율에 비례해 작은 화면에서 과대하게 재지므로 CSS px 기준으로 맞춘다(휴대폰·태블릿 ±10%). 1.0이면 보통 튕기는 손놀림(2~4 px/ms)이 거의 다 스매시 시도가 되어 낮은 공 실타가 잦을 것으로 봐서 0.7. 터치·모바일 값은 입력 기기 값이라 대전 중에도 바꿀 수 있다(마우스 DPI와 같음, 결과는 서버 한도 안).
+- [6단계 수정] v6.2 모바일 시점: 처음 계획(PC 구도, 오프셋 70 px)은 Playwright 점검에서 가로 휴대폰(높이 360 px) 서브 타점 아래 쓸 자리가 약 40 px라 위로 쓸 수 없었다. 시야각 `MOB_CAM_FOV` 50 → 54°, 바라보는 점 높이 `MOB_CAM_TZ` −0.15 → −0.45 m, 오프셋 50 px로 바꿔 서브 타점 아래 약 90 px, 엔드라인 뒤 낮은 공 약 60 px. 대가: 네트 위 약 1.4 m보다 높은 공은 화면 위로 잘린다.
+- [6단계 수정] v6.2 모바일 모드 감지 = `?mobile=1/0` 우선, 아니면 `pointer: coarse` + 짧은 변 ≤ 1100 px. 모드는 화면(버튼 44 px·세로 안내·전체 화면·노치 여백·스크롤/확대 막기)·품질(픽셀 비율 1.5, 그림자 1024, 자동 품질)·진동·Wake Lock·iOS `audioSession 'playback'`만 바꾸고 PC 화면·조작은 그대로다. 새 TUNABLE 묶음 "모바일", 켜기/끄기 3개(`FX_VIBRATE`·`SND_SILENT_SWITCH`·`FX_AUTO_QUALITY`)는 기존 규칙대로 "연출" 묶음.
+- [6단계 수정] v6.2 대전: `RECONNECT_WAIT` 10 s 유지(추천값). 화면 복귀 때 `wake()`로 바로 재접속·시계 재측정. 모바일 데이터 시험에서 양쪽 모두 모바일 + 400 ms 튐이면 한 판 1건이 `time`으로 거부됐다(T_PAST 0.6 s 초과). 서버 값은 바꾸지 않고 1% 이하만 확인한다.
+- [6단계 수정] v6.2 브라우저 점검: 세션 VM에서 jsDelivr는 막혀 있지만 npm 레지스트리는 열려 있어, `npm pack three@0.170.0`의 `three.module.js`를 Playwright가 CDN 요청 대신 내준다(저장소에는 넣지 않음). 실제 WebGL(SwiftShader)로 터치 스윙 판정까지 확인했다. CDP 터치 이벤트는 한 번에 약 80 ms 걸려 스윙이 안 되므로, 페이지 안에서 화면 프레임에 맞춰 `PointerEvent(pointerType 'touch')`를 보낸다.

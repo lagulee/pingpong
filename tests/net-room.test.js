@@ -138,6 +138,29 @@ test('[7] 끊김: 10초 안에 다시 접속하면 이어서 끝까지, 점수 �
   assert.deepEqual(B.client.endMsg.score, host.game.rules.score);
 });
 
+test('[7] 모바일 백그라운드 복귀(v6.2): wake()를 부르면 재시도 간격을 기다리지 않고 바로 다시 접속한다', () => {
+  const { w, A, B, host } = startedWorld({ lat: 40, seed: 8 });
+  w.run(() => host.game.results.length >= 1, { maxMs: 60_000 });
+  B.sockets.at(-1).drop();
+  w.run(() => !B.client.connected, { maxMs: 100 });
+  const lostAt = w.time;
+  B.client.wake(); // 화면으로 돌아옴 (visibilitychange)
+  w.run(() => B.sockets.length === 2, { maxMs: ONLINE.RECONNECT_RETRY * 1000 });
+  assert.equal(B.sockets.length, 2);
+  assert.ok(w.time - lostAt < 100, `${w.time - lostAt} ms 만에 다시 접속 (재시도 간격 ${ONLINE.RECONNECT_RETRY * 1000} ms)`);
+  w.run(() => A.opp === 'back', { maxMs: 5000 });
+  assert.equal(A.opp, 'back');
+  w.run(() => false, { maxMs: 3000 }); // 다시 접속한 뒤 시계 맞추기가 끝날 때까지
+  // 연결된 채로 wake(): 시계를 바로 다시 잰다 (ping 전송)
+  const sent = [];
+  const sock = B.sockets.at(-1);
+  const orig = sock.send.bind(sock);
+  sock.send = (str) => { sent.push(JSON.parse(str).type); orig(str); };
+  B.client.wake();
+  w.run(() => false, { maxMs: 50 });
+  assert.ok(sent.includes('ping'), sent.join(','));
+});
+
 test('[7] 끊김: 10초가 지나도 돌아오지 않으면 남은 사람의 기권승, 방이 비면 정리된다', () => {
   const { w, A, B, host } = startedWorld({ lat: 40, seed: 6 });
   w.run(() => host.game.results.length >= 1, { maxMs: 60_000 });

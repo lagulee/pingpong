@@ -86,6 +86,21 @@ const TUNABLE_LABELS = {
   HEART_GAIN: '심장 박동 음량',
   SND_JINGLE: '득점·게임 종료 효과음',
   FX_SERVE_GUIDE: '내 서브 가이드라인 (점선 궤적·바운드 지점)',
+  FX_VIBRATE: '모바일 · 진동 (타격·내 코트 바운드)',
+  SND_SILENT_SWITCH: '모바일 · iOS 무음 스위치에서도 소리',
+  FX_AUTO_QUALITY: '모바일 · 자동 품질 (프레임이 떨어지면 해상도↓)',
+  TOUCH_OFFSET_PX: '터치 · 라켓을 손가락 위로 띄우는 거리 (px)',
+  TOUCH_SPEED_GAIN: '터치 · 스윙 감도 배율',
+  TOUCH_LIFT_HOLD: '터치 · 뗀 뒤 누름 유지 (s)',
+  MOB_CAM_FOV: '모바일 · 카메라 시야각 (°, 세로)',
+  MOB_CAM_TZ: '모바일 · 카메라 바라보는 점 높이 (m)',
+  MOB_PIXEL_RATIO: '모바일 · 픽셀 비율 상한',
+  MOB_SHADOW_SIZE: '모바일 · 그림자 해상도',
+  MOB_TRAIL_SCALE: '모바일 · 꼬리 점 개수 배율',
+  MOB_FPS_MIN: '모바일 · 자동 품질 기준 FPS',
+  VIB_HIT_MIN: '진동 · 약한 타격 (ms)',
+  VIB_HIT_MAX: '진동 · 센 타격 (ms)',
+  VIB_BOUNCE: '진동 · 내 코트 바운드 (ms)',
   G_GAME: '게임 중력 (m/s², 실제 9.8)',
   CAM_X: '카메라 위치 x (m, − 왼쪽)', CAM_Y: '카메라 위치 y (m, 내 엔드 뒤 −)', CAM_Z: '카메라 높이 (m)',
   CAM_TX: '카메라 바라보는 점 x (m)', CAM_TY: '카메라 바라보는 점 y (m)', CAM_TZ: '카메라 바라보는 점 높이 (m)',
@@ -192,14 +207,23 @@ function toggle(label, value, onInput) {
 }
 
 // 패널을 만든다. enabled가 아니면 아무것도 하지 않는 객체를 돌려준다.
-// hooks: { onLaunch(cfg), onDrop(), onScenario(kind), onArrows(bool), arrowsVisible }
+// hooks: { onLaunch(cfg), onDrop(), onScenario(kind), onArrows(bool), arrowsVisible, collapsed(처음 접힘, 모바일), quality() → 표시 글자 }
 export function initDebug(enabled, hooks) {
   const noop = { onEvents() {}, onFrame() {}, setLocked() {}, setPing() {}, launcherConfig: { ...LAUNCHER.DEFAULTS } };
   if (!enabled) return noop;
 
   const panel = el('div', { id: 'debug' });
   document.body.append(panel);
-  const lockNote = el('div', { className: 'dbg-lock', hidden: true, textContent: '대전 중: 서버와 같은 기본값으로 고정 (연출 켜기/끄기·카메라만 바꿀 수 있음)' });
+  // 접기/펼치기 (6단계 모바일: 휴대폰에서는 패널이 화면을 많이 가리므로 접은 채로 시작한다)
+  const foldBtn = el('button', { type: 'button' });
+  const setFolded = (v) => {
+    panel.classList.toggle('collapsed', v);
+    foldBtn.textContent = v ? '⚙ 디버그' : '⚙ 접기';
+  };
+  foldBtn.addEventListener('click', () => { setFolded(!panel.classList.contains('collapsed')); foldBtn.blur(); });
+  panel.append(el('div', { className: 'dbg-head' }, foldBtn));
+  setFolded(!!hooks.collapsed);
+  const lockNote = el('div', { className: 'dbg-lock', hidden: true, textContent: '대전 중: 서버와 같은 기본값으로 고정 (연출 켜기/끄기·카메라·모바일 값만 바꿀 수 있음)' });
   const pingEl = el('div', { className: 'dbg-info' });
   panel.append(lockNote, pingEl);
 
@@ -213,7 +237,7 @@ export function initDebug(enabled, hooks) {
   const tunableSliders = {};
   const lockables = []; // 대전 중 잠그는 입력 (물리·판정 값, 발사기, 규칙 시험)
   for (const [group, keys] of Object.entries(TUNABLE_GROUPS)) {
-    const box = el('details', { className: 'dbg-group', open: group === '물리' || group === '연출' || group === '카메라' }, el('summary', { textContent: `${group} (${keys.length})` }));
+    const box = el('details', { className: 'dbg-group', open: group === '물리' || group === '연출' || group === '카메라' || group === '모바일' }, el('summary', { textContent: `${group} (${keys.length})` }));
     for (const k of keys) {
       const set = (v) => { TUNABLE[k] = v; };
       const s = TUNABLE_TOGGLES.includes(k) ? toggle(tunableLabel(k), TUNABLE[k], set) : slider(tunableLabel(k), TUNABLE_RANGES[k], TUNABLE[k], set);
@@ -296,7 +320,7 @@ export function initDebug(enabled, hooks) {
   const logEl = el('div', { className: 'dbg-log' });
   panel.append(fpsEl, ballEl, el('h3', { textContent: '최근 이벤트' }), logEl);
 
-  let frames = 0, fpsTime = 0;
+  let frames = 0, fpsTime = 0, worst = 0;
   const log = [];
   const shots = [];
   const fmt = (n) => n.toFixed(2);
@@ -334,10 +358,11 @@ export function initDebug(enabled, hooks) {
       }
     },
     onFrame(dt, ball) {
-      frames++; fpsTime += dt;
+      frames++; fpsTime += dt; worst = Math.max(worst, dt);
       if (fpsTime >= 0.5) {
-        fpsEl.textContent = `FPS ${Math.round(frames / fpsTime)}`;
-        frames = 0; fpsTime = 0;
+        const q = hooks.quality?.() ?? '';
+        fpsEl.textContent = `FPS ${Math.round(frames / fpsTime)} · 프레임 평균 ${(1000 * fpsTime / frames).toFixed(1)} ms · 최대 ${Math.round(worst * 1000)} ms${q ? ` · ${q}` : ''}`;
+        frames = 0; fpsTime = 0; worst = 0;
       }
       const v = ball.vel, w = ball.spin;
       const speed = Math.hypot(v.x, v.y, v.z);

@@ -68,6 +68,28 @@ test('[6] 원격 AI 경기 (편도 100 ms + 지터 30 ms + 3% 확률로 최대 3
   assert.equal(A.rejects.length + B.rejects.length, 0, JSON.stringify([...A.rejects, ...B.rejects].slice(0, 3)));
 });
 
+// v6.2: 휴대폰 모바일 데이터(LTE·5G)처럼 기본 지연은 작지만 흔들림·가끔 튐이 큰 네트워크
+// 거부 한도: PC ↔ 모바일은 0. 양쪽 모두 모바일이면 튐이 겹쳐 타격이 서버에 0.6 s(T_PAST) 넘게 늦게 닿는 일이
+// 드물게 생긴다(실측: 이 조건 한 판 1건). 서버 값은 바꾸지 않고 1% 이하인지만 확인한다 — 점수는 그래도 일치해야 한다.
+const lte = jittery(60, 40, 0.05, 400);
+for (const [name, latA, latB, maxRate] of [
+  ['PC 30 ms ↔ 모바일 데이터 60 ms + 지터 40 ms + 5% 확률로 최대 400 ms 튐', () => 30, lte, 0],
+  ['양쪽 모바일 데이터', lte, lte, 0.01],
+]) {
+  test(`[6] 원격 AI 경기 (${name}): 점수 일치, 거부 ${maxRate ? '1% 이하' : '0'}`, () => {
+    const { A, B, done, host } = remoteGame({ latA, latB, seed: 3 });
+    assert.ok(done);
+    const score = host.game.rules.score;
+    for (const c of [A, B]) {
+      assert.deepEqual(c.client.game.rules.score, score);
+      assert.deepEqual(c.points.map(key), host.game.results.map(key));
+    }
+    const hits = host.game.results.reduce((n, r) => n + (r.rally ?? 0), 0);
+    const rejects = [...A.rejects, ...B.rejects];
+    assert.ok(rejects.length <= maxRate * hits, `거부 ${rejects.length} / 타격 ${hits}: ${JSON.stringify(rejects.slice(0, 3))}`);
+  });
+}
+
 test('[8] 화면 지연 (편도 80 ms): 보이는 공의 시간이 거꾸로 가지 않고, 내가 칠 때는 화면 = 실제 물리', async () => {
   const { createBallHistory } = await import('../public/js/effects.js');
   const { createBallLag, courtShare } = await import('../public/js/net.js');

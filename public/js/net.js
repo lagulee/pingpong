@@ -467,6 +467,13 @@ export function createOnlineClient(opts) {
     }
   };
 
+  // 화면으로 돌아왔을 때 (6단계 모바일: 백그라운드 복귀): 끊겼으면 재시도 간격을 기다리지 않고 다음 tick에 바로 다시 접속,
+  // 연결돼 있으면 시계를 바로 다시 잰다 (백그라운드 동안 멈춰 있던 탭은 시계가 어긋났을 수 있음)
+  c.wake = () => {
+    if (lostAt !== null && !c.connected) retryAt = -Infinity;
+    else if (c.connected) lastPingAt = -Infinity;
+  };
+
   // 내 서브 토스 (사람: 클릭)
   c.toss = (x) => {
     const g = c.game;

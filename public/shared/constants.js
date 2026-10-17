@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v6.1';
+export const VERSION = 'v6.2';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -166,6 +166,37 @@ const FEEL_TUNABLE = {
   SND_HEART: 1, HEART_BPM: 96, HEART_GAIN: 0.7, // 매치포인트 심장 박동
   SND_JINGLE: 1,                             // 득점·게임 종료 효과음
   FX_SERVE_GUIDE: 1,                         // 내 서브 가이드라인 (예상 궤적 점선·바운드 지점·타점 고리)
+  // 모바일 (v6.2). 켜기/끄기라 이 묶음에 둔다. 모바일 모드(mobile.js detectMobile)에서만 작동한다.
+  FX_VIBRATE: 1,                             // 내 타격·내 코트 바운드 때 진동 (지원하지 않는 기기는 조용히 생략)
+  SND_SILENT_SWITCH: 1,                      // iOS 무음 스위치를 켜도 소리 (audioSession 'playback'. 다른 앱 음악이 멈출 수 있음)
+  FX_AUTO_QUALITY: 1,                        // 프레임이 떨어지면 픽셀 비율을 자동으로 낮춘다
+};
+
+// 모바일·터치 (v6.2). 화면·입력 기기 값이라 대전 중에도 바꿀 수 있다(TUNABLE_ONLINE_FREE).
+// 터치 감도는 마우스 DPI처럼 각자 맞추는 값이다. 결과 공 속도·회전은 서버 한도(MAX_V·MAX_SPIN) 안으로 같다.
+const MOBILE_TUNABLE = {
+  // 라켓을 손가락보다 위로 띄우는 거리 (CSS px). 손가락이 닿는 면(지름 약 10~14 mm) 위쪽 가장자리를 넘어
+  // 들어오는 공이 보이게 한다. 크면 타점 아래에 위로 쓸어 올릴 자리가 줄어든다 (가로 휴대폰 높이 360~390 px).
+  TOUCH_OFFSET_PX: 50,
+  // 터치 드래그 속도 배율 = TOUCH_SPEED_GAIN × (화면 높이 px ÷ MOBILE.TOUCH_REF_H).
+  // 판정 속도는 "화면 높이의 몇 %를 움직였나"에 비례하므로, 작은 화면에서 같은 손놀림이 훨씬 빠르게 재진다.
+  // 화면 높이로 나눠 CSS px 기준(손가락·마우스가 비슷한 px/s)으로 맞추고, 남는 차이는 이 값으로 맞춘다.
+  // 0.7 (추정): 1 px/ms 쓸기 ≈ 1.3 m/s(커트), 스매시 2.8 m/s ≈ 2.2 px/ms(손가락 약 0.35 m/s) 이상.
+  // 1.0이면 보통 튕기는 손놀림(2~4 px/ms)이 거의 다 스매시 시도가 되어 낮은 공에서 실타가 잦을 것으로 봤다.
+  TOUCH_SPEED_GAIN: 0.7,
+  TOUCH_LIFT_HOLD: 0.08,     // 손가락을 뗀 뒤에도 "누름"으로 보는 시간 (s). 튕기듯 쓸면 공에 닿기 전에 손이 떨어지므로 (= SWING_WINDOW)
+  // 모바일 시점: PC 시점(CAM_*)에서 시야각과 바라보는 점 높이만 바꾼다. PC 구도 그대로면 가로 휴대폰에서 타점이
+  // 화면 아래 65~80%에 있어, 라켓을 손가락 위로 띄우면 타점 아래에 위로 쓸 자리가 40~50 px밖에 없었다(브라우저 점검).
+  // 아래를 더 내려다보고(−0.15 → −0.45) 조금 넓게(50 → 54°) 보면 서브 타점이 화면 62%, 낮은 공(0.2 m)이 70%로 올라온다.
+  // 대신 네트 위 약 1.4 m보다 높은 공은 화면 위로 잘린다 (탁구대 길이는 화면에서 약 8% 작아짐).
+  MOB_CAM_FOV: 54,           // 모바일 시야각 (°, 세로)
+  MOB_CAM_TZ: -0.45,         // 모바일 카메라가 바라보는 점 높이 (m, PC CAM_TZ −0.15)
+  MOB_PIXEL_RATIO: 1.5,      // 픽셀 비율 상한 (PC는 RENDER.MAX_PIXEL_RATIO 2)
+  MOB_SHADOW_SIZE: 1024,     // 그림자 지도 크기 (PC 2048). 공 그림자는 높이 판단에 필요해 끄지 않는다
+  MOB_TRAIL_SCALE: 0.5,      // 공 꼬리 점 개수 배율
+  MOB_FPS_MIN: 50,           // 자동 품질: 평균 FPS가 이보다 낮으면 픽셀 비율을 낮춘다
+  VIB_HIT_MIN: 12, VIB_HIT_MAX: 35, // 내 타격 진동 길이 (ms): 약한 공 → 센 공
+  VIB_BOUNCE: 6,             // 내 코트 바운드 진동 길이 (ms)
 };
 
 // 카메라 (v6.0): 내 엔드 왼쪽 위에서 내려다보는 시점 (물리 좌표, side −1 기준. side +1은 180° 돌린다 → 자기 기준 왼쪽 위).
@@ -178,16 +209,17 @@ const CAMERA_TUNABLE = {
 };
 
 export const TUNABLE_DEFAULTS = Object.freeze({
-  ...PHYSICS_TUNABLE, ...JUDGE_TUNABLE, ...SHOT_TUNABLE, ...AI_TUNABLE, ...FEEL_TUNABLE, ...CAMERA_TUNABLE,
+  ...PHYSICS_TUNABLE, ...JUDGE_TUNABLE, ...SHOT_TUNABLE, ...AI_TUNABLE, ...FEEL_TUNABLE, ...CAMERA_TUNABLE, ...MOBILE_TUNABLE,
 });
 
 // 디버그 패널에서 슬라이더 대신 체크박스로 보이는 켜기/끄기 키
 export const TUNABLE_TOGGLES = Object.freeze([
   'FX_HITSTOP', 'FX_SHAKE', 'FX_TRAIL', 'FX_POPUP', 'FX_SLOWMO', 'SND_CROWD', 'SND_HEART', 'SND_JINGLE', 'FX_SERVE_GUIDE',
+  'FX_VIBRATE', 'SND_SILENT_SWITCH', 'FX_AUTO_QUALITY',
 ]);
 
 // 대전 중에도 바꿀 수 있는 키 (판정에 영향 없는 화면·소리 값). 나머지는 서버와 같은 기본값으로 고정한다.
-export const TUNABLE_ONLINE_FREE = Object.freeze([...TUNABLE_TOGGLES, ...Object.keys(CAMERA_TUNABLE)]);
+export const TUNABLE_ONLINE_FREE = Object.freeze([...TUNABLE_TOGGLES, ...Object.keys(CAMERA_TUNABLE), ...Object.keys(MOBILE_TUNABLE)]);
 
 // 디버그 패널 묶음 이름 → 키 목록
 export const TUNABLE_GROUPS = Object.freeze({
@@ -197,6 +229,7 @@ export const TUNABLE_GROUPS = Object.freeze({
   'AI': Object.keys(AI_TUNABLE),
   '연출': Object.keys(FEEL_TUNABLE),
   '카메라': Object.keys(CAMERA_TUNABLE),
+  '모바일': Object.keys(MOBILE_TUNABLE),
 });
 
 // 실제로 쓰는 튜닝 값 (디버그 패널이 이 객체를 직접 바꾼다)
@@ -308,6 +341,17 @@ export const TUNABLE_RANGES = Object.freeze({
   CAM_X: r(-2, 2, 0.01), CAM_Y: r(-5, -1.5, 0.01), CAM_Z: r(0.3, 3, 0.01),
   CAM_TX: r(-1, 1, 0.01), CAM_TY: r(-1.5, 1.5, 0.01), CAM_TZ: r(-1, 1, 0.01),
   CAM_FOV: r(25, 90, 1),
+  TOUCH_OFFSET_PX: r(0, 150, 1),
+  TOUCH_SPEED_GAIN: r(0.2, 3, 0.01),
+  TOUCH_LIFT_HOLD: r(0, 0.3, 0.005),
+  MOB_CAM_FOV: r(25, 90, 1),
+  MOB_CAM_TZ: r(-1, 1, 0.01),
+  MOB_PIXEL_RATIO: r(0.5, 3, 0.05),
+  MOB_SHADOW_SIZE: r(256, 2048, 256),
+  MOB_TRAIL_SCALE: r(0.1, 1, 0.05),
+  MOB_FPS_MIN: r(20, 60, 1),
+  VIB_HIT_MIN: r(0, 80, 1), VIB_HIT_MAX: r(0, 80, 1),
+  VIB_BOUNCE: r(0, 40, 1),
 });
 
 // 구질 이름 (판정 결과 shotType) → 화면 표시
@@ -408,6 +452,20 @@ export const SERVE_GUIDE = Object.freeze({
   COLOR_TARGET: 0xff9a3c,    // 상대 코트 착지 표시
   MARK_RADIUS: 0.06,         // 바운드 표시 고리 반지름 (m)
   OPACITY: 0.8,
+});
+
+// 모바일 (v6.2, 튜닝하지 않는 값. 조절 값은 TUNABLE의 '모바일' 묶음)
+export const MOBILE = Object.freeze({
+  // 모바일 모드: 손가락 화면(pointer: coarse)이면서 화면 짧은 변이 이 이하 (CSS px, 아이패드 프로 1024 포함).
+  // 주소에 ?mobile=1이면 강제로 켜고, ?mobile=0이면 끈다. 터치 입력 자체는 모드와 무관하게 작동한다.
+  MAX_SHORT_SIDE: 1100,
+  TOUCH_REF_H: 900,          // 터치 감도 기준 화면 높이 (CSS px, 판정 임계값을 맞춘 PC 화면 높이)
+  REFRESH: 0.05,             // 손가락이 멈춰 있어도 이 간격으로 현재 위치 샘플을 남긴다 (s, 마우스와 같음)
+  FPS_WINDOW: 2,             // 자동 품질: 평균 FPS를 재는 시간 (s)
+  FPS_SKIP_DT: 0.25,         // 이보다 긴 프레임(탭 전환·일시정지 뒤)은 자동 품질 측정에서 뺀다 (s)
+  PIXEL_RATIO_STEP: 0.25,    // 자동 품질: 한 번에 낮추는 픽셀 비율
+  PIXEL_RATIO_MIN: 1,        // 자동 품질: 이 아래로는 낮추지 않는다
+  NO_AA_DPR: 2,              // 기기 픽셀 비율이 이 이상이면 안티에일리어싱을 끈다 (새로고침 때 적용)
 });
 
 // 일시정지 (v4.1)

@@ -13,12 +13,12 @@ import { createBall, makeLaunch, faceNormal, toWorld, toLocal } from '../shared/
 import {
   PHYSICS, PRACTICE, SWING, RENDER, TUNABLE, TUNABLE_DEFAULTS, TUNABLE_ONLINE_FREE, NET, VERSION, SHOT_LABELS,
   DIFFICULTIES, DIFFICULTY_LABELS, DEMO, REASON_LABELS, RULES, SERVE, SERVE_GUIDE, PAUSE, ONLINE, ONLINE_ERRORS,
-  REJECT_LABELS,
+  REJECT_LABELS, MOBILE, FEEL,
 } from '../shared/constants.js';
 import { canHit, bouncedOn, matchPointSide, idx } from '../shared/rules.js';
 import { createAudio, initSoundTest } from './audio.js';
 import {
-  createFx, createBallHistory, createDisplayQueue, createPopupLayer, spinKind, TRAIL_COLORS, frameSteps,
+  createFx, createBallHistory, createDisplayQueue, createPopupLayer, spinKind, TRAIL_COLORS, frameSteps, vibrationMs,
 } from './effects.js';
 import { initDebug, launchParams, SCENARIO_LABELS } from './debug.js';
 import {
@@ -29,6 +29,10 @@ import {
   scoreState, racketWorld, serveGuide,
 } from './ai.js';
 import { createOnlineClient, createBallLag, courtShare } from './net.js';
+import { touchSpeedScale, mobileCamera } from './touch.js';
+import {
+  detectMobile, createQualityGovernor, createWakeLock, canFullscreen, toggleFullscreen, applyAudioSession, vibrate,
+} from './mobile.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('game');
@@ -49,7 +53,25 @@ const pingEl = $('ping');
 const netMsgEl = $('net-msg');
 const leaveBtn = $('leave-btn');
 document.getElementById('version').textContent = VERSION;
-const view = createRenderer(canvas);
+const params = new URLSearchParams(location.search);
+
+// ── 모바일 모드 (6단계): 화면·품질·진동·화면 꺼짐 방지. 터치 입력 자체는 모드와 무관하게 작동한다 (input.js) ──
+const mobile = detectMobile({
+  query: params.get('mobile'), coarse: !!window.matchMedia?.('(pointer: coarse)').matches,
+  width: screen.width, height: screen.height,
+});
+if (mobile) document.body.classList.add('mobile');
+const dpr = window.devicePixelRatio || 1;
+const view = createRenderer(canvas, mobile ? {
+  pixelRatio: Math.min(dpr, TUNABLE.MOB_PIXEL_RATIO), shadowSize: TUNABLE.MOB_SHADOW_SIZE,
+  antialias: dpr < MOBILE.NO_AA_DPR, softShadow: false,
+} : {});
+const quality = mobile ? createQualityGovernor(Math.min(dpr, TUNABLE.MOB_PIXEL_RATIO), TUNABLE, dpr) : null;
+const wakeLock = mobile ? createWakeLock() : null;
+if (mobile) {
+  applyAudioSession(); // AudioContext를 만들기 전에 정해 둔다 (iOS 무음 스위치)
+  document.addEventListener('gesturestart', (e) => e.preventDefault()); // iOS 두 손가락 확대
+}
 const ballView = createBallView(view.scene);
 const myRacket = createRacketView(view.scene, RENDER.COLOR_RACKET_ME, RENDER.RACKET_OPACITY_ME);
 const robotRacket = createRacketView(view.scene, RENDER.COLOR_RACKET_AI);
@@ -59,7 +81,6 @@ const guideView = createGuideView(view.scene);
 window.addEventListener('resize', view.resize);
 
 // ── 연출·소리 ──
-const params = new URLSearchParams(location.search);
 const audio = createAudio();
 const fx = createFx();
 const history = createBallHistory();  // 물리 스텝마다 공 상태 복사본
@@ -69,7 +90,8 @@ const ballLag = createBallLag();      // 대전: 공만 늦게 보여 주는 시
 let shownY = 0;                       // 지난 프레임에 보여 준 공의 내 기준 y (화면 지연 계산용)
 let viewT = 0;                        // 화면이 보여 주는 시각
 let crowdRally = null;                // 관중 함성에 마지막으로 반영한 랠리 수
-window.addEventListener('pointerdown', () => audio.unlock(), { once: true });
+// 소리 잠금 해제: 사용자 동작마다 다시 시도한다 (iOS는 터치를 뗄 때·다른 앱에서 돌아온 뒤 다시 켜야 할 때가 있다)
+for (const type of ['pointerdown', 'touchend', 'click']) window.addEventListener(type, () => audio.unlock(), { passive: true });
 
 // 음소거 버튼·음량 슬라이더 (이 브라우저에 기억)
 const muteBtn = $('mute');
@@ -117,8 +139,26 @@ function setPaused(v) {
 }
 pauseBtn.addEventListener('click', (e) => { e.stopPropagation(); setPaused(!paused); pauseBtn.blur(); });
 pauseEl.addEventListener('click', () => setPaused(false));
-document.addEventListener('visibilitychange', () => { if (document.hidden && PAUSE.AUTO_ON_HIDE && mode === 'practice') setPaused(true); });
-for (const el of [muteBtn, volumeEl, pauseBtn, leaveBtn]) el.addEventListener('pointerdown', (e) => e.stopPropagation());
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && PAUSE.AUTO_ON_HIDE && mode === 'practice') setPaused(true);
+  if (!document.hidden) client?.wake(); // 모바일 백그라운드 복귀: 끊겼으면 바로 다시 접속, 아니면 시계를 바로 다시 잰다
+});
+// 모바일 화면 버튼: 시점(C)·서브 가이드(G)·전체 화면, 일시정지 화면의 난이도·새 게임·화살표
+const viewBtn = $('view-btn'), guideBtn = $('guide-btn'), fsBtn = $('fs-btn');
+const tap = (el, fn) => el.addEventListener('click', (e) => { e.stopPropagation(); fn(); el.blur(); });
+tap(viewBtn, () => { classicView = !classicView; });
+tap(guideBtn, () => { TUNABLE.FX_SERVE_GUIDE = TUNABLE.FX_SERVE_GUIDE >= 0.5 ? 0 : 1; });
+tap(fsBtn, toggleFullscreen);
+fsBtn.hidden = !canFullscreen();
+for (const b of document.querySelectorAll('#pause-actions [data-diff]')) tap(b, () => { setDifficulty(b.dataset.diff); setPaused(false); });
+tap($('pause-new'), () => { newGame(); setPaused(false); });
+tap($('pause-arrows'), () => setArrows(!ballView.arrowsVisible));
+for (const el of [muteBtn, volumeEl, pauseBtn, leaveBtn, viewBtn, guideBtn, fsBtn]) el.addEventListener('pointerdown', (e) => e.stopPropagation());
+if (mobile) {
+  $('pause-hint').textContent = '화면을 누르면 이어서 합니다.';
+  $('pause-hint2').textContent = '다른 앱으로 가면 자동으로 멈춥니다.';
+  $('menu-hint').textContent = '손가락으로 쓸어 치기 · 가로 화면 권장 · ⛶ 전체 화면';
+}
 if (params.get('sound') === '1') initSoundTest(audio, document.body);
 
 // ── 게임 상태 ──
@@ -217,6 +257,8 @@ const debug = initDebug(debugEnabled, {
   },
   onArrows: setArrows,
   arrowsVisible: ballView.arrowsVisible,
+  collapsed: mobile, // 모바일은 접은 채로 시작 (⚙ 버튼으로 펼침)
+  quality: () => (mobile ? `픽셀 비율 ${quality.ratio.toFixed(2)}` : ''),
   me: () => me,
 });
 function setArrows(v) {
@@ -247,7 +289,7 @@ const netErrEl = $('neterror');
 nickEl.value = store.get('pp-nick') ?? '';
 const roomParam = (params.get('room') ?? '').toUpperCase();
 if (roomParam) codeEl.value = roomParam;
-(roomParam ? (nickEl.value ? codeEl : nickEl) : nickEl).focus();
+if (!mobile) (roomParam ? (nickEl.value ? codeEl : nickEl) : nickEl).focus(); // 모바일은 화면 키보드가 바로 뜨지 않게
 const nickname = () => {
   const n = nickEl.value.trim().slice(0, ONLINE.NICK_MAX);
   store.set('pp-nick', n);
@@ -546,6 +588,7 @@ function dispatch(item) {
   if (item.result) { showResult(item.result); return; }
   const e = item.event;
   audio.playImpact(e.type, e.speed, e.shot?.shotType);
+  if (mobile) vibrate(vibrationMs(e, me));
   const r = fx.onEvent(e, me);
   if (r.popups.length) popups.show(r.popups, view.worldToScreen(e.pos));
   if (e.type === 'racket') showShot(e);
@@ -593,11 +636,12 @@ function onlineHud(ms) {
 // ── 시점 (6단계) ──
 // 새 시점(TUNABLE CAM_*, 왼쪽 위) / 기존 시점(C 키). 내 자리(me)에 맞게 돌리고, 바뀌었을 때만 카메라를 다시 놓는다.
 // 시점에 따라 마우스 1 px가 라켓 평면에서 움직이는 거리가 달라지므로, 내 드래그 속도를 기존 시점 기준으로 맞춘다(dragScale).
+// 모바일(6단계): 시점은 mobileCamera(시야각·바라보는 높이만 다름), 터치로 치면 화면 높이로 CSS px 기준에 맞추는 배율(touchSpeedScale)을 더 곱한다.
 let classicView = false;
 let camKey = '';
 let dragScale = 1;
 function updateCamera() {
-  const base = classicView ? RENDER.CAMERA_CLASSIC : tunableCamera();
+  const base = classicView ? RENDER.CAMERA_CLASSIC : mobile ? mobileCamera() : tunableCamera();
   const cam = cameraFor(base, me);
   const key = JSON.stringify([cam, view.aspect()]);
   if (key !== camKey) {
@@ -606,7 +650,7 @@ function updateCamera() {
     const k = dragScaleFor(base, view.aspect());
     dragScale = Number.isFinite(k) && k > 0 ? k : 1; // 캔버스 크기가 0인 순간 등
   }
-  human.dragScale = dragScale;
+  human.dragScale = mouse.touchActive ? dragScale * touchSpeedScale(canvas.clientHeight) : dragScale;
 }
 
 let lastTime = null;
@@ -655,7 +699,8 @@ function frame(now) {
   shownY = toLocal(shown.pos, me).y;
   ballView.update(shown.pos, shown.vel, shown.spin, viewT - prevView);
   if (TUNABLE.FX_TRAIL >= 0.5) {
-    const pts = history.trail(ballViewT, TUNABLE.TRAIL_TIME).map((q) => ({ pos: q.pos, color: TRAIL_COLORS[spinKind(q.vel, q.spin)] }));
+    const maxPts = mobile ? Math.max(2, Math.round(FEEL.TRAIL_MAX_POINTS * TUNABLE.MOB_TRAIL_SCALE)) : FEEL.TRAIL_MAX_POINTS;
+    const pts = history.trail(ballViewT, TUNABLE.TRAIL_TIME, maxPts).map((q) => ({ pos: q.pos, color: TRAIL_COLORS[spinKind(q.vel, q.spin)] }));
     if (pts.length) pts.push({ pos: shown.pos, color: pts[pts.length - 1].color });
     trail.update(pts);
   } else trail.update([]);
@@ -689,6 +734,13 @@ function frame(now) {
   marker.update(ringPos, tossed || holdingServe ? TUNABLE.SERVE_HIT_RADIUS : TUNABLE.HIT_RADIUS, smashable);
 
   debug.onFrame(elapsed, ball);
+  if (mobile) {
+    const r = quality.update(elapsed);
+    if (r !== null) view.setPixelRatio(r);
+    view.setShadowSize(TUNABLE.MOB_SHADOW_SIZE);
+    wakeLock.want(mode !== 'menu' && !paused);
+    applyAudioSession();
+  }
   updateCamera();
   view.render();
 
@@ -707,10 +759,14 @@ function frame(now) {
     centerEl.textContent = mode === 'menu' ? ''
       : tossed ? '공이 고리까지 내려올 때 휘두르기!'
         : !waitServe ? ''
-          : rules.server === me ? '내 서브\n① 클릭: 공 띄우기  ② 공이 고리에 올 때 휘두르기\n↑ 드라이브 · ↓ 커트 · 곡선 = 사이드'
+          : rules.server === me ? (mobile
+            ? '내 서브\n① 화면 터치: 공 띄우기  ② 공이 고리에 올 때 쓸기\n↑ 드라이브 · ↓ 커트 · 곡선 = 사이드'
+            : '내 서브\n① 클릭: 공 띄우기  ② 공이 고리에 올 때 휘두르기\n↑ 드라이브 · ↓ 커트 · 곡선 = 사이드')
             : `${oppName} 서브`;
   }
-  statusEl.textContent = online()
+  statusEl.textContent = mobile
+    ? (online() ? `대전 · 방 ${client.code}` : `연습 · ${DIFFICULTY_LABELS[difficulty]} (⏸에서 난이도·새 게임)`)
+    : online()
     ? `대전 · 방 ${client.code} (${RULES.POINTS_TO_WIN}점) · G 서브 가이드 · V 화살표 · M 음소거`
     : `연습 경기 (${RULES.POINTS_TO_WIN}점) · ${DIFFICULTY_LABELS[difficulty]} · `
       + `1/2/3 난이도(새 게임) · R 새 게임 · P 일시정지 · G 서브 가이드 · V 화살표${debugEnabled ? '' : ' · ?debug=1 패널'}`;

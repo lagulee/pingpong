@@ -9,6 +9,7 @@ import {
   faceNormal, racketResponse, ballToLocal, toWorld,
 } from '../shared/physics.js';
 import { NET, SWING, TUNABLE, RENDER } from '../shared/constants.js';
+import { createTouchTracker } from './touch.js';
 
 const DEG = Math.PI / 180;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -419,12 +420,15 @@ export function racketLocal(player, t, ballLocalY = null, params = TUNABLE) {
   return vec(s.x, y, s.y);
 }
 
-// ── DOM: 마우스 → 샘플 ──────────────────────────────────────
+// ── DOM: 마우스·터치 → 샘플 ─────────────────────────────────
 // opts.toPlane(clientX, clientY) → { x, z } | null, opts.now() → 게임 시각(s), opts.onPress()
+// 터치(pointerType 'touch')는 touch.js가 같은 샘플 배열로 바꾼다 (6단계 모바일). 마우스 동작은 그대로다.
 export function createMouseInput(canvas, opts) {
   const samples = [];
   let pressed = false;
   let last = { x: 0, z: SWING.HOME.z };
+  let touchActive = false; // 마지막으로 쓴 입력이 터치인가 (터치 감도 보정용)
+  const touch = createTouchTracker(samples, { toPlane: opts.toPlane });
 
   function push(clientX, clientY, t) {
     const p = opts.toPlane(clientX, clientY);
@@ -434,21 +438,41 @@ export function createMouseInput(canvas, opts) {
     samples.push(s);
     pruneSamples(samples, s.t);
   }
+  // 묶인 이벤트는 실제 발생 시각 차이만큼 과거로 놓는다
+  const coalesced = (e, now, fn) => {
+    const list = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+    for (const ev of list.length ? list : [e]) fn(ev.clientX, ev.clientY, now - (e.timeStamp - ev.timeStamp) / 1000);
+  };
 
   canvas.addEventListener('pointermove', (e) => {
     const now = opts.now();
-    const list = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
-    // 묶인 이벤트는 실제 발생 시각 차이만큼 과거로 놓는다
-    for (const ev of list.length ? list : [e]) push(ev.clientX, ev.clientY, now - (e.timeStamp - ev.timeStamp) / 1000);
+    if (e.pointerType === 'touch') {
+      coalesced(e, now, (x, y, t) => touch.move(e.pointerId, x, y, t));
+      return;
+    }
+    touchActive = false;
+    coalesced(e, now, push);
   });
   canvas.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch') {
+      if (!touch.down(e.pointerId, e.clientX, e.clientY, opts.now())) return;
+      touchActive = true;
+      try { canvas.setPointerCapture?.(e.pointerId); } catch { /* 이미 끝난 손가락 등 */ }
+      opts.onPress?.();
+      return;
+    }
     if (e.button !== 0) return;
+    touchActive = false;
     pressed = true;
     canvas.setPointerCapture?.(e.pointerId);
     push(e.clientX, e.clientY, opts.now());
     opts.onPress?.();
   });
   const release = (e) => {
+    if (e.pointerType === 'touch') {
+      touch.up(e.pointerId, e.clientX, e.clientY, opts.now());
+      return;
+    }
     if (!pressed) return;
     pressed = false;
     push(e.clientX, e.clientY, opts.now());
@@ -459,9 +483,11 @@ export function createMouseInput(canvas, opts) {
 
   return {
     samples,
-    get pressed() { return pressed; },
+    get pressed() { return touchActive ? touch.touching : pressed; },
+    get touchActive() { return touchActive; },
     // 프레임마다 마우스가 멈춰 있어도 현재 위치를 한 번 기록 (라켓 평면 y가 바뀌었을 때 반영)
     refresh(t) {
+      if (touchActive) { touch.refresh(t); return; }
       const prev = samples[samples.length - 1];
       if (!prev || t - prev.t > 0.05) {
         samples.push({ t: Math.max(t, prev?.t ?? t), x: last.x, y: last.z, b: pressed });

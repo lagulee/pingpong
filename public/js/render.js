@@ -328,11 +328,12 @@ export function createTrailView(scene) {
 }
 
 // 장면을 만들고 그리기 함수들을 돌려준다.
-export function createRenderer(canvas) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, RENDER.MAX_PIXEL_RATIO));
+// quality (6단계 모바일): { pixelRatio, shadowSize, antialias, softShadow }. 없으면 PC 기본값.
+export function createRenderer(canvas, quality = {}) {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: quality.antialias ?? true });
+  renderer.setPixelRatio(quality.pixelRatio ?? Math.min(window.devicePixelRatio, RENDER.MAX_PIXEL_RATIO));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = (quality.softShadow ?? true) ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(RENDER.COLOR_BACKGROUND);
@@ -343,7 +344,7 @@ export function createRenderer(canvas) {
   const key = new THREE.DirectionalLight(0xffffff, RENDER.KEY_LIGHT_INTENSITY);
   key.position.copy(toThree(RENDER.KEY_LIGHT_POS));
   key.castShadow = true;
-  key.shadow.mapSize.set(RENDER.SHADOW_MAP_SIZE, RENDER.SHADOW_MAP_SIZE);
+  key.shadow.mapSize.set(quality.shadowSize ?? RENDER.SHADOW_MAP_SIZE, quality.shadowSize ?? RENDER.SHADOW_MAP_SIZE);
   const sc = key.shadow.camera;
   sc.left = -TABLE.LENGTH; sc.right = TABLE.LENGTH; sc.top = TABLE.LENGTH; sc.bottom = -TABLE.LENGTH;
   scene.add(key);
@@ -404,7 +405,22 @@ export function createRenderer(canvas) {
     return { x: rect.left + ((v.x + 1) / 2) * rect.width, y: rect.top + ((1 - v.y) / 2) * rect.height };
   }
 
+  // 화면 품질 바꾸기 (모바일 자동 품질·디버그 패널)
+  function setPixelRatio(r) {
+    if (Math.abs(renderer.getPixelRatio() - r) < 1e-6) return;
+    renderer.setPixelRatio(r);
+    resize();
+  }
+  function setShadowSize(n) {
+    if (key.shadow.mapSize.x === n) return;
+    key.shadow.mapSize.set(n, n);
+    key.shadow.map?.dispose();
+    key.shadow.map = null; // 다음 그리기에서 새 크기로 다시 만든다
+  }
+
   resize();
   const aspect = () => camera.aspect;
-  return { renderer, scene, camera, resize, render, screenRay, worldToScreen, setShake, setCamera, aspect };
+  return {
+    renderer, scene, camera, resize, render, screenRay, worldToScreen, setShake, setCamera, aspect, setPixelRatio, setShadowSize,
+  };
 }
