@@ -274,3 +274,27 @@ test('모바일 튜닝 값: "모바일" 묶음·대전 중 변경 허용, 판정
   // 터치 뗀 뒤 유예 기본값 = 판정 창(접촉 직전 드래그를 재는 시간)
   assert.equal(TUNABLE_DEFAULTS.TOUCH_LIFT_HOLD, TUNABLE_DEFAULTS.SWING_WINDOW);
 });
+
+// v7.1 사용자 피드백: 모바일에서 스매시 버튼을 눌러도 계속 NORMAL. 마우스 기준 SMASH_SPEED(2.0 m/s)는
+// 휴대폰에서 약 2 px/ms(화면 높이를 0.2 s에 쓸기)라 엄지로는 자주 못 미쳤다 → 터치는 TOUCH_SMASH_SPEED(1.0) 기준
+test('터치 스매시: 보통 빠르기(약 1.2 px/ms)로 쓸어도 높은 공이면 스매시, 마우스 기준으로는 일반이 될 속도다', () => {
+  const scr = screenFor(PHONE);
+  const hit = (pxPerMs, smashSpeed) => {
+    const T = 0.08;
+    const sw = swipe(scr, { x: 0.1, z: 0.8, dx: 0, dy: pxPerMs * T * 1000, T, button: 'smash' });
+    const ball = incoming(0.1, 0.8, sw.t);
+    return classifyShot(sw.samples, ball, { apexT: sw.t, dragScale: scr.dragScale, smashSpeed });
+  };
+  const r = hit(1.2, TUNABLE.TOUCH_SMASH_SPEED);
+  assert.equal(r.shotType, 'smash', `스윙 ${r.quality.dragSpeed.toFixed(2)} m/s`);
+  assert.ok(r.quality.dragSpeed < TUNABLE.SMASH_SPEED, '마우스 기준(SMASH_SPEED)보다 느린 손놀림');
+  assert.equal(hit(1.2).shotType, 'normal', '기준을 넘기지 않으면 마우스 기준');
+  const slow = hit(0.5, TUNABLE.TOUCH_SMASH_SPEED);
+  assert.equal(slow.shotType, 'normal', '아주 느린 쓸기는 여전히 일반');
+  assert.equal(slow.quality.smashSlow, true);
+  assert.equal(slow.quality.smashSpeed, TUNABLE.TOUCH_SMASH_SPEED);
+  // 터치 기준은 입력 기기 값: "모바일" 묶음, 대전 중에도 바꿀 수 있다 (결과 공은 서버 한도 안)
+  assert.ok(TUNABLE_GROUPS['모바일'].includes('TOUCH_SMASH_SPEED'));
+  assert.ok(TUNABLE_ONLINE_FREE.includes('TOUCH_SMASH_SPEED'));
+  assert.ok(TUNABLE.TOUCH_SMASH_SPEED < TUNABLE.SMASH_SPEED);
+});

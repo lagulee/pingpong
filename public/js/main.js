@@ -594,7 +594,7 @@ function showShot(e) {
     const dt = Number.isFinite(q.dtApex) ? `${q.dtApex >= 0 ? '+' : ''}${Math.round(q.dtApex * 1000)} ms` : '정점 없음';
     // 회전 누적(7단계): 같은 회전으로 받아쳐 더해진 몫과 상한
     const st = q.stack && q.stack.add > 0.5 ? ` · 회전 ${Math.round(q.stack.base)}+${Math.round(q.stack.add)}${q.stack.capped ? ' MAX' : ''} rps` : '';
-    const note = q.smashSlow ? ` · 스매시는 ${TUNABLE.SMASH_SPEED} m/s 이상으로 (느려서 일반)` : q.smashNoServe ? ' · 서브는 스매시 불가 (일반 서브)' : '';
+    const note = q.smashSlow ? ` · 스매시는 ${q.smashSpeed} m/s 이상으로 (느려서 일반)` : q.smashNoServe ? ' · 서브는 스매시 불가 (일반 서브)' : '';
     shotSubEl.textContent = `스윙 ${q.dragSpeed.toFixed(2)} m/s · 세기 ${q.strength.toFixed(2)} · 정점 대비 ${dt} · 공 ${e.speed.toFixed(1)} m/s${st}${note}`;
   } else {
     const who = online() ? nameEls.robot.textContent : '로봇';
@@ -776,6 +776,7 @@ function updateCamera() {
     dragScale = Number.isFinite(k) && k > 0 ? k : 1; // 캔버스 크기가 0인 순간 등
   }
   human.dragScale = mouse.touchActive ? dragScale * touchSpeedScale(canvas.clientHeight) : dragScale;
+  human.smashSpeed = mouse.touchActive ? TUNABLE.TOUCH_SMASH_SPEED : undefined; // 터치 스매시 기준 (7단계 수정)
 }
 
 let lastTime = null;

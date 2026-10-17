@@ -397,7 +397,7 @@ function hitPhase(game, t, dt, events, params) {
     if (isEarly(rules, side) && (kind === 'weak' || p.robot)) continue;
     const shot = classifyShot(p.samples, ball, {
       t, side, apexT: p.apexT, rng: game.rng, params, pressed: kind !== 'weak', serve: serveHit, dragScale: p.dragScale ?? 1,
-      spinIn: carriedSpin(game.inSpin, t, params) ?? undefined,
+      spinIn: carriedSpin(game.inSpin, t, params) ?? undefined, smashSpeed: p.smashSpeed,
     });
     p.lastShot = shot;
     game.lastShot = { side, ...shot };

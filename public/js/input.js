@@ -202,11 +202,12 @@ export function buttonAt(samples, t, params = TUNABLE) {
 
 // 구질 판정 (7단계 버튼). zLocal: 공 중심 높이(탁구대 윗면 기준), button: buttonAt 결과
 // 버튼을 누른 채 라켓을 멈추면(스윙 속도 < BLOCK_SPEED) 버튼과 상관없이 블록.
-// 스매시 버튼: 스윙이 SMASH_SPEED 이상이어야 하고(방향 무관, 느리면 일반 스윙), 낮은 공(노란 고리)이면 실타(네트).
-export function judgeType(drag, zLocal, params = TUNABLE, pressed = true, button = null) {
+// 스매시 버튼: 스윙이 smashSpeed(마우스 SMASH_SPEED, 터치 TOUCH_SMASH_SPEED) 이상이어야 하고(방향 무관, 느리면 일반 스윙),
+// 낮은 공(노란 고리)이면 실타(네트).
+export function judgeType(drag, zLocal, params = TUNABLE, pressed = true, button = null, smashSpeed = params.SMASH_SPEED) {
   if (!pressed || drag.speed < params.BLOCK_SPEED) return 'block';
   if (button === 'smash') {
-    if (drag.speed < params.SMASH_SPEED) return 'normal';
+    if (drag.speed < smashSpeed) return 'normal';
     return zLocal >= NET.HEIGHT + params.SMASH_MIN_HEIGHT ? 'smash' : 'mishit';
   }
   return SHOT_BUTTONS.includes(button) ? button : 'normal';
@@ -298,7 +299,8 @@ export function aimTarget(type, drag, racketX, params = TUNABLE) {
 // ctx: { t(접촉 시각, 기본 ballState.t), side(−1/+1, 기본 −1), apexT(예측 정점 시각), rng, params,
 //        racketX(라켓 x, 기준 좌표, 기본 마지막 샘플 x), pressed(버튼, 기본 true),
 //        serve(서브: 자기 코트 → 상대 코트로 조준, 기본 false), dragScale(사람 시점 보정, 기본 1),
-//        button(구질 버튼, 기본 샘플의 k로 buttonAt), spinIn(판정용 들어온 회전, 세계 좌표 rad/s. 기본 공의 물리 회전) }
+//        button(구질 버튼, 기본 샘플의 k로 buttonAt), spinIn(판정용 들어온 회전, 세계 좌표 rad/s. 기본 공의 물리 회전),
+//        smashSpeed(스매시 기준 스윙 속도, 기본 SMASH_SPEED. 터치는 TOUCH_SMASH_SPEED) }
 // 반환: { shotType, vel, spin, quality: { timing, accuracy, strength, dtApex, weak, target, button, spinIn, stack } }
 export function classifyShot(samples, ballState, ctx = {}) {
   const params = ctx.params ?? TUNABLE;
@@ -312,7 +314,8 @@ export function classifyShot(samples, ballState, ctx = {}) {
   const racketX = ctx.racketX ?? sampleAt(samples, t)?.x ?? b.pos.x;
   const serve = !!ctx.serve;
   const button = ctx.button !== undefined ? ctx.button : buttonAt(samples, t, params);
-  let shotType = judgeType(drag, b.pos.z, params, pressed, button);
+  const smashSpeed = ctx.smashSpeed ?? params.SMASH_SPEED;
+  let shotType = judgeType(drag, b.pos.z, params, pressed, button, smashSpeed);
   // 서브에서는 스매시 버튼을 막는다 (일반 서브)
   if (serve && (shotType === 'smash' || shotType === 'mishit')) shotType = 'normal';
   const parts = spinParts(b);
@@ -325,7 +328,7 @@ export function classifyShot(samples, ballState, ctx = {}) {
   // dragSpeed·dragSin: 판정에 쓴 스윙 최고 속도(m/s)와 방향(+ 위). 화면에 보여 줘서 사용자가 임계값을 맞출 수 있게 한다.
   const quality = {
     timing, accuracy, strength, dtApex, weak: !pressed, target: null, dragSpeed: drag.speed, dragSin: drag.sin, serve,
-    button, smashSlow: button === 'smash' && shotType === 'normal' && !serve, smashNoServe: serve && button === 'smash',
+    button, smashSlow: button === 'smash' && shotType === 'normal' && !serve, smashNoServe: serve && button === 'smash', smashSpeed,
     spinIn: { top: parts.top, side: parts.side }, stack: null,
   };
 

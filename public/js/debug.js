@@ -91,6 +91,7 @@ const TUNABLE_LABELS = {
   TOUCH_OFFSET_PX: '터치 · 라켓을 손가락 위로 띄우는 거리 (px)',
   TOUCH_SPEED_GAIN: '터치 · 스윙 감도 배율',
   TOUCH_LIFT_HOLD: '터치 · 뗀 뒤 누름 유지 (s)',
+  TOUCH_SMASH_SPEED: '터치 · 스매시 기준 스윙 속도 (m/s)',
   MOB_CAM_FOV: '모바일 · 카메라 시야각 (°, 세로)',
   MOB_CAM_TZ: '모바일 · 카메라 바라보는 점 높이 (m)',
   MOB_PIXEL_RATIO: '모바일 · 픽셀 비율 상한',
