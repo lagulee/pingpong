@@ -177,7 +177,7 @@ function planSwing(ai, type, pc, tc, t, yPlane, params) {
     // 방향은 판정에 쓰지 않는다 (7단계 버튼 구질). 모양만 사람처럼: 드라이브·일반은 위로, 커트·스매시는 아래로
     dir = { x: ux, y: type === 'DRIVE' || type === 'NORMAL' ? vy : type === 'BLOCK' ? 0 : -vy };
   }
-  if (type === 'SMASH') speed = Math.max(speed, params.SMASH_SPEED * 1.1);
+  if (type === 'SMASH') speed = Math.max(speed, SWING.AI_SMASH_SWING); // 로봇 스매시는 세게 휘두른다 (사람의 스매시 기준과 무관)
   // 스매시는 방향과 상관없으므로(7단계), 내려치기 시작점이 라켓 높이 한계 위면 아래에서 올려 친다
   if (type === 'SMASH' && pc.z - dir.y * speed * SWING.AI_SWING_TIME > SWING.Z_MAX) dir = { x: dir.x, y: -dir.y };
   if (type === 'BLOCK') speed = 0;

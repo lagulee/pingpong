@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v7.2';
+export const VERSION = 'v7.3';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -78,12 +78,15 @@ const JUDGE_TUNABLE = {
   CURVE_WINDOW: 0.1,         // 곡률을 재는 시간 창 (s)
   BLOCK_SPEED: 0.25,         // 이보다 느리면 블록 (m/s)
   SPEED_FULL: 3.5,           // 세기 s = 1이 되는 드래그 속도 (m/s)
-  SMASH_SPEED: 2.0,          // 스매시 버튼(R): 스윙 최고 속도가 이 이상이어야 스매시 (방향 무관, m/s). 느리면 일반 스윙. v7.0: 2.8(아래로) → 2.0
+  // 스매시 버튼(R): 스윙 최고 속도가 이 이상이어야 스매시 (방향 무관, m/s). 느리면 일반 스윙. v7.0: 2.8(아래로) → 2.0.
+  // v7.3: 2.0 → 0 (사용자 요청: 빨간 고리 스매시 성공률↑). 휘두르기만 하면(BLOCK_SPEED 이상) 스매시, 느리면 약한 스매시(SMASH_V_MIN)
+  SMASH_SPEED: 0,
   SMASH_MIN_HEIGHT: 0.50,    // 스매시 가능 높이: 공 중심이 네트 위 이만큼 이상 (m). v6.0: 0.20 → 0.50 (공이 높게 날아 바운드도 높아짐)
   // 빨간 고리(예측 정점이 스매시 높이 이상)일 때 실제로 맞은 높이의 하한: 네트 위 이만큼 이상이면 스매시 (m, v7.2).
   // 사용자 피드백: 빨간 고리에서 스매시가 네트에 걸림 → 정점보다 일찍·늦게 쳐 맞은 높이가 기준 아래면 실타였다.
   // 측정: 빨간 고리 스매시는 맞은 높이 0.4 m 이상이면 144타 중 143~144개 상대 코트, 0.3 m는 32%, 0.2 m 이하는 0%
-  SMASH_RING_FLOOR: 0.25,
+  // v7.3: 0.25 → 0.05 (탁구대 위 0.20 m). 스매시 속도 보조(SMASH_ASSIST_V)로 낮은 타점도 들어간다: 0.2 m 99.8%, 0.16 m 97%
+  SMASH_RING_FLOOR: 0.05,
   BUTTON_WINDOW: 0.08,       // 구질 버튼(Q·W·E·R): 접촉 직전 이 시간 안에 눌려 있던 버튼을 인정 (s, v7.0)
   // 판정용 회전(v7.0): 받는 쪽은 상대가 쳐 보낸 회전에 공기 중 감쇠만 곱한 값 × SPIN_CARRY를 "들어온 회전"으로 읽는다.
   // 물리 바운드 마찰이 백스핀을 거의 지우기 때문(커트 28.5 → 2.9 rps). 공의 비행·바운드는 물리 회전 그대로.
@@ -130,6 +133,8 @@ const SHOT_TUNABLE = {
   DRIVE_DEPTH: 0.7, DRIVE_PITCH: -25, DRIVE_LAMBDA_TOP: 0.1, DRIVE_LAMBDA_BACK: 0.2 /* v7.0: 0.3 → 0.2 */, DRIVE_LAMBDA_SIDE: 0.4,
   DRIVE_SPIN_CAP: 100, DRIVE_STACK: 0.5,
   SMASH_V_MIN: 10, SMASH_V_MAX: 15, SMASH_SPIN_MIN: 5, SMASH_SPIN_MAX: 15, // 스매시는 v6.0에서도 그대로(가장 낮은 각 조준): 느려진 다른 공과 대비
+  // 스매시 속도 보조 하한 (m/s, v7.3): 낮은 타점에서 고른 속도로는 상대 코트에 넣을 각이 없으면 0.5 m/s씩 이 속도까지 늦춘다
+  SMASH_ASSIST_V: 6,
   // v7.0: 높은 공 스매시는 들어온 회전과 상관없이 넘어간다 (λ 0)
   SMASH_DEPTH: 0.95, SMASH_PITCH: -15, SMASH_LAMBDA_TOP: 0, SMASH_LAMBDA_BACK: 0, SMASH_LAMBDA_SIDE: 0,
   CUT_V_MIN: 2.3, CUT_V_MAX: 4.1, CUT_SPIN_MIN: 25, CUT_SPIN_MAX: 55,   // 백스핀 (rps). v7.0: 15–40 → 25–55
@@ -145,6 +150,10 @@ const SHOT_TUNABLE = {
   SIDE_TOP_MIN: 10, SIDE_TOP_MAX: 20, SIDE_DEPTH: 0.8, SIDE_PITCH: -10, SIDE_LAMBDA_TOP: 0.4, SIDE_LAMBDA_BACK: 0.45, SIDE_LAMBDA_SIDE: 0.15,
   SIDE_SPIN_CAP: 70, SIDE_STACK: 0.6,
   BLOCK_DEPTH: 0.75, BLOCK_LAMBDA_TOP: 0.1, BLOCK_LAMBDA_BACK: 1.0, BLOCK_LAMBDA_SIDE: 0.5,
+  // 조합 구질 (v7.3, W+E 사이드 커트 · Q+E 사이드 드라이브): 속도·정점·깊이·면은 바탕 구질(커트·드라이브),
+  // 회전 = COMBO_MIX × (바탕 회전, 사이드 회전) — 두 성분 각각 같은 종류로 쌓인다. λ는 바탕 구질과 사이드의 평균.
+  // 0.75면 회전 크기는 단일 구질의 약 1.06배 (√(0.75² + 0.75²))
+  COMBO_MIX: 0.75,
   // 서브: 속도는 세기로 보간, 회전은 버튼 구질(없음 = 무회전, Q 탑, W 백, E 횡. R 스매시 서브는 막아 일반 서브)의 범위를 쓴다
   SERVE_V_MIN: 2.7, SERVE_V_MAX: 4.3, SERVE_DEPTH: 0.9, SERVE_SPIN_SCALE: 0.45, // v6.0: 3.5–5.5의 √0.6배 (게임 중력)
   SERVE_ASSIST_V: 5.8,       // 서브 속도 보조 상한 (v6.0: 7.5 → 5.8): 고른 속도로 들어가는 서브가 없으면 이 속도까지 올려 본다 (m/s)
@@ -210,7 +219,8 @@ const MOBILE_TUNABLE = {
   TOUCH_LIFT_HOLD: 0.08,     // 손가락을 뗀 뒤에도 "누름"으로 보는 시간 (s). 튕기듯 쓸면 공에 닿기 전에 손이 떨어지므로 (= SWING_WINDOW)
   // 터치 스매시 기준 스윙 속도 (m/s, v7.1). 마우스 기준 SMASH_SPEED 2.0은 휴대폰에서 약 2 px/ms(화면 높이를 0.2 s에 쓸기)라
   // 사용자 피드백(모바일 스매시가 계속 NORMAL)을 받아 터치만 1.0(약 1 px/ms, 보통 빠르기 쓸기)으로 낮췄다
-  TOUCH_SMASH_SPEED: 1.0,
+  // v7.3: 1.0 → 0 (마우스 SMASH_SPEED와 함께 속도 조건을 없앰)
+  TOUCH_SMASH_SPEED: 0,
   // 모바일 시점: PC 시점(CAM_*)에서 시야각과 바라보는 점 높이만 바꾼다. PC 구도 그대로면 가로 휴대폰에서 타점이
   // 화면 아래 65~80%에 있어, 라켓을 손가락 위로 띄우면 타점 아래에 위로 쓸 자리가 40~50 px밖에 없었다(브라우저 점검).
   // 아래를 더 내려다보고(−0.15 → −0.45) 조금 넓게(50 → 54°) 보면 서브 타점이 화면 62%, 낮은 공(0.2 m)이 70%로 올라온다.
@@ -298,7 +308,7 @@ export const TUNABLE_RANGES = Object.freeze({
   CURVE_WINDOW: r(0.04, 0.4, 0.005),
   BLOCK_SPEED: r(0, 1.5, 0.01),
   SPEED_FULL: r(0.5, 10, 0.05),
-  SMASH_SPEED: r(0.5, 6, 0.05),
+  SMASH_SPEED: r(0, 6, 0.05),
   SMASH_MIN_HEIGHT: r(0, 0.6, 0.01),
   SMASH_RING_FLOOR: r(0, 0.6, 0.01),
   BUTTON_WINDOW: r(0, 0.3, 0.005),
@@ -333,6 +343,7 @@ export const TUNABLE_RANGES = Object.freeze({
   ...stackRanges('CUT'),
   ...stackRanges('SIDE'),
   BLOCK_LAMBDA_SIDE: r(0, 1, 0.01),
+  COMBO_MIX: r(0, 1.5, 0.01),
   ...shotRanges('DRIVE', 30),
   ...shotRanges('SMASH', 35),
   ...shotRanges('CUT', 20),
@@ -350,6 +361,7 @@ export const TUNABLE_RANGES = Object.freeze({
   SERVE_DEPTH: r(0.2, 1.37, 0.01),
   SERVE_SPIN_SCALE: r(0, 1.5, 0.01),
   SERVE_ASSIST_V: r(0, 15, 0.1),
+  SMASH_ASSIST_V: r(0, 15, 0.1),
   SERVE_ERR_SCALE: r(0, 1, 0.01),
   ...aiRanges('EASY'),
   ...aiRanges('NORMAL'),
@@ -383,7 +395,7 @@ export const TUNABLE_RANGES = Object.freeze({
   TOUCH_OFFSET_PX: r(0, 150, 1),
   TOUCH_SPEED_GAIN: r(0.2, 3, 0.01),
   TOUCH_LIFT_HOLD: r(0, 0.3, 0.005),
-  TOUCH_SMASH_SPEED: r(0.3, 6, 0.05),
+  TOUCH_SMASH_SPEED: r(0, 6, 0.05),
   MOB_CAM_FOV: r(25, 90, 1),
   MOB_CAM_TZ: r(-1, 1, 0.01),
   MOB_PIXEL_RATIO: r(0.5, 3, 0.05),
@@ -397,12 +409,15 @@ export const TUNABLE_RANGES = Object.freeze({
 });
 
 // 구질 이름 (판정 결과 shotType) → 화면 표시
-export const SHOT_TYPES = Object.freeze(['normal', 'drive', 'smash', 'cut', 'side', 'block', 'mishit']);
+export const SHOT_TYPES = Object.freeze(['normal', 'drive', 'smash', 'cut', 'side', 'block', 'mishit', 'sidecut', 'sidedrive']);
+// 조합 구질 (v7.3): 사이드 + 커트(W+E) = 횡+백, 사이드 + 드라이브(Q+E) = 횡+탑. 값은 바탕 구질(커트·드라이브) 이름
+export const SHOT_COMBOS = Object.freeze({ sidecut: 'cut', sidedrive: 'drive' });
 // 구질 버튼 (v7.0): 버튼 이름 → 구질. PC 키는 main.js(Q·W·E·R), 모바일은 화면 버튼
 export const SHOT_BUTTONS = Object.freeze(['drive', 'cut', 'side', 'smash']);
 export const SHOT_KEYS = Object.freeze({ KeyQ: 'drive', KeyW: 'cut', KeyE: 'side', KeyR: 'smash' });
 export const SHOT_LABELS = Object.freeze({
   normal: 'NORMAL', drive: 'DRIVE', smash: 'SMASH', cut: 'CUT', side: 'SIDESPIN', block: 'BLOCK', mishit: 'MISHIT',
+  sidecut: 'SIDE CUT', sidedrive: 'SIDE DRIVE',
 });
 export const DIFFICULTIES = Object.freeze(['EASY', 'NORMAL', 'HARD']);
 export const DIFFICULTY_LABELS = Object.freeze({ EASY: '쉬움', NORMAL: '보통', HARD: '어려움' });
@@ -436,12 +451,14 @@ export const SWING = Object.freeze({
   AI_FOLLOW_TIME: 0.1,       // 타격 뒤 팔로스루 (s)
   AI_SAMPLE_DT: 1 / 120,     // 로봇 가상 마우스 샘플 간격 (s)
   SERVE_ASSIST_STEP: 0.5,    // 서브 속도 보조 간격 (m/s)
+  SMASH_ASSIST_STEP: 0.5,    // 스매시 속도 보조 간격 (m/s, v7.3)
   AI_SIDE_CURVE: 0.3,        // 로봇 사이드스핀 스윙 곡률
   AI_RETURN_SPEED: 1.0,      // 로봇이 대기 위치로 돌아가는 속도 (m/s)
   AI_BLOCK_LEAD: 0.15,       // 블록할 때 미리 버튼을 누르는 시간 (s)
   AI_PLANE_BACK: 0.1,        // 로봇 라켓 평면을 스윙 타점보다 뒤에 두는 거리 (m)
   AI_DIR: Object.freeze({ drive: 75, smash: -80, cut: -70, side: 0, block: 0, normal: 60 }), // 로봇 드래그 각도 (°, v7.0부터 판정에는 안 쓰고 모양만)
   AI_READ_MIN: 8,            // 로봇: 들어온 회전이 이보다 작으면(rps) 무회전 공으로 본다
+  AI_SMASH_SWING: 2.2,       // 로봇 스매시 최소 스윙 속도 (m/s). v7.2까지의 SMASH_SPEED 2.0 × 1.1 (v7.3에 사람 기준이 0이 되어 따로 둠)
 });
 
 // 탁구 규칙 (game-rules.md)

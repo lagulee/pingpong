@@ -123,7 +123,8 @@ test('터치: 손가락을 뗐다가 다른 곳에 대도 순간 이동이 스�
   // 비교: 마우스처럼 샘플을 이어 두면 순간 이동이 스매시 영역 속도로 재진다
   const merged = [...before, ...samples];
   const j = analyzeDrag(merged, 1.316, TUNABLE, scr.dragScale);
-  assert.ok(j.speed > TUNABLE.SMASH_SPEED, `이어서 재면 ${j.speed.toFixed(2)} m/s`);
+  // (v7.3에 SMASH_SPEED 기본값이 0이 되어, 비교 기준을 "세기 1이 되는 속도" SPEED_FULL로 바꿨다)
+  assert.ok(j.speed > TUNABLE.SPEED_FULL, `이어서 재면 ${j.speed.toFixed(2)} m/s`);
 });
 
 test('터치: 라켓은 손가락보다 TOUCH_OFFSET_PX 위에 있다', () => {
@@ -285,16 +286,19 @@ test('터치 스매시: 보통 빠르기(약 1.2 px/ms)로 쓸어도 높은 공�
     const ball = incoming(0.1, 0.8, sw.t);
     return classifyShot(sw.samples, ball, { apexT: sw.t, dragScale: scr.dragScale, smashSpeed });
   };
-  const r = hit(1.2, TUNABLE.TOUCH_SMASH_SPEED);
+  // v7.1의 기준값(터치 1.0, 마우스 2.0)으로 기준 동작을 확인한다 (v7.3에 기본값은 둘 다 0으로 바뀜)
+  const r = hit(1.2, 1.0);
   assert.equal(r.shotType, 'smash', `스윙 ${r.quality.dragSpeed.toFixed(2)} m/s`);
-  assert.ok(r.quality.dragSpeed < TUNABLE.SMASH_SPEED, '마우스 기준(SMASH_SPEED)보다 느린 손놀림');
-  assert.equal(hit(1.2).shotType, 'normal', '기준을 넘기지 않으면 마우스 기준');
-  const slow = hit(0.5, TUNABLE.TOUCH_SMASH_SPEED);
-  assert.equal(slow.shotType, 'normal', '아주 느린 쓸기는 여전히 일반');
+  assert.ok(r.quality.dragSpeed < 2.0, '마우스 기준(2.0)보다 느린 손놀림');
+  assert.equal(hit(1.2, 2.0).shotType, 'normal', '마우스 기준이면 일반');
+  const slow = hit(0.5, 1.0);
+  assert.equal(slow.shotType, 'normal', '아주 느린 쓸기는 일반');
   assert.equal(slow.quality.smashSlow, true);
-  assert.equal(slow.quality.smashSpeed, TUNABLE.TOUCH_SMASH_SPEED);
+  assert.equal(slow.quality.smashSpeed, 1.0);
+  // v7.3 기본값: 느린 쓸기도 스매시 (빨간 고리 스매시 성공률↑ 요청)
+  assert.equal(hit(0.5, TUNABLE.TOUCH_SMASH_SPEED).shotType, 'smash');
   // 터치 기준은 입력 기기 값: "모바일" 묶음, 대전 중에도 바꿀 수 있다 (결과 공은 서버 한도 안)
   assert.ok(TUNABLE_GROUPS['모바일'].includes('TOUCH_SMASH_SPEED'));
   assert.ok(TUNABLE_ONLINE_FREE.includes('TOUCH_SMASH_SPEED'));
-  assert.ok(TUNABLE.TOUCH_SMASH_SPEED < TUNABLE.SMASH_SPEED);
+  assert.ok(TUNABLE.TOUCH_SMASH_SPEED <= TUNABLE.SMASH_SPEED);
 });

@@ -165,7 +165,7 @@
     .c-drive { color: #ff7a70; } .c-cut { color: #7fb0ff; } .c-side { color: #c48bff; } .c-smash { color: #ffb04a; } .c-normal { color: #e8eef7; }
     #shot-btns {
       position: fixed; bottom: calc(14px + env(safe-area-inset-bottom)); left: calc(56px + env(safe-area-inset-left));
-      display: grid; grid-template-columns: repeat(2, var(--btn, 64px)); gap: 8px; z-index: 11; touch-action: none;
+      display: grid; grid-template-columns: repeat(3, var(--btn, 64px)); gap: 8px; z-index: 11; touch-action: none;
     }
     #shot-btns.right { left: auto; right: calc(14px + env(safe-area-inset-right)); }
     #shot-btns button {
@@ -360,8 +360,8 @@
     <span data-k="side" class="c-side">E 사이드</span><span data-k="smash" class="c-smash">R 스매시</span>
   </div>
   <div id="shot-btns" hidden>
-    <button type="button" data-k="drive" class="c-drive">드라이브</button><button type="button" data-k="smash" class="c-smash">스매시</button>
-    <button type="button" data-k="cut" class="c-cut">커트</button><button type="button" data-k="side" class="c-side">사이드</button>
+    <button type="button" data-k="drive" class="c-drive">드라이브</button><button type="button" data-k="drive side" class="c-side">사이드<br>드라이브</button><button type="button" data-k="smash" class="c-smash">스매시</button>
+    <button type="button" data-k="cut" class="c-cut">커트</button><button type="button" data-k="cut side" class="c-side">사이드<br>커트</button><button type="button" data-k="side" class="c-side">사이드</button>
   </div>
   <div id="spin-badge" hidden></div>
   <div id="intro" class="overlay" hidden>

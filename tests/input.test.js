@@ -118,12 +118,15 @@ test('낮은 공을 버튼 없이 빠르게 내려치면 일반 스윙(실타 �
     const { event } = firstEvent(out(b, r));
     assert.ok(onOppTable(event), `z = ${z}: 첫 충돌 ${event?.type} y=${event?.pos.y.toFixed(2)}`);
   }
-  // 높은 공(빨간 고리) + 스매시 버튼 = 스매시. 스매시 버튼이어도 스윙이 SMASH_SPEED보다 느리면 일반 스윙
+  // 높은 공(빨간 고리) + 스매시 버튼 = 스매시. 스매시 기준 속도(smashSpeed)를 두면 그보다 느린 스윙은 일반 스윙
+  // (v7.3 사용자 요청으로 기본값 SMASH_SPEED = 0: 느린 스윙도 약한 스매시. 기준 동작은 값을 직접 넘겨 확인한다)
   const hi = incoming({ y: -1.3, z: 0.75, vy: -3 });
   assert.equal(classifyShot(SAMPLES.smash(hi), hi).shotType, 'smash');
-  const slow = classifyShot(drag({ ux: 0, uy: -1.0, z1: hi.pos.z, t1: hi.t, k: 'smash' }), hi);
+  const slowSwing = drag({ ux: 0, uy: -1.0, z1: hi.pos.z, t1: hi.t, k: 'smash' });
+  const slow = classifyShot(slowSwing, hi, { smashSpeed: 2.0 });
   assert.equal(slow.shotType, 'normal');
   assert.equal(slow.quality.smashSlow, true);
+  assert.equal(classifyShot(slowSwing, hi).shotType, 'smash', '기본값: 느린 스윙도 스매시');
   // 방향은 상관없다: 위로 세게 휘둘러도 스매시 버튼이면 스매시
   assert.equal(classifyShot(drag({ ux: 0, uy: 4.0, z1: hi.pos.z, t1: hi.t, k: 'smash' }), hi).shotType, 'smash');
   // 서브에서는 스매시 버튼을 막는다 (일반 서브)

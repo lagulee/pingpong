@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  classifyShot, buttonAt, createShotKeys, judgeType, stackSpin, spinParts, createRng,
+  classifyShot, buttonAt, createShotKeys, judgeType, stackSpin, spinParts, createRng, resolveShotKeys, shotKeysOf,
 } from '../public/js/input.js';
 import { createTouchTracker } from '../public/js/touch.js';
 import { createAI, createRally, stepMatch, readSpin, misreadChance } from '../public/js/ai.js';
@@ -13,7 +13,7 @@ import { createBall, step, cloneBall, carriedSpin, toWorld, vec, scale } from '.
 import { createMatch } from '../public/shared/match.js';
 import { checkHitMsg } from '../public/shared/host.js';
 import {
-  TUNABLE, NET, PHYSICS, SWING, SHOT_KEYS, SHOT_BUTTONS, SHOT_TYPES, FEEL, ONLINE,
+  TUNABLE, NET, PHYSICS, SWING, SHOT_KEYS, SHOT_BUTTONS, SHOT_TYPES, FEEL, ONLINE, SHOT_LABELS, SHOT_COMBOS,
 } from '../public/shared/constants.js';
 
 const RPS = 2 * Math.PI;
@@ -60,7 +60,10 @@ test('구질 버튼: 나중에 누른 버튼이 이기고, 떼면 앞서 누른 
   assert.equal(k.current, 'cut', '두 개를 누르면 나중 것');
   k.release('cut');
   assert.equal(k.current, 'drive');
-  k.press('drive'); // 같은 키 다시 눌러도 하나
+  // v7.3: 같은 버튼을 두 곳(모바일 단일·조합 버튼)에서 누르면, 둘 다 뗄 때까지 눌린 상태
+  k.press('drive');
+  k.release('drive');
+  assert.equal(k.current, 'drive', '아직 한 곳에서 누르고 있음');
   k.release('drive');
   assert.equal(k.current, null);
   k.press('nope');
@@ -94,7 +97,9 @@ test('버튼을 누른 채 라켓을 멈추면 버튼과 상관없이 블록, �
   for (const k of [null, ...SHOT_BUTTONS]) assert.equal(judgeType(still, 0.3, TUNABLE, true, k), 'block', `${k} + 멈춤`);
   assert.equal(judgeType(fast, 0.3, TUNABLE, true, null), 'normal');
   assert.equal(judgeType(fast, 0.3, TUNABLE, false, 'drive'), 'block', '마우스 버튼 없음 = 약한 블록');
-  assert.equal(judgeType({ ...fast, speed: TUNABLE.SMASH_SPEED - 0.01 }, 0.9, TUNABLE, true, 'smash'), 'normal', '느린 스매시');
+  // 스매시 기준 속도: 넘겨 준 기준보다 느리면 일반 (v7.3 기본값 0 = 휘두르기만 하면 스매시)
+  assert.equal(judgeType({ ...fast, speed: 1.99 }, 0.9, TUNABLE, true, 'smash', 2.0), 'normal', '느린 스매시');
+  assert.equal(judgeType({ ...fast, speed: TUNABLE.BLOCK_SPEED + 0.01 }, 0.9, TUNABLE, true, 'smash'), 'smash', '기본값: 느려도 스매시');
   assert.equal(judgeType(fast, NET.HEIGHT + TUNABLE.SMASH_MIN_HEIGHT, TUNABLE, true, 'smash'), 'smash');
   assert.equal(judgeType(fast, NET.HEIGHT + TUNABLE.SMASH_MIN_HEIGHT - 0.01, TUNABLE, true, 'smash'), 'mishit', '노란 고리');
   assert.ok(SHOT_TYPES.includes('normal'));
@@ -366,4 +371,93 @@ test('빨간 고리 스매시: 정점보다 일찍·늦게 쳐 맞은 높이가 
   assert.equal(late.out, 'net');
   // 사람 타격은 화면 고리 높이를 넘긴다 (ai.js hitPhase)
   assert.match(read('js/ai.js'), /ringZ: serveHit \|\| p\.robot \? undefined : p\.apexPos\?\.z/);
+});
+
+// ── v7.3 사용자 요청: 빨간 고리 스매시 성공률↑, 버튼 동시 누름(조합 구질) ──────────────────
+
+// 빨간 고리 사람 대역: 맞은 높이 × 위치 × 스윙 속도·방향 × 타이밍 오차 × 들어온 회전
+test('빨간 고리 스매시: 느린 스윙·늦은 타이밍·낮은 타점(0.2 m까지)이 섞여도 99% 이상 상대 코트에 들어간다', () => {
+  const H = NET.HEIGHT + TUNABLE.SMASH_MIN_HEIGHT;
+  let n = 0, ok = 0, seed = 1;
+  const fails = {};
+  for (const z of [0.21, 0.3, 0.4, 0.6, 0.9]) for (const y of [-0.8, -1.3, -1.6]) for (const x of [0, -0.6]) {
+    for (const speed of [0.6, 1.5, 3.5]) for (const dir of [-1, 1]) for (const dt of [0, 0.15, 0.25]) for (const top of [0, 60, -50]) {
+      const b = incoming({ x, y, z, vz: -1, topspin: top });
+      const r = classifyShot(swing({ k: 'smash', speed, dir, z1: z, x1: x }), b, { apexT: 1 - dt, rng: createRng(seed++), ringZ: H + 0.1, racketX: x });
+      const res = r.shotType === 'smash' ? outcome(b, r).kind : r.shotType;
+      n++; if (res === 'in') ok++; else fails[`${res} z${z}`] = (fails[`${res} z${z}`] ?? 0) + 1;
+    }
+  }
+  assert.ok(ok / n >= 0.99, `${ok}/${n} ${JSON.stringify(fails)}`);
+  // 낮은 타점은 속도 보조로 늦춰서 넣는다 (SMASH_ASSIST_V 이상), 높은 타점은 보조 없이 빠르게
+  const low = incoming({ z: 0.22, vz: -1 }), high = incoming({ z: 0.9, vz: -1 });
+  const sp = (b) => { const r = classifyShot(swing({ k: 'smash', speed: 3.5, dir: -1, z1: b.pos.z }), b, { apexT: 1, ringZ: H + 0.1 }); return Math.hypot(r.vel.x, r.vel.y, r.vel.z); };
+  assert.ok(sp(high) >= TUNABLE.SMASH_V_MIN, `높은 타점 ${sp(high).toFixed(1)} m/s`);
+  assert.ok(sp(low) < sp(high) && sp(low) >= TUNABLE.SMASH_ASSIST_V - 0.5, `낮은 타점 ${sp(low).toFixed(1)} m/s`);
+  // 하한(네트 + SMASH_RING_FLOOR)보다 낮으면 여전히 실타
+  const tooLow = incoming({ z: NET.HEIGHT + TUNABLE.SMASH_RING_FLOOR - 0.02 });
+  assert.equal(classifyShot(swing({ k: 'smash', speed: 3.5, dir: -1, z1: tooLow.pos.z }), tooLow, { apexT: 1, ringZ: H + 0.1 }).shotType, 'mishit');
+});
+
+test('버튼 동시 누름: W+E = 사이드 커트(횡+백), Q+E = 사이드 드라이브(횡+탑), R은 섞이지 않음, Q+W는 나중 것', () => {
+  assert.equal(resolveShotKeys(['cut', 'side']), 'sidecut');
+  assert.equal(resolveShotKeys(['side', 'cut']), 'sidecut');
+  assert.equal(resolveShotKeys(['drive', 'side']), 'sidedrive');
+  assert.equal(resolveShotKeys(['side', 'smash']), 'smash');
+  assert.equal(resolveShotKeys(['cut', 'side', 'smash']), 'smash');
+  assert.equal(resolveShotKeys(['drive', 'cut']), 'cut');
+  assert.equal(resolveShotKeys(['cut', 'drive', 'side']), 'sidedrive', '드라이브·커트 중 나중 것 + 사이드');
+  assert.equal(resolveShotKeys([]), null);
+  const k = createShotKeys();
+  k.press('cut'); k.press('side');
+  assert.equal(k.current, 'sidecut');
+  k.release('cut');
+  assert.equal(k.current, 'side', '하나를 떼면 남은 버튼');
+  assert.deepEqual(shotKeysOf('sidecut'), ['cut', 'side']);
+  assert.deepEqual(shotKeysOf('drive'), ['drive']);
+  for (const t of Object.keys(SHOT_COMBOS)) {
+    assert.ok(SHOT_TYPES.includes(t) && SHOT_LABELS[t], `${t}: 서버 허용 목록·표시 이름`);
+    assert.equal(judgeType({ speed: 2, u: { x: 0, y: 2 }, sin: 1, kappa: 0 }, 0.3, TUNABLE, true, t), t);
+  }
+});
+
+test('조합 구질: 사이드 커트는 백스핀 + 횡회전, 사이드 드라이브는 탑스핀 + 횡회전이 함께 걸린다', () => {
+  for (const [type, sign] of [['sidecut', -1], ['sidedrive', 1]]) {
+    const b = incoming();
+    const r = classifyShot(swing({ k: type, ux: 0.8, dir: sign }), b, { apexT: 1 });
+    assert.equal(r.shotType, type);
+    const local = { vel: r.vel, spin: r.spin };
+    const parts = spinParts({ vel: { x: -local.vel.x, y: -local.vel.y }, spin: { x: -local.spin.x, y: -local.spin.y, z: local.spin.z } });
+    // 친 공(+y로 감)의 탑스핀 축은 −x: 백스핀이면 spin.x > 0, 탑스핀이면 < 0
+    assert.ok(sign < 0 ? r.spin.x > 5 * RPS : r.spin.x < -5 * RPS, `${type}: 탑/백 ${(r.spin.x / RPS).toFixed(1)}`);
+    assert.ok(Math.abs(r.spin.z) > 5 * RPS, `${type}: 횡 ${(r.spin.z / RPS).toFixed(1)}`);
+    assert.ok(Number.isFinite(parts.top));
+    assert.equal(outcome(b, r).kind, 'in', `${type}: 무회전 공`);
+  }
+  // 각 성분이 같은 종류로 쌓인다: 사이드 커트는 들어온 백스핀·횡회전 모두로 커진다
+  const base = classifyShot(swing({ k: 'sidecut', ux: 0.8, dir: -1 }), incoming(), { apexT: 1 }).quality.stack;
+  const back = classifyShot(swing({ k: 'sidecut', ux: 0.8, dir: -1 }), incoming({ topspin: -40 }), { apexT: 1 }).quality.stack;
+  const side = classifyShot(swing({ k: 'sidecut', ux: 0.8, dir: -1 }), incoming({ sidespin: 40 }), { apexT: 1 }).quality.stack;
+  assert.ok(back.spin > base.spin + 5 && side.spin > base.spin + 5, `${base.spin.toFixed(1)} / 백 ${back.spin.toFixed(1)} / 횡 ${side.spin.toFixed(1)}`);
+  // 맞는 상대: 사이드 커트는 백스핀 공, 사이드 드라이브는 탑스핀 공을 넘긴다
+  const vs = (type, o, dir) => { const b = incoming(o); return outcome(b, classifyShot(swing({ k: type, ux: 0.8, dir }), b, { apexT: 1 })).kind; };
+  assert.equal(vs('sidecut', { topspin: -40 }, -1), 'in');
+  assert.equal(vs('sidedrive', { topspin: 45 }, 1), 'in');
+  assert.equal(vs('sidecut', { sidespin: 40 }, -1), 'in');
+});
+
+test('조합 서브: 사이드 커트·사이드 드라이브 서브가 회전 두 가지를 함께 걸고 들어간다', () => {
+  const toss = createBall({ pos: { x: 0, y: -1.55, z: 0.3 }, vel: { x: 0, y: 0, z: -1 }, t: 1 });
+  for (const [type, sign] of [['sidecut', 1], ['sidedrive', -1]]) {
+    const r = classifyShot(swing({ k: type, ux: 0.8, z1: 0.3, speed: 2 }), toss, { serve: true, apexT: 1 });
+    assert.equal(r.shotType, type);
+    assert.ok(Math.sign(r.spin.x) === sign && Math.abs(r.spin.z) > 2 * RPS, `${type} 서브 ${(r.spin.x / RPS).toFixed(1)}/${(r.spin.z / RPS).toFixed(1)}`);
+  }
+});
+
+test('화면: 모바일에 조합 버튼(사이드 커트·사이드 드라이브), 조작표에 동시 누름 안내', () => {
+  const html = read('index.html');
+  assert.match(html, /data-k="cut side"/);
+  assert.match(html, /data-k="drive side"/);
+  assert.match(read('js/main.js'), /<kbd>W<\/kbd>\+<kbd>E<\/kbd>/);
 });

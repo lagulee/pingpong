@@ -22,7 +22,7 @@ import {
 } from './effects.js';
 import { initDebug, launchParams, SCENARIO_LABELS } from './debug.js';
 import {
-  createMouseInput, rayPlaneY, analyzeDrag, createRng, cameraFor, tunableCamera, dragScaleFor, createShotKeys,
+  createMouseInput, rayPlaneY, analyzeDrag, createRng, cameraFor, tunableCamera, dragScaleFor, createShotKeys, shotKeysOf,
 } from './input.js';
 import {
   createAI, createPlayer, createRally, stepMatch, serveBall, placeBall, endFree, tossBall, queueScenario,
@@ -161,14 +161,24 @@ const shotKeys = createShotKeys();
 const shotKeysEl = $('shot-keys');
 const shotBtnsEl = $('shot-btns');
 function markKeys() { mouse?.mark(mouse.now?.() ?? simT()); }
+// 모바일 버튼 하나가 버튼 여러 개를 누른다 (조합 버튼 data-k="cut side" = 커트 + 사이드). 뗄 때 한 번만 뗀다
 for (const btn of shotBtnsEl.querySelectorAll('button')) {
-  const k = btn.dataset.k;
-  const up = (e) => { e.stopPropagation(); shotKeys.release(k); markKeys(); };
+  const keys = btn.dataset.k.split(' ');
+  let down = false;
+  const up = (e) => {
+    e.stopPropagation();
+    if (!down) return;
+    down = false;
+    for (const k of keys) shotKeys.release(k);
+    markKeys();
+  };
   btn.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
     e.preventDefault();
     try { btn.setPointerCapture(e.pointerId); } catch { /* 이미 끝난 손가락 */ }
-    shotKeys.press(k);
+    if (down) return;
+    down = true;
+    for (const k of keys) shotKeys.press(k);
     markKeys();
   });
   btn.addEventListener('pointerup', up);
@@ -187,7 +197,9 @@ function updateShotButtons() {
   const cur = shotKeys.current ?? '';
   if (cur !== keysShown) {
     keysShown = cur;
-    for (const el of [...shotKeysEl.children, ...shotBtnsEl.children]) el.classList.toggle('on', el.dataset.k === cur);
+    const on = shotKeysOf(cur || null); // 조합 구질이면 두 버튼이 함께 빛난다
+    for (const el of shotKeysEl.children) el.classList.toggle('on', on.includes(el.dataset.k));
+    for (const el of shotBtnsEl.children) el.classList.toggle('on', el.dataset.k.split(' ').every((k) => on.includes(k)) && el.dataset.k.split(' ').length === on.length);
   }
   const layout = `${TUNABLE.MOB_BTN_SIZE}|${TUNABLE.MOB_BTN_LEFT}`;
   if (layout !== btnLayout) {
@@ -209,7 +221,8 @@ const CONTROLS = mobile ? [
   ['<span class="k-drive">드라이브</span>', '강한 탑스핀 · 커트·무회전 공을 들어 올린다'],
   ['<span class="k-cut">커트</span>', '강한 백스핀 · 커트 공을 커트로, 탑스핀을 백스핀으로'],
   ['<span class="k-side">사이드</span>', '강한 횡회전 · 센 탑·백 공에는 위험'],
-  ['<span class="k-smash">스매시</span>', '빨간 고리(높은 공)에서 세게 · 노란 고리면 네트'],
+  ['<span class="k-side">사이드</span> + <span class="k-cut">커트</span>', '횡+백회전 (사이드 드라이브 버튼은 횡+탑)'],
+  ['<span class="k-smash">스매시</span>', '빨간 고리(높은 공)에서 휘두르기 · 노란 고리면 네트'],
   ['대고 멈춤', '블록'],
   ['같은 회전', '같은 구질로 받아칠수록 회전이 쌓인다 (꼬리가 진해짐)'],
 ] : [
@@ -218,7 +231,8 @@ const CONTROLS = mobile ? [
   ['<kbd>Q</kbd>', '<span class="k-drive">드라이브</span> · 강한 탑스핀, 커트·무회전 공을 들어 올린다'],
   ['<kbd>W</kbd>', '<span class="k-cut">커트</span> · 강한 백스핀, 커트 공을 커트로, 탑스핀을 백스핀으로'],
   ['<kbd>E</kbd>', '<span class="k-side">사이드</span> · 강한 횡회전, 센 탑·백 공에는 위험'],
-  ['<kbd>R</kbd>', '<span class="k-smash">스매시</span> · 빨간 고리(높은 공)에서 세게, 노란 고리면 네트'],
+  ['<kbd>W</kbd>+<kbd>E</kbd>', '<span class="k-cut">커트</span>+<span class="k-side">사이드</span> · 횡+백회전 (<kbd>Q</kbd>+<kbd>E</kbd>는 횡+탑)'],
+  ['<kbd>R</kbd>', '<span class="k-smash">스매시</span> · 빨간 고리(높은 공)에서 휘두르기, 노란 고리면 네트'],
   ['누른 채 멈춤', '블록'],
   ['같은 회전', '같은 구질로 받아칠수록 회전이 쌓인다 (꼬리가 진해짐)'],
   ['<kbd>Space</kbd>', '시점 · <kbd>N</kbd> 새 게임 · <kbd>P</kbd>/<kbd>Esc</kbd> 일시정지 · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 난이도'],

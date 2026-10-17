@@ -15,8 +15,11 @@ export function speedLevel(speed, p = TUNABLE) {
 }
 
 // 레시피 층 목록 (racket은 구질별, 알 수 없는 구질은 드라이브)
+// 조합 구질(7단계 수정)은 사이드 소리를 쓴다
+const COMBO_SOUND = { sidecut: 'side', sidedrive: 'side' };
+
 export function recipeFor(type, shotType = null) {
-  if (type === 'racket') return SOUND.RACKET_SHOTS[shotType] ?? SOUND.RACKET_SHOTS.drive;
+  if (type === 'racket') return SOUND.RACKET_SHOTS[shotType] ?? SOUND.RACKET_SHOTS[COMBO_SOUND[shotType]] ?? SOUND.RACKET_SHOTS.drive;
   return SOUND.IMPACT[type] ?? null;
 }
 
@@ -37,7 +40,8 @@ export function impactParams(type, speed, shotType = null, p = TUNABLE) {
       delay: L.delay,
     };
   });
-  return { type, shotType: type === 'racket' ? (SOUND.RACKET_SHOTS[shotType] ? shotType : 'drive') : null, level: g, layers };
+  const shown = SOUND.RACKET_SHOTS[shotType] ? shotType : COMBO_SOUND[shotType] ?? 'drive';
+  return { type, shotType: type === 'racket' ? shown : null, level: g, layers };
 }
 
 // 랠리 수 → 관중 함성 크기 (0~1, 단조 증가)

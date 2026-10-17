@@ -103,6 +103,8 @@ const TUNABLE_LABELS = {
   VIB_HIT_MAX: '진동 · 센 타격 (ms)',
   VIB_BOUNCE: '진동 · 내 코트 바운드 (ms)',
   MOB_BTN_SIZE: '모바일 · 구질 버튼 크기 (px)',
+  COMBO_MIX: '조합 구질(사이드 커트·드라이브) 회전 비율',
+  SMASH_ASSIST_V: '스매시 · 속도 보조 하한 (m/s)',
   MOB_BTN_LEFT: '모바일 · 구질 버튼 왼쪽(1) / 오른쪽(0)',
   G_GAME: '게임 중력 (m/s², 실제 9.8)',
   CAM_X: '카메라 위치 x (m, − 왼쪽)', CAM_Y: '카메라 위치 y (m, 내 엔드 뒤 −)', CAM_Z: '카메라 높이 (m)',
