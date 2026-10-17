@@ -21,10 +21,10 @@ const TUNABLE_LABELS = {
   CURVE_WINDOW: '곡률 측정 창 (s)',
   BLOCK_SPEED: '블록 판정 속도 미만 (m/s)',
   SPEED_FULL: '세기 1이 되는 최고 속도 (m/s)',
-  SMASH_SPEED: '스매시: 아래로 최고 속도 이상 (m/s)',
+  SMASH_SPEED: '스매시 버튼: 스윙 최고 속도 이상 (m/s)',
   SMASH_MIN_HEIGHT: '스매시 가능 높이: 네트 위 (m)',
-  DIR_SIN: '위/아래 판정 sinθ 기준',
-  CURVE_MIN: '사이드스핀 곡률 이상',
+  BUTTON_WINDOW: '구질 버튼 인정 시간 (접촉 전, s)',
+  SPIN_CARRY: '판정용 회전 비율 (상대가 친 회전 × 감쇠 × 이 값)',
   HIT_RADIUS: '라켓 도달 반경 좌우·높이 (m)',
   SERVE_HIT_RADIUS: '서브 · 라켓 도달 반경 (m)',
   REACH_Y: '라켓 도달 범위 앞뒤 (m)',
@@ -42,13 +42,11 @@ const TUNABLE_LABELS = {
   AIM_X_POS: '목표 x: 라켓 위치 비율',
   AIM_X_DRAG: '목표 x: 드래그 좌우 비율',
   AIM_X_MAX: '목표 x 한계 (m)',
-  DEPTH_GAIN: '올려 칠수록 깊게 (m)',
   NET_CLEAR: '네트 위 최소 여유 (m)',
   BLOCK_PUSH: '블록 미는 속도 (m/s)',
   WEAK_PITCH: '약한 블록 면 각도 (°)',
   MISHIT_SPEED: '실타 속도 (m/s)',
   MISHIT_AIM_Z: '실타 네트 높이 (m)',
-  LOW_SMASH_MISHIT: '낮은 공 빠른 내려치기: 0 커트 · 1 실타',
   SERVE_V_MIN: '서브 · 속도 최소 (m/s)',
   SERVE_V_MAX: '서브 · 속도 최대 (m/s)',
   SERVE_DEPTH: '서브 · 목표 깊이 (m)',
@@ -102,6 +100,8 @@ const TUNABLE_LABELS = {
   VIB_HIT_MIN: '진동 · 약한 타격 (ms)',
   VIB_HIT_MAX: '진동 · 센 타격 (ms)',
   VIB_BOUNCE: '진동 · 내 코트 바운드 (ms)',
+  MOB_BTN_SIZE: '모바일 · 구질 버튼 크기 (px)',
+  MOB_BTN_LEFT: '모바일 · 구질 버튼 왼쪽(1) / 오른쪽(0)',
   G_GAME: '게임 중력 (m/s², 실제 9.8)',
   CAM_X: '카메라 위치 x (m, − 왼쪽)', CAM_Y: '카메라 위치 y (m, 내 엔드 뒤 −)', CAM_Z: '카메라 높이 (m)',
   CAM_TX: '카메라 바라보는 점 x (m)', CAM_TY: '카메라 바라보는 점 y (m)', CAM_TZ: '카메라 바라보는 점 높이 (m)',
@@ -109,11 +109,12 @@ const TUNABLE_LABELS = {
 };
 
 // 구질·AI 키는 규칙적으로 이름을 붙인다
-const SHOT_NAMES = { DRIVE: '드라이브', SMASH: '스매시', CUT: '커트', SIDE: '사이드', BLOCK: '블록' };
+const SHOT_NAMES = { NORMAL: '일반', DRIVE: '드라이브', SMASH: '스매시', CUT: '커트', SIDE: '사이드', BLOCK: '블록' };
 const SHOT_KEYS = {
   V_MIN: '속도 최소 (m/s)', V_MAX: '속도 최대 (m/s)', SPIN_MIN: '회전 최소 (rps)', SPIN_MAX: '회전 최대 (rps)',
   TOP_MIN: '탑스핀 최소 (rps)', TOP_MAX: '탑스핀 최대 (rps)', DEPTH: '목표 깊이 (m)', PITCH: '면 각도 (°)',
-  LAMBDA_TOP: '탑스핀 공 회전 영향', LAMBDA_BACK: '백스핀 공 회전 영향',
+  LAMBDA_TOP: '탑스핀 공 회전 영향', LAMBDA_BACK: '백스핀 공 회전 영향', LAMBDA_SIDE: '횡회전 공 회전 영향',
+  SPIN_CAP: '회전 누적 상한 (rps)', STACK: '회전 누적 계수 (들어온 같은 회전 × 이 값)',
   APEX_WEAK: '목표 정점 · 약하게 (m)', APEX_STRONG: '목표 정점 · 세게 (m)',
 };
 const DIFF_NAMES = { EASY: '쉬움', NORMAL: '보통', HARD: '어려움' };
@@ -121,12 +122,13 @@ const AI_KEYS = {
   DELAY: '반응 지연 (s)', MOVE: '이동 속도 (m/s)', TIMING: '타이밍 오차 ± (s)', S_MIN: '세기 최소', S_MAX: '세기 최대',
   AIM_X: '목표 x 범위 ± (m)', JITTER: '샘플 떨림 (m)',
   W_DRIVE: '드라이브 비율', W_BLOCK: '블록 비율', W_CUT: '커트 비율', W_SIDE: '사이드 비율', W_SMASH: '스매시 비율',
+  W_NORMAL: '일반 스윙 비율', READ: '회전 읽기 (1 = 항상 맞게)',
 };
 export function tunableLabel(k) {
   if (TUNABLE_LABELS[k]) return TUNABLE_LABELS[k];
   let m = k.match(/^AI_(EASY|NORMAL|HARD)_(.+)$/);
   if (m && AI_KEYS[m[2]]) return `${DIFF_NAMES[m[1]]} · ${AI_KEYS[m[2]]}`;
-  m = k.match(/^(DRIVE|SMASH|CUT|SIDE|BLOCK)_(.+)$/);
+  m = k.match(/^(NORMAL|DRIVE|SMASH|CUT|SIDE|BLOCK)_(.+)$/);
   if (m && SHOT_KEYS[m[2]]) return `${SHOT_NAMES[m[1]]} · ${SHOT_KEYS[m[2]]}`;
   return k;
 }

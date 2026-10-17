@@ -443,6 +443,15 @@ export function faceNormal(pitch, yaw = 0) {
   return vec(Math.sin(y) * Math.cos(p), Math.cos(y) * Math.cos(p), Math.sin(p));
 }
 
+// 판정용 "들어온 회전" (v7.0): 친 순간 회전 hit = { t, spin }에 공기 중 감쇠(step과 같은 스텝당 비율)만 곱하고 SPIN_CARRY를 곱한다.
+// 테이블 바운드 마찰은 빼고 센다: 물리 바운드가 백스핀을 거의 지워(커트 28.5 → 2.9 rps) 회전 읽기·누적이 성립하지 않기 때문.
+// 공의 실제 비행·바운드는 물리 회전 그대로다. hit가 없으면 null.
+export function carriedSpin(hit, t, params = TUNABLE) {
+  if (!hit) return null;
+  const n = Math.max(0, Math.round((t - hit.t) / PHYSICS.DT));
+  return scale(hit.spin, Math.pow(1 - params.SPIN_DECAY * PHYSICS.DT, n) * params.SPIN_CARRY);
+}
+
 // 라켓 면(법선 n, 속도 u)에 공이 맞은 직후 상태 (기준 좌표). 원래 공은 바꾸지 않는다.
 export function racketResponse(ball, n, u, params = TUNABLE) {
   const b = cloneBall(ball);

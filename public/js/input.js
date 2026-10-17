@@ -2,16 +2,18 @@
 // 앞부분은 DOM 없이 테스트할 수 있는 순수 함수(classifyShot 등), 맨 끝 createMouseInput만 DOM을 쓴다.
 // 이 파일은 'three'를 import하지 않는다 (Node 테스트와 AI가 그대로 불러 쓴다).
 //
-// 마우스 샘플 { t, x, y, b }: t = 게임 시각(s), (x, y) = 라켓 평면 위 좌표(m, x 좌우·y 높이), b = 버튼 누름.
+// 마우스 샘플 { t, x, y, b, k }: t = 게임 시각(s), (x, y) = 라켓 평면 위 좌표(m, x 좌우·y 높이), b = 버튼 누름,
+// k = 구질 버튼(7단계: 'drive'·'cut'·'side'·'smash' 또는 null). 구질은 버튼이 정하고, 스윙은 세기·좌우 조준만 정한다.
 // 모든 판정은 플레이어 기준 좌표("자기 쪽 y < 0, +y로 친다")에서 하고, 결과만 세계 좌표로 돌려준다.
 import {
   vec, add, sub, scale, length, cross, createBall, makeLaunch, solveAim, solveArc, solveBlock, solveServe,
   faceNormal, racketResponse, ballToLocal, toWorld,
 } from '../shared/physics.js';
-import { NET, SWING, TUNABLE, RENDER } from '../shared/constants.js';
+import { NET, SWING, TUNABLE, RENDER, SHOT_BUTTONS } from '../shared/constants.js';
 import { createTouchTracker } from './touch.js';
 
 const DEG = Math.PI / 180;
+const RPS = 2 * Math.PI;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 // ── 결정론적 난수 (mulberry32) ──────────────────────────────
@@ -186,15 +188,28 @@ function peakSpeed(samples, t, W, d) {
   return best;
 }
 
-// 구질 판정 (판정 순서는 계획 3장 표). zLocal: 공 중심 높이(탁구대 윗면 기준)
-export function judgeType(drag, zLocal, params = TUNABLE, pressed = true) {
+// 구질 버튼 (7단계): 접촉 시각 t 직전 BUTTON_WINDOW 안(창 시작 순간의 상태 포함)에서 가장 최근에 눌려 있던 버튼.
+// 키를 조금 일찍 떼도 인정한다. 없으면 null (일반 스윙)
+export function buttonAt(samples, t, params = TUNABLE) {
+  for (let i = samples.length - 1; i >= 0; i--) {
+    const s = samples[i];
+    if (s.t > t + 1e-9) continue;
+    if (s.k) return s.k;
+    if (s.t < t - params.BUTTON_WINDOW - 1e-9) break; // 창 시작 순간의 상태까지 봤다
+  }
+  return null;
+}
+
+// 구질 판정 (7단계 버튼). zLocal: 공 중심 높이(탁구대 윗면 기준), button: buttonAt 결과
+// 버튼을 누른 채 라켓을 멈추면(스윙 속도 < BLOCK_SPEED) 버튼과 상관없이 블록.
+// 스매시 버튼: 스윙이 SMASH_SPEED 이상이어야 하고(방향 무관, 느리면 일반 스윙), 낮은 공(노란 고리)이면 실타(네트).
+export function judgeType(drag, zLocal, params = TUNABLE, pressed = true, button = null) {
   if (!pressed || drag.speed < params.BLOCK_SPEED) return 'block';
-  if (drag.sin <= -params.DIR_SIN) {
-    if (drag.speed < params.SMASH_SPEED) return 'cut';
+  if (button === 'smash') {
+    if (drag.speed < params.SMASH_SPEED) return 'normal';
     return zLocal >= NET.HEIGHT + params.SMASH_MIN_HEIGHT ? 'smash' : 'mishit';
   }
-  if (Math.abs(drag.kappa) >= params.CURVE_MIN) return 'side';
-  return 'drive';
+  return SHOT_BUTTONS.includes(button) ? button : 'normal';
 }
 
 // 타이밍: dt = 타격 시각 − 예측 정점 시각
@@ -217,32 +232,64 @@ export function aimErrors(accuracy, dt, rng, params = TUNABLE) {
   };
 }
 
-const PREFIX = { drive: 'DRIVE', smash: 'SMASH', cut: 'CUT', side: 'SIDE' };
+const PREFIX = { normal: 'NORMAL', drive: 'DRIVE', smash: 'SMASH', cut: 'CUT', side: 'SIDE', block: 'BLOCK' };
 const lerpP = (params, P, key, s) => params[`${P}_${key}_MIN`] + s * (params[`${P}_${key}_MAX`] - params[`${P}_${key}_MIN`]);
 
-// 들어온 회전이 바꾸는 몫 (계획 2장 ①): P(ω_in) − P(0), 라켓 면 n, 라켓 속도 0
-export function spinEffect(ball, n, params = TUNABLE) {
-  const withSpin = racketResponse(ball, n, vec(), params);
-  const noSpin = racketResponse(createBall({ pos: ball.pos, vel: ball.vel, t: ball.t }), n, vec(), params);
+// 들어온 회전이 바꾸는 몫 (계획 2장 ①): P(ω_in) − P(0), 라켓 면 n, 라켓 속도 u (기본 0)
+export function spinEffect(ball, n, params = TUNABLE, u = vec()) {
+  const withSpin = racketResponse(ball, n, u, params);
+  const noSpin = racketResponse(createBall({ pos: ball.pos, vel: ball.vel, t: ball.t }), n, u, params);
   return { dv: sub(withSpin.vel, noSpin.vel), dw: sub(withSpin.spin, noSpin.spin) };
+}
+
+// 들어온 회전을 진행 방향 기준으로 나눈다 (7단계): top = 탑스핀(+)/백스핀(−) 성분 rps, side = 횡회전 rps(위에서 봐서 반시계 +),
+// par = 수평축 회전 벡터(탑·백 효과용), perp = 수직축 회전 벡터(횡 효과용)
+export function spinParts(ball) {
+  const hx = ball.vel.x, hy = ball.vel.y, h = Math.hypot(hx, hy) || 1;
+  // 진행 방향 기준 탑스핀 축 = ẑ × 진행 방향
+  const top = ((-hy / h) * ball.spin.x + (hx / h) * ball.spin.y) / RPS;
+  return { top, side: ball.spin.z / RPS, par: vec(ball.spin.x, ball.spin.y, 0), perp: vec(0, 0, ball.spin.z) };
 }
 
 // 들어온 공의 회전이 탑스핀(공 윗면이 나를 향해 돎)인지 백스핀인지에 따라 회전 효과가 남는 비율
 export function spinLambda(type, ball, params = TUNABLE) {
-  const hx = ball.vel.x, hy = ball.vel.y, h = Math.hypot(hx, hy) || 1;
-  // 진행 방향 기준 탑스핀 축 = ẑ × 진행 방향
-  const top = (-hy / h) * ball.spin.x + (hx / h) * ball.spin.y;
-  const P = type === 'block' ? 'BLOCK' : PREFIX[type];
-  return top >= 0 ? params[`${P}_LAMBDA_TOP`] : params[`${P}_LAMBDA_BACK`];
+  const P = PREFIX[type];
+  return spinParts(ball).top >= 0 ? params[`${P}_LAMBDA_TOP`] : params[`${P}_LAMBDA_BACK`];
+}
+
+// 들어온 횡회전 효과가 남는 비율 (7단계)
+export const sideLambda = (type, params = TUNABLE) => params[`${PREFIX[type]}_LAMBDA_SIDE`];
+
+// 들어온 회전의 효과 (λ를 곱한 몫): 탑·백 성분과 횡 성분을 따로 계산해 각자의 λ를 곱한다. 라켓 면 n, 라켓 속도 u.
+// 7단계: 라켓 속도를 넣어 계산한다. 정지 라켓(u = 0)으로 재면 바운드 뒤 느린 공(1~2 m/s)은 법선 충격량이 작아
+// 마찰로 바뀌는 몫도 작아져, 백스핀 공을 일반 스윙으로 쳐도 거의 영향이 없었다.
+export function incomingEffect(type, ball, n, params = TUNABLE, u = vec()) {
+  const parts = spinParts(ball);
+  const lt = spinLambda(type, ball, params), ls = sideLambda(type, params);
+  const withSpin = (w) => createBall({ pos: ball.pos, vel: ball.vel, spin: w, t: ball.t });
+  const ft = spinEffect(withSpin(parts.par), n, params, u), fs = spinEffect(withSpin(parts.perp), n, params, u);
+  return { dv: add(scale(ft.dv, lt), scale(fs.dv, ls)), dw: add(scale(ft.dw, lt), scale(fs.dw, ls)) };
+}
+
+// 회전 누적 (7단계): 나가는 회전(rps) = min(상한, 기본 회전 + STACK × 들어온 같은 종류 회전).
+// 드라이브는 들어온 탑스핀, 커트는 들어온 백스핀, 사이드는 들어온 횡회전 크기를 더한다. 다른 종류는 쌓이지 않는다.
+export function stackSpin(type, base, ball, params = TUNABLE) {
+  const P = PREFIX[type];
+  const cap = params[`${P}_SPIN_CAP`];
+  if (cap == null) return { spin: base, base, add: 0, capped: false };
+  const parts = spinParts(ball);
+  const same = type === 'drive' ? Math.max(0, parts.top) : type === 'cut' ? Math.max(0, -parts.top) : Math.abs(parts.side);
+  const add = params[`${P}_STACK`] * same;
+  const raw = base + add;
+  return { spin: Math.min(cap, raw), base, add, capped: raw >= cap };
 }
 
 // 구질별 목표 착지점 (기준 좌표)
 export function aimTarget(type, drag, racketX, params = TUNABLE) {
   const ux = drag.speed > 0 ? drag.u.x / drag.speed : 0;
   const x = clamp(params.AIM_X_POS * racketX + params.AIM_X_DRAG * ux, -params.AIM_X_MAX, params.AIM_X_MAX);
-  const depth = type === 'block' ? params.BLOCK_DEPTH : params[`${PREFIX[type]}_DEPTH`];
-  const gain = type === 'drive' ? params.DEPTH_GAIN * (drag.sin - SWING.REF_SIN) : 0;
-  const y = clamp(depth + gain, 0.2, 1.3);
+  const depth = params[`${PREFIX[type]}_DEPTH`];
+  const y = clamp(depth, 0.2, 1.3);
   return { x, y };
 }
 
@@ -250,22 +297,25 @@ export function aimTarget(type, drag, racketX, params = TUNABLE) {
 // samples: 마우스 샘플, ballState: 접촉 순간 공(세계 좌표)
 // ctx: { t(접촉 시각, 기본 ballState.t), side(−1/+1, 기본 −1), apexT(예측 정점 시각), rng, params,
 //        racketX(라켓 x, 기준 좌표, 기본 마지막 샘플 x), pressed(버튼, 기본 true),
-//        serve(서브: 자기 코트 → 상대 코트로 조준, 기본 false), dragScale(사람 시점 보정, 기본 1) }
-// 반환: { shotType, vel, spin, quality: { timing, accuracy, strength, dtApex, weak, target } }
+//        serve(서브: 자기 코트 → 상대 코트로 조준, 기본 false), dragScale(사람 시점 보정, 기본 1),
+//        button(구질 버튼, 기본 샘플의 k로 buttonAt), spinIn(판정용 들어온 회전, 세계 좌표 rad/s. 기본 공의 물리 회전) }
+// 반환: { shotType, vel, spin, quality: { timing, accuracy, strength, dtApex, weak, target, button, spinIn, stack } }
 export function classifyShot(samples, ballState, ctx = {}) {
   const params = ctx.params ?? TUNABLE;
   const side = ctx.side ?? -1;
   const t = ctx.t ?? ballState.t;
   const rng = ctx.rng ?? (() => 0.5); // 기본: 오차 없음
   const pressed = ctx.pressed ?? true;
-  const b = ballToLocal(ballState, side);
+  // 판정용 회전(7단계): 들어온 회전은 상대가 쳐 보낸 회전(공기 감쇠만)으로 읽는다. 라켓 접촉 계산에도 이 회전을 쓴다.
+  const b = ballToLocal(ctx.spinIn ? { ...ballState, spin: ctx.spinIn } : ballState, side);
   const drag = analyzeDrag(samples, t, params, ctx.dragScale ?? 1);
   const racketX = ctx.racketX ?? sampleAt(samples, t)?.x ?? b.pos.x;
   const serve = !!ctx.serve;
-  let shotType = judgeType(drag, b.pos.z, params, pressed);
-  if (serve && shotType === 'mishit') shotType = 'smash'; // 토스한 공 내려치기는 빠른 서브로 본다
-  // 랠리에서 낮은 공(스매시 높이 미만, 노란 고리)을 빠르게 내려치면 커트 (6단계 수정). LOW_SMASH_MISHIT = 1이면 예전처럼 실타
-  else if (shotType === 'mishit' && !(params.LOW_SMASH_MISHIT >= 0.5)) shotType = 'cut';
+  const button = ctx.button !== undefined ? ctx.button : buttonAt(samples, t, params);
+  let shotType = judgeType(drag, b.pos.z, params, pressed, button);
+  // 서브에서는 스매시 버튼을 막는다 (일반 서브)
+  if (serve && (shotType === 'smash' || shotType === 'mishit')) shotType = 'normal';
+  const parts = spinParts(b);
   const dtApex = ctx.apexT == null ? Infinity : t - ctx.apexT;
   const { timing, accuracy } = gradeTiming(dtApex, params);
   const strength = clamp((drag.speed - params.BLOCK_SPEED) / (params.SPEED_FULL - params.BLOCK_SPEED), 0, 1);
@@ -273,7 +323,11 @@ export function classifyShot(samples, ballState, ctx = {}) {
   // 서브는 오차를 줄여 타이밍이 조금 어긋나도 들어가게 한다
   if (serve) for (const k of Object.keys(err)) err[k] *= params.SERVE_ERR_SCALE;
   // dragSpeed·dragSin: 판정에 쓴 스윙 최고 속도(m/s)와 방향(+ 위). 화면에 보여 줘서 사용자가 임계값을 맞출 수 있게 한다.
-  const quality = { timing, accuracy, strength, dtApex, weak: !pressed, target: null, dragSpeed: drag.speed, dragSin: drag.sin, serve };
+  const quality = {
+    timing, accuracy, strength, dtApex, weak: !pressed, target: null, dragSpeed: drag.speed, dragSin: drag.sin, serve,
+    button, smashSlow: button === 'smash' && shotType === 'normal' && !serve, smashNoServe: serve && button === 'smash',
+    spinIn: { top: parts.top, side: parts.side }, stack: null,
+  };
 
   let out; // 기준 좌표의 { vel, spin }
   if (serve && shotType !== 'block') {
@@ -293,8 +347,8 @@ export function classifyShot(samples, ballState, ctx = {}) {
       const target = aimTarget('block', drag, racketX, params);
       quality.target = target;
       // 면 각도는 "회전이 (1 − λ)만큼만 있는 공"에 맞춘다: λ = 1이면 회전을 못 읽은 블록
-      const lambda = spinLambda('block', b, params);
-      const seen = createBall({ pos: b.pos, vel: b.vel, spin: scale(b.spin, 1 - lambda), t: b.t });
+      const lt = spinLambda('block', b, params), ls = sideLambda('block', params);
+      const seen = createBall({ pos: b.pos, vel: b.vel, spin: add(scale(parts.par, 1 - lt), scale(parts.perp, 1 - ls)), t: b.t });
       const face = solveBlock(seen, u, target, params);
       // 면을 δ/2 돌리면 반사 방향은 약 δ 돌아간다
       out = racketResponse(b, faceNormal(face.pitch + err.pitch / 2, face.yaw + err.yaw / 2), scale(u, 1 + err.speed), params);
@@ -303,15 +357,20 @@ export function classifyShot(samples, ballState, ctx = {}) {
     const P = PREFIX[shotType];
     let speed = lerpP(params, P, 'V', strength);
     let topspin = 0, sidespin = 0;
-    const spin = lerpP(params, P, 'SPIN', strength);
-    if (shotType === 'drive') topspin = spin * Math.max(0.4, drag.sin);
-    else if (shotType === 'smash') topspin = spin;
-    else if (shotType === 'cut') topspin = -spin;
-    else {
-      // 라켓이 공 뒤를 오른쪽(+x)으로 쓸면 위에서 봐서 반시계(+) 회전 → 진행 방향 왼쪽으로 휜다
-      const dirX = Math.abs(drag.u.x) > 1e-9 ? Math.sign(drag.u.x) : Math.sign(drag.kappa) || 1;
-      sidespin = dirX * spin;
-      topspin = lerpP(params, P, 'TOP', strength);
+    if (shotType !== 'normal') {
+      // 같은 종류 회전으로 받아치면 회전이 쌓인다 (스매시는 쌓이지 않음)
+      const st = stackSpin(shotType, lerpP(params, P, 'SPIN', strength), b, params);
+      if (shotType !== 'smash') quality.stack = st;
+      const spin = st.spin;
+      if (shotType === 'drive' || shotType === 'smash') topspin = spin;
+      else if (shotType === 'cut') topspin = -spin;
+      else {
+        // 라켓이 공 뒤를 오른쪽(+x)으로 쓸면 위에서 봐서 반시계(+) 회전 → 진행 방향 왼쪽으로 휜다.
+        // 좌우 성분이 거의 없으면 탁구대 가운데 쪽으로 휘게 한다
+        const dirX = Math.abs(drag.u.x) > 0.05 * drag.speed ? Math.sign(drag.u.x) : (racketX > 0 ? 1 : -1);
+        sidespin = dirX * spin;
+        topspin = lerpP(params, P, 'TOP', strength);
+      }
     }
     const target = aimTarget(shotType, drag, racketX, params);
     quality.target = target;
@@ -334,9 +393,9 @@ export function classifyShot(samples, ballState, ctx = {}) {
       azimuth: aim.azimuth + err.yaw,
       topspin, sidespin,
     });
-    const fx = spinEffect(b, faceNormal(params[`${P}_PITCH`], 0), params);
-    const lambda = spinLambda(shotType, b, params);
-    out = { vel: add(launch.vel, scale(fx.dv, lambda)), spin: add(launch.spin, scale(fx.dw, lambda)) };
+    const face = faceNormal(params[`${P}_PITCH`], 0);
+    const fx = incomingEffect(shotType, b, face, params, scale(face, speed));
+    out = { vel: add(launch.vel, fx.dv), spin: add(launch.spin, fx.dw) };
   }
   return {
     shotType,
@@ -346,23 +405,21 @@ export function classifyShot(samples, ballState, ctx = {}) {
   };
 }
 
-// 서브: 드래그 구질로 회전을 정하고(드라이브 = 탑, 커트 = 백, 사이드 = 횡, 스매시 = 빠르고 회전 적음),
+// 서브: 버튼 구질로 회전을 정하고(일반 = 무회전, 드라이브 = 탑, 커트 = 백, 사이드 = 횡. 스매시 버튼은 일반 서브),
 // 자기 코트 → 상대 코트 SERVE_DEPTH에 떨어지게 조준한다. 속도는 세기로 SERVE_V_MIN~MAX.
 function serveShot(type, drag, b, t, racketX, strength, err, params) {
   const P = PREFIX[type];
   const k = params.SERVE_SPIN_SCALE;
-  const spin = k * lerpP(params, P, 'SPIN', strength);
+  const spin = type === 'normal' ? 0 : k * lerpP(params, P, 'SPIN', strength);
   let topspin = 0, sidespin = 0;
-  if (type === 'drive') topspin = spin * Math.max(0.4, drag.sin);
-  else if (type === 'smash') topspin = spin;
+  if (type === 'drive') topspin = spin;
   else if (type === 'cut') topspin = -spin;
-  else {
-    const dirX = Math.abs(drag.u.x) > 1e-9 ? Math.sign(drag.u.x) : Math.sign(drag.kappa) || 1;
+  else if (type === 'side') {
+    const dirX = Math.abs(drag.u.x) > 0.05 * drag.speed ? Math.sign(drag.u.x) : (racketX > 0 ? 1 : -1);
     sidespin = dirX * spin;
     topspin = k * lerpP(params, P, 'TOP', strength);
   }
-  const speed = type === 'smash' ? params.SERVE_V_MAX
-    : params.SERVE_V_MIN + strength * (params.SERVE_V_MAX - params.SERVE_V_MIN);
+  const speed = params.SERVE_V_MIN + strength * (params.SERVE_V_MAX - params.SERVE_V_MIN);
   const target = { x: aimTarget(type, drag, racketX, params).x, y: params.SERVE_DEPTH };
   // 속도 보조: 이 속도로 들어가는 서브가 없으면(낮은 타점 등) SERVE_ASSIST_V까지 조금씩 빠르게 해 본다
   let v = speed;
@@ -422,21 +479,36 @@ export function racketLocal(player, t, ballLocalY = null, params = TUNABLE) {
   return vec(s.x, y, s.y);
 }
 
+// ── 구질 버튼 상태 (7단계, DOM 없음) ────────────────────────────
+// 누른 버튼을 누른 순서대로 기억한다. 지금 구질 = 가장 나중에 눌러 아직 떼지 않은 버튼 (두 개를 같이 누르면 나중 것).
+export function createShotKeys() {
+  const held = [];
+  const drop = (k) => { const i = held.indexOf(k); if (i >= 0) held.splice(i, 1); };
+  return {
+    press(k) { if (!SHOT_BUTTONS.includes(k)) return; drop(k); held.push(k); },
+    release(k) { drop(k); },
+    clear() { held.length = 0; },
+    get current() { return held.length ? held[held.length - 1] : null; },
+  };
+}
+
 // ── DOM: 마우스·터치 → 샘플 ─────────────────────────────────
-// opts.toPlane(clientX, clientY) → { x, z } | null, opts.now() → 게임 시각(s), opts.onPress()
+// opts.toPlane(clientX, clientY) → { x, z } | null, opts.now() → 게임 시각(s), opts.onPress(),
+// opts.button() → 지금 누른 구질 버튼(7단계, 샘플의 k)
 // 터치(pointerType 'touch')는 touch.js가 같은 샘플 배열로 바꾼다 (6단계 모바일). 마우스 동작은 그대로다.
 export function createMouseInput(canvas, opts) {
   const samples = [];
   let pressed = false;
   let last = { x: 0, z: SWING.HOME.z };
   let touchActive = false; // 마지막으로 쓴 입력이 터치인가 (터치 감도 보정용)
-  const touch = createTouchTracker(samples, { toPlane: opts.toPlane });
+  const button = () => opts.button?.() ?? null;
+  const touch = createTouchTracker(samples, { toPlane: opts.toPlane, button });
 
   function push(clientX, clientY, t) {
     const p = opts.toPlane(clientX, clientY);
     if (p) last = p;
     const prev = samples[samples.length - 1];
-    const s = { t: prev && t < prev.t ? prev.t : t, x: last.x, y: last.z, b: pressed };
+    const s = { t: prev && t < prev.t ? prev.t : t, x: last.x, y: last.z, b: pressed, k: button() };
     samples.push(s);
     pruneSamples(samples, s.t);
   }
@@ -492,9 +564,16 @@ export function createMouseInput(canvas, opts) {
       if (touchActive) { touch.refresh(t); return; }
       const prev = samples[samples.length - 1];
       if (!prev || t - prev.t > 0.05) {
-        samples.push({ t: Math.max(t, prev?.t ?? t), x: last.x, y: last.z, b: pressed });
+        samples.push({ t: Math.max(t, prev?.t ?? t), x: last.x, y: last.z, b: pressed, k: button() });
         pruneSamples(samples, t);
       }
+    },
+    // 구질 버튼을 누르거나 뗐을 때: 라켓이 멈춰 있어도 지금 상태를 바로 기록한다
+    mark(t) {
+      if (touchActive) { touch.mark(t); return; }
+      const prev = samples[samples.length - 1];
+      samples.push({ t: Math.max(t, prev?.t ?? t), x: last.x, y: last.z, b: pressed, k: button() });
+      pruneSamples(samples, t);
     },
   };
 }

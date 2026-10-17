@@ -142,7 +142,8 @@ test('사람 서브: 서브 차례에만 토스되고, 토스 뒤 치지 않으�
   assert.deepEqual(game.rules.score, [0, 0]);
 });
 
-test('사람 서브: 토스한 공을 위로 쓸어 올리면(드라이브)·아래로 깎으면(커트) 자기 코트 → 상대 코트로 들어간다', () => {
+// 7단계: 서브 구질은 버튼이 정한다 (드라이브 = Q, 커트 = W). 스윙 방향은 예전처럼 위/아래로 둔다
+test('사람 서브: 드라이브 버튼으로 위로 쓸어 올리면·커트 버튼으로 깎으면 자기 코트 → 상대 코트로 들어간다', () => {
   // 사람 플레이어(로봇 아님)의 마우스 샘플을 직접 만든다: 타점 시각(apexT)에 라켓이 타점에 오도록 일정 속도로 휘두름
   for (const [name, vz, x, shot] of [['드라이브', 2.2, 0.1, 'drive'], ['커트', -1.6, -0.2, 'cut'], ['드라이브 오른쪽', 2.6, 0.4, 'drive']]) {
     const { human, game } = humanVsRobot();
@@ -153,11 +154,11 @@ test('사람 서브: 토스한 공을 위로 쓸어 올리면(드라이브)·아
     const tc = human.apexT;
     const z0 = SERVE.HIT_Z - vz * 0.15; // 0.15 s 전 출발점
     human.samples.length = 0;
-    human.samples.push({ t: t0, x, y: z0, b: true });
+    human.samples.push({ t: t0, x, y: z0, b: true, k: shot });
     const events = [];
     for (let i = 0; i < 240 * 3 && !game.results.length; i++) {
       const t = game.ball.t;
-      if (t >= tc - 0.15 && t <= tc + 0.1) human.samples.push({ t, x, y: z0 + vz * (t - (tc - 0.15)), b: true });
+      if (t >= tc - 0.15 && t <= tc + 0.1) human.samples.push({ t, x, y: z0 + vz * (t - (tc - 0.15)), b: true, k: shot });
       events.push(...stepMatch(game));
       if (game.rules.phase === 'rally') break;
     }

@@ -9,20 +9,20 @@
 import {
   createRenderer, createBallView, createRacketView, createMarkerView, createTrailView, createGuideView,
 } from './render.js';
-import { createBall, makeLaunch, faceNormal, toWorld, toLocal } from '../shared/physics.js';
+import { createBall, makeLaunch, faceNormal, toWorld, toLocal, carriedSpin } from '../shared/physics.js';
 import {
   PHYSICS, PRACTICE, SWING, RENDER, TUNABLE, TUNABLE_DEFAULTS, TUNABLE_ONLINE_FREE, NET, VERSION, SHOT_LABELS,
   DIFFICULTIES, DIFFICULTY_LABELS, DEMO, REASON_LABELS, RULES, SERVE, SERVE_GUIDE, PAUSE, ONLINE, ONLINE_ERRORS,
-  REJECT_LABELS, MOBILE, FEEL,
+  REJECT_LABELS, MOBILE, FEEL, SHOT_KEYS, SHOT_BUTTONS,
 } from '../shared/constants.js';
 import { canHit, bouncedOn, matchPointSide, idx } from '../shared/rules.js';
 import { createAudio, initSoundTest } from './audio.js';
 import {
-  createFx, createBallHistory, createDisplayQueue, createPopupLayer, spinKind, TRAIL_COLORS, frameSteps, vibrationMs,
+  createFx, createBallHistory, createDisplayQueue, createPopupLayer, frameSteps, vibrationMs, trailColor, spinRead,
 } from './effects.js';
 import { initDebug, launchParams, SCENARIO_LABELS } from './debug.js';
 import {
-  createMouseInput, rayPlaneY, analyzeDrag, createRng, cameraFor, tunableCamera, dragScaleFor,
+  createMouseInput, rayPlaneY, analyzeDrag, createRng, cameraFor, tunableCamera, dragScaleFor, createShotKeys,
 } from './input.js';
 import {
   createAI, createPlayer, createRally, stepMatch, serveBall, placeBall, endFree, tossBall, queueScenario,
@@ -143,7 +143,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden && PAUSE.AUTO_ON_HIDE && mode === 'practice') setPaused(true);
   if (!document.hidden) client?.wake(); // 모바일 백그라운드 복귀: 끊겼으면 바로 다시 접속, 아니면 시계를 바로 다시 잰다
 });
-// 모바일 화면 버튼: 시점(C)·서브 가이드(G)·전체 화면, 일시정지 화면의 난이도·새 게임·화살표
+// 모바일 화면 버튼: 시점(Space)·서브 가이드(G)·전체 화면, 일시정지 화면의 난이도·새 게임·화살표
 const viewBtn = $('view-btn'), guideBtn = $('guide-btn'), fsBtn = $('fs-btn');
 const tap = (el, fn) => el.addEventListener('click', (e) => { e.stopPropagation(); fn(); el.blur(); });
 tap(viewBtn, () => { classicView = !classicView; });
@@ -152,13 +152,96 @@ tap(fsBtn, toggleFullscreen);
 fsBtn.hidden = !canFullscreen();
 for (const b of document.querySelectorAll('#pause-actions [data-diff]')) tap(b, () => { setDifficulty(b.dataset.diff); setPaused(false); });
 tap($('pause-new'), () => { newGame(); setPaused(false); });
+tap($('pause-menu'), () => { setPaused(false); toMenu(); }); // 7단계: 일시정지 화면에서 메인화면으로
 tap($('pause-arrows'), () => setArrows(!ballView.arrowsVisible));
 for (const el of [muteBtn, volumeEl, pauseBtn, leaveBtn, viewBtn, guideBtn, fsBtn]) el.addEventListener('pointerdown', (e) => e.stopPropagation());
+
+// ── 구질 버튼 (7단계): PC Q·W·E·R, 모바일 화면 버튼. 나중에 누른 버튼이 이긴다 ──
+const shotKeys = createShotKeys();
+const shotKeysEl = $('shot-keys');
+const shotBtnsEl = $('shot-btns');
+function markKeys() { mouse?.mark(mouse.now?.() ?? simT()); }
+for (const btn of shotBtnsEl.querySelectorAll('button')) {
+  const k = btn.dataset.k;
+  const up = (e) => { e.stopPropagation(); shotKeys.release(k); markKeys(); };
+  btn.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    try { btn.setPointerCapture(e.pointerId); } catch { /* 이미 끝난 손가락 */ }
+    shotKeys.press(k);
+    markKeys();
+  });
+  btn.addEventListener('pointerup', up);
+  btn.addEventListener('pointercancel', up);
+  btn.addEventListener('lostpointercapture', up);
+  btn.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+window.addEventListener('blur', () => { shotKeys.clear(); markKeys(); }); // 창을 떠나면 눌린 키가 남지 않게
+let keysShown = '';
+let btnLayout = '';
+// 화면의 구질 버튼 표시: PC는 아래 가운데 키 칩, 모바일은 화면 버튼 (첫 화면에서는 숨김)
+function updateShotButtons() {
+  const playing = mode !== 'menu';
+  shotKeysEl.hidden = mobile || !playing;
+  shotBtnsEl.hidden = !mobile || !playing;
+  const cur = shotKeys.current ?? '';
+  if (cur !== keysShown) {
+    keysShown = cur;
+    for (const el of [...shotKeysEl.children, ...shotBtnsEl.children]) el.classList.toggle('on', el.dataset.k === cur);
+  }
+  const layout = `${TUNABLE.MOB_BTN_SIZE}|${TUNABLE.MOB_BTN_LEFT}`;
+  if (layout !== btnLayout) {
+    btnLayout = layout;
+    shotBtnsEl.style.setProperty('--btn', `${TUNABLE.MOB_BTN_SIZE}px`);
+    shotBtnsEl.classList.toggle('right', TUNABLE.MOB_BTN_LEFT < 0.5);
+  }
+}
 if (mobile) {
   $('pause-hint').textContent = '화면을 누르면 이어서 합니다.';
   $('pause-hint2').textContent = '다른 앱으로 가면 자동으로 멈춥니다.';
-  $('menu-hint').textContent = '손가락으로 쓸어 치기 · 가로 화면 권장 · ⛶ 전체 화면';
+  $('menu-hint').textContent = '오른손으로 쓸어 치기 · 왼손으로 구질 버튼 · 가로 화면 권장 · ⛶ 전체 화면';
 }
+
+// ── 조작표 (7단계): 일시정지 화면과 첫 경기 안내판 ──
+const CONTROLS = mobile ? [
+  ['쓸기', '라켓 휘두르기 (빠를수록 세게, 좌우로 조준)'],
+  ['버튼 없이', '일반 스윙 · 무회전 (들어온 회전을 그대로 받음)'],
+  ['<span class="k-drive">드라이브</span>', '강한 탑스핀 · 커트·무회전 공을 들어 올린다'],
+  ['<span class="k-cut">커트</span>', '강한 백스핀 · 커트 공을 커트로, 탑스핀을 백스핀으로'],
+  ['<span class="k-side">사이드</span>', '강한 횡회전 · 센 탑·백 공에는 위험'],
+  ['<span class="k-smash">스매시</span>', '빨간 고리(높은 공)에서 세게 · 노란 고리면 네트'],
+  ['대고 멈춤', '블록'],
+  ['같은 회전', '같은 구질로 받아칠수록 회전이 쌓인다 (꼬리가 진해짐)'],
+] : [
+  ['드래그', '라켓 휘두르기 (빠를수록 세게, 좌우로 조준) · 클릭 = 서브 토스'],
+  ['버튼 없이', '일반 스윙 · 무회전 (들어온 회전을 그대로 받음)'],
+  ['<kbd>Q</kbd>', '<span class="k-drive">드라이브</span> · 강한 탑스핀, 커트·무회전 공을 들어 올린다'],
+  ['<kbd>W</kbd>', '<span class="k-cut">커트</span> · 강한 백스핀, 커트 공을 커트로, 탑스핀을 백스핀으로'],
+  ['<kbd>E</kbd>', '<span class="k-side">사이드</span> · 강한 횡회전, 센 탑·백 공에는 위험'],
+  ['<kbd>R</kbd>', '<span class="k-smash">스매시</span> · 빨간 고리(높은 공)에서 세게, 노란 고리면 네트'],
+  ['누른 채 멈춤', '블록'],
+  ['같은 회전', '같은 구질로 받아칠수록 회전이 쌓인다 (꼬리가 진해짐)'],
+  ['<kbd>Space</kbd>', '시점 · <kbd>N</kbd> 새 게임 · <kbd>P</kbd>/<kbd>Esc</kbd> 일시정지 · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 난이도'],
+  ['<kbd>G</kbd>', '서브 가이드 · <kbd>V</kbd> 화살표 · <kbd>M</kbd> 음소거'],
+];
+for (const id of ['pause-controls', 'intro-controls']) {
+  $(id).innerHTML = CONTROLS.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+}
+// 첫 경기 안내판: 처음 시작할 때 (다시 보지 않기를 고르면 이 브라우저에서는 생략)
+const introEl = $('intro');
+let introUntil = 0;
+function showIntro() {
+  if (store.get('pp-intro') === '1') return;
+  introEl.hidden = false;
+  introUntil = performance.now() / 1000 + FEEL.INTRO_TIME;
+}
+function hideIntro() {
+  if (introEl.hidden) return;
+  introEl.hidden = true;
+  if ($('intro-never').checked) store.set('pp-intro', '1');
+}
+$('intro-ok').addEventListener('click', (e) => { e.stopPropagation(); hideIntro(); });
+introEl.addEventListener('pointerdown', (e) => e.stopPropagation());
 if (params.get('sound') === '1') initSoundTest(audio, document.body);
 
 // ── 게임 상태 ──
@@ -218,6 +301,7 @@ mouse = createMouseInput(canvas, {
     return rayPlaneY(toLocal(r.origin, me), toLocal(r.dir, me), human.yPlane);
   },
   now: () => (online() ? client.matchTime(nowMs()) : clock + acc + (performance.now() / 1000 - realAtFrame)),
+  button: () => shotKeys.current,
   onPress() {
     if (mode === 'menu') return;
     // 내 서브 차례: 클릭한 자리(라켓 x)에서 공을 띄운다
@@ -228,6 +312,7 @@ mouse = createMouseInput(canvas, {
   },
 });
 human.samples = mouse.samples;
+mouse.now = () => (online() ? client.matchTime(nowMs()) : clock + acc + (performance.now() / 1000 - realAtFrame));
 
 function setDifficulty(d) {
   difficulty = d;
@@ -266,17 +351,33 @@ function setArrows(v) {
   debug.syncArrows?.(v);
 }
 
+const typing = (e) => e.target.tagName === 'INPUT' && e.target.type === 'text'; // 닉네임·코드 입력 중
+const modified = (e) => e.ctrlKey || e.metaKey || e.altKey; // Ctrl+R(새로고침)·Ctrl+W 등 브라우저 단축키는 건드리지 않는다
 window.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT' && e.target.type === 'text') return; // 닉네임·코드 입력 중
+  if (typing(e)) return;
+  if (e.code === 'Space') {
+    e.preventDefault(); // 페이지 스크롤·포커스된 버튼 누르기 막기
+    if (!e.repeat) classicView = !classicView; // 새 시점 ↔ 기존 시점 (대전에서도 가능)
+    return;
+  }
+  const k = SHOT_KEYS[e.code];
+  if (k && !modified(e)) {
+    if (!e.repeat) { shotKeys.press(k); markKeys(); }
+    return;
+  }
   if (e.code === 'KeyV') setArrows(!ballView.arrowsVisible);
   if (e.code === 'KeyM') toggleMute();
   if (e.code === 'KeyG') TUNABLE.FX_SERVE_GUIDE = TUNABLE.FX_SERVE_GUIDE >= 0.5 ? 0 : 1;
-  if (e.code === 'KeyC') classicView = !classicView; // 새 시점 ↔ 기존 시점 (대전에서도 가능)
   if (online() || mode === 'menu') return; // 아래는 연습 전용
   const i = ['Digit1', 'Digit2', 'Digit3'].indexOf(e.code);
   if (i >= 0) setDifficulty(DIFFICULTIES[i]);
-  if (e.code === 'KeyR') newGame();
+  if (e.code === 'KeyN' && !modified(e)) newGame();
   if (e.code === 'KeyP' || e.code === 'Escape') setPaused(!paused);
+});
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'Space' && !typing(e)) e.preventDefault();
+  const k = SHOT_KEYS[e.code];
+  if (k) { shotKeys.release(k); markKeys(); }
 });
 
 // ── 첫 화면 ──
@@ -302,6 +403,7 @@ $('menu-practice').addEventListener('click', () => {
   menuEl.hidden = true;
   mode = 'practice';
   newGame();
+  showIntro();
 });
 $('menu-create').addEventListener('click', async () => {
   audio.unlock();
@@ -349,6 +451,7 @@ function toMenu() {
   debug.setLocked(false);
   debug.setPing(null);
   mode = 'menu';
+  hideIntro();
   lobbyEl.hidden = true;
   netErrEl.hidden = true;
   pingEl.hidden = true;
@@ -455,6 +558,7 @@ function beginOnline() {
   nameEls.me.textContent = client.players.find((p) => p.side === me)?.nick ?? '나';
   nameEls.robot.textContent = oppP?.nick ?? '상대';
   againBtn.textContent = '첫 화면으로';
+  showIntro();
 }
 
 function onServerResult(r, matched) {
@@ -486,9 +590,12 @@ function showShot(e) {
   if (e.side === me) {
     shotEl.textContent = `${label} · ${s.quality.timing}`;
     shotEl.className = `shot-${s.quality.timing.toLowerCase()}`;
-    const dt = Number.isFinite(s.quality.dtApex) ? `${s.quality.dtApex >= 0 ? '+' : ''}${Math.round(s.quality.dtApex * 1000)} ms` : '정점 없음';
-    const dir = s.quality.dragSin <= -TUNABLE.DIR_SIN ? '↓' : s.quality.dragSin >= TUNABLE.DIR_SIN ? '↑' : '↔';
-    shotSubEl.textContent = `스윙 ${dir} ${s.quality.dragSpeed.toFixed(2)} m/s (스매시 ↓${TUNABLE.SMASH_SPEED}) · 세기 ${s.quality.strength.toFixed(2)} · 정점 대비 ${dt} · 공 ${e.speed.toFixed(1)} m/s`;
+    const q = s.quality;
+    const dt = Number.isFinite(q.dtApex) ? `${q.dtApex >= 0 ? '+' : ''}${Math.round(q.dtApex * 1000)} ms` : '정점 없음';
+    // 회전 누적(7단계): 같은 회전으로 받아쳐 더해진 몫과 상한
+    const st = q.stack && q.stack.add > 0.5 ? ` · 회전 ${Math.round(q.stack.base)}+${Math.round(q.stack.add)}${q.stack.capped ? ' MAX' : ''} rps` : '';
+    const note = q.smashSlow ? ` · 스매시는 ${TUNABLE.SMASH_SPEED} m/s 이상으로 (느려서 일반)` : q.smashNoServe ? ' · 서브는 스매시 불가 (일반 서브)' : '';
+    shotSubEl.textContent = `스윙 ${q.dragSpeed.toFixed(2)} m/s · 세기 ${q.strength.toFixed(2)} · 정점 대비 ${dt} · 공 ${e.speed.toFixed(1)} m/s${st}${note}`;
   } else {
     const who = online() ? nameEls.robot.textContent : '로봇';
     robotShotEl.textContent = `${who}: ${label}${s.quality?.timing ? ` · ${s.quality.timing}` : ''}`;
@@ -598,13 +705,31 @@ function dispatch(item) {
 const guideCache = new Map();
 let guideSig = '';
 function guideFor(x) {
-  const sig = JSON.stringify(TUNABLE) + me; // 디버그 패널에서 값이 바뀌거나 자리가 바뀌면 다시 계산
+  const btn = shotKeys.current === 'smash' ? null : shotKeys.current; // 지금 누른 구질 버튼의 서브 (스매시는 일반 서브)
+  const sig = JSON.stringify(TUNABLE) + me + btn; // 디버그 패널에서 값이 바뀌거나 자리·버튼이 바뀌면 다시 계산
   if (sig !== guideSig) { guideCache.clear(); guideSig = sig; }
   const cx = Math.min(SERVE.TOSS_X_MAX, Math.max(-SERVE.TOSS_X_MAX, x));
   const q = Math.round(cx / SERVE_GUIDE.QUANT_X) * SERVE_GUIDE.QUANT_X;
   const key = q.toFixed(3);
-  if (!guideCache.has(key)) guideCache.set(key, serveGuide(me, q));
+  if (!guideCache.has(key)) guideCache.set(key, serveGuide(me, q, TUNABLE, btn));
   return guideCache.get(key);
+}
+
+// ── 회전 표지 (7단계): 내가 받을 공의 판정용 회전 종류·세기를 예측 정점 고리 위에 ──
+const spinBadgeEl = $('spin-badge');
+const SPIN_BADGE = { top: ['↻ 탑', 'c-drive'], back: ['↺ 백', 'c-cut'], side: ['⟲ 횡', 'c-side'] };
+let badgeText = '';
+function updateSpinBadge(pos, t) {
+  const w = pos && game.inSpin ? carriedSpin(game.inSpin, t) : null;
+  const r = w ? spinRead(game.ball.vel, w) : null;
+  if (!r || r.kind === 'none') { spinBadgeEl.hidden = true; return; }
+  const [label, cls] = SPIN_BADGE[r.kind];
+  const text = `${label} ${'▮'.repeat(r.level)}${'▯'.repeat(FEEL.SPIN_LEVELS - r.level)}${debugEnabled ? ` ${Math.round(r.rps)}` : ''}`;
+  if (text !== badgeText) { badgeText = text; spinBadgeEl.textContent = text; spinBadgeEl.className = cls; }
+  const sp = view.worldToScreen({ x: pos.x, y: pos.y, z: pos.z + TUNABLE.HIT_RADIUS + 0.04 });
+  spinBadgeEl.style.left = `${sp.x}px`;
+  spinBadgeEl.style.top = `${sp.y}px`;
+  spinBadgeEl.hidden = false;
 }
 
 // ── 그리기 ──
@@ -634,7 +759,7 @@ function onlineHud(ms) {
 }
 
 // ── 시점 (6단계) ──
-// 새 시점(TUNABLE CAM_*, 왼쪽 위) / 기존 시점(C 키). 내 자리(me)에 맞게 돌리고, 바뀌었을 때만 카메라를 다시 놓는다.
+// 새 시점(TUNABLE CAM_*, 왼쪽 위) / 기존 시점(Space 키). 내 자리(me)에 맞게 돌리고, 바뀌었을 때만 카메라를 다시 놓는다.
 // 시점에 따라 마우스 1 px가 라켓 평면에서 움직이는 거리가 달라지므로, 내 드래그 속도를 기존 시점 기준으로 맞춘다(dragScale).
 // 모바일(6단계): 시점은 mobileCamera(시야각·바라보는 높이만 다름), 터치로 치면 화면 높이로 CSS px 기준에 맞추는 배율(touchSpeedScale)을 더 곱한다.
 let classicView = false;
@@ -700,7 +825,11 @@ function frame(now) {
   ballView.update(shown.pos, shown.vel, shown.spin, viewT - prevView);
   if (TUNABLE.FX_TRAIL >= 0.5) {
     const maxPts = mobile ? Math.max(2, Math.round(FEEL.TRAIL_MAX_POINTS * TUNABLE.MOB_TRAIL_SCALE)) : FEEL.TRAIL_MAX_POINTS;
-    const pts = history.trail(ballViewT, TUNABLE.TRAIL_TIME, maxPts).map((q) => ({ pos: q.pos, color: TRAIL_COLORS[spinKind(q.vel, q.spin)] }));
+    // 꼬리 색은 판정용 회전(7단계, 바운드 마찰을 빼고 센 회전)으로: 종류 색, 세기만큼 진하게
+    const inSpin = game.inSpin;
+    const pts = history.trail(ballViewT, TUNABLE.TRAIL_TIME, maxPts).map((q) => ({
+      pos: q.pos, color: trailColor(q.vel, inSpin && q.t >= inSpin.t - 1e-9 ? carriedSpin(inSpin, q.t) : q.spin),
+    }));
     if (pts.length) pts.push({ pos: shown.pos, color: pts[pts.length - 1].color });
     trail.update(pts);
   } else trail.update([]);
@@ -732,6 +861,9 @@ function frame(now) {
   const smashable = !tossed && !!human.apexPos && human.apexPos.z >= NET.HEIGHT + TUNABLE.SMASH_MIN_HEIGHT;
   const ringPos = waiting ? human.apexPos : holdingServe && guide ? guide.hit : null;
   marker.update(ringPos, tossed || holdingServe ? TUNABLE.SERVE_HIT_RADIUS : TUNABLE.HIT_RADIUS, smashable);
+  updateSpinBadge(mode !== 'menu' && waiting && !tossed ? human.apexPos : null, t);
+  updateShotButtons();
+  if (!introEl.hidden && performance.now() / 1000 > introUntil) hideIntro();
 
   debug.onFrame(elapsed, ball);
   if (mobile) {
@@ -760,16 +892,16 @@ function frame(now) {
       : tossed ? '공이 고리까지 내려올 때 휘두르기!'
         : !waitServe ? ''
           : rules.server === me ? (mobile
-            ? '내 서브\n① 화면 터치: 공 띄우기  ② 공이 고리에 올 때 쓸기\n↑ 드라이브 · ↓ 커트 · 곡선 = 사이드'
-            : '내 서브\n① 클릭: 공 띄우기  ② 공이 고리에 올 때 휘두르기\n↑ 드라이브 · ↓ 커트 · 곡선 = 사이드')
+            ? '내 서브\n① 화면 터치: 공 띄우기  ② 공이 고리에 올 때 쓸기\n버튼 없이 = 무회전 · 드라이브 · 커트 · 사이드 버튼'
+            : '내 서브\n① 클릭: 공 띄우기  ② 공이 고리에 올 때 휘두르기\n버튼 없이 = 무회전 · Q 탑 · W 백 · E 사이드')
             : `${oppName} 서브`;
   }
   statusEl.textContent = mobile
     ? (online() ? `대전 · 방 ${client.code}` : `연습 · ${DIFFICULTY_LABELS[difficulty]} (⏸에서 난이도·새 게임)`)
     : online()
-    ? `대전 · 방 ${client.code} (${RULES.POINTS_TO_WIN}점) · G 서브 가이드 · V 화살표 · M 음소거`
-    : `연습 경기 (${RULES.POINTS_TO_WIN}점) · ${DIFFICULTY_LABELS[difficulty]} · `
-      + `1/2/3 난이도(새 게임) · R 새 게임 · P 일시정지 · G 서브 가이드 · V 화살표${debugEnabled ? '' : ' · ?debug=1 패널'}`;
+    ? `대전 · 방 ${client.code} (${RULES.POINTS_TO_WIN}점) · Q/W/E/R 구질 · Space 시점 · G 서브 가이드 · M 음소거`
+    : `연습 경기 (${RULES.POINTS_TO_WIN}점) · ${DIFFICULTY_LABELS[difficulty]} · Q/W/E/R 구질 · `
+      + `1/2/3 난이도 · N 새 게임 · P 일시정지(조작표) · Space 시점${debugEnabled ? '' : ' · ?debug=1 패널'}`;
   requestAnimationFrame(frame);
 }
 

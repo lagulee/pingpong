@@ -20,6 +20,7 @@ export function createMatch({ firstServer = -1, bestOf = RULES.BEST_OF, retoss =
     lastToss: null,          // 마지막 토스 { side, x, t } (대전: 상대에게 보낼 정보)
     practice: null,          // 연습 공: 점수를 바꾸지 않고, 끝나면 이 규칙 상태로 돌아간다
     free: false,             // 디버그 떨어뜨리기: 규칙·타격 없이 물리만
+    inSpin: null,            // 마지막 타격의 회전 { t, spin } (v7.0 판정용 회전 carriedSpin의 출발점. 토스면 null)
   };
 }
 
@@ -50,6 +51,7 @@ export function startToss(game, side, x, t) {
   game.holding = false;
   game.lastHitT = t;
   game.lastToss = { side, x, t };
+  game.inSpin = null;
   return true;
 }
 
@@ -67,6 +69,7 @@ export function applyHit(game, side, hit, params = TUNABLE) {
   const outside = isEarly(game.rules, side) && !inPlayFor(ball, side, params);
   ball.vel = vec(hit.vel.x, hit.vel.y, hit.vel.z);
   ball.spin = vec(hit.spin.x, hit.spin.y, hit.spin.z);
+  game.inSpin = { t, spin: vec(hit.spin.x, hit.spin.y, hit.spin.z) };
   const speed = Math.hypot(ball.vel.x, ball.vel.y, ball.vel.z);
   const e = { type: 'racket', t, pos: { ...ball.pos }, speed, side, racket: side, shot: hit.shot ?? null };
   if (outside) e.outside = true;

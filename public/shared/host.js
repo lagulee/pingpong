@@ -8,7 +8,7 @@
 //   io.clear()                         방이 비면 저장된 상태를 지운다
 // 서버는 실시간 루프 없이 이벤트로 움직인다: 타격이 오면 마지막 확정 상태에서 그 시각까지 물리를 돌려 검증하고,
 // 아무도 치지 않으면 공이 어떻게 끝나는지(예정 결말) 미리 계산해 그 시각 + GRACE에 득점을 판정한다.
-import { PHYSICS, PRACTICE, SERVE, TUNABLE, ONLINE, VERSION } from './constants.js';
+import { PHYSICS, PRACTICE, SERVE, TUNABLE, ONLINE, VERSION, SHOT_TYPES } from './constants.js';
 import { createMatch, startToss, applyHit, stepGame, isServeHit } from './match.js';
 import { canHit } from './rules.js';
 import { cloneBall, ballToLocal } from './physics.js';
@@ -49,7 +49,7 @@ export function cloneMatch(g) {
 export function matchSnapshot(g) {
   return {
     ball: cloneBall(g.ball), rules: g.rules, lastHitT: g.lastHitT, holding: g.holding,
-    nextAt: g.nextAt, lastToss: g.lastToss, resultsLen: g.results.length,
+    nextAt: g.nextAt, lastToss: g.lastToss, resultsLen: g.results.length, inSpin: g.inSpin ?? null,
   };
 }
 export function restoreMatch(g, s) {
@@ -59,6 +59,7 @@ export function restoreMatch(g, s) {
   g.holding = s.holding;
   g.nextAt = s.nextAt;
   g.lastToss = s.lastToss;
+  g.inSpin = s.inSpin ?? null;
   return g;
 }
 
@@ -90,6 +91,7 @@ export function predictEnd(g, params = TUNABLE) {
 // g: 타격 시각까지 진행한 경기 상태, side: 보낸 사람, msg: { type, pos, vel, spin, racket }
 export function checkHitMsg(g, side, msg, params = TUNABLE) {
   if (!isVec(msg.pos) || !isVec(msg.vel) || !isVec(msg.spin) || !msg.racket || !finite(msg.racket.x) || !finite(msg.racket.z)) return 'bad';
+  if (msg.shotType !== undefined && !SHOT_TYPES.includes(msg.shotType)) return 'bad'; // v7.0: 구질 이름 허용 목록
   const rules = g.rules;
   if (!(rules.phase === 'serving' || rules.phase === 'rally') || !canHit(rules, side)) return 'turn';
   if ((msg.type === 'serve') !== isServeHit(rules)) return 'turn';
@@ -309,7 +311,7 @@ export class Host {
     const reason = sim.results.length !== this.game.results.length ? 'turn' : checkHitMsg(sim, side, msg, this.params);
     if (reason) { this.reject(side, msg, reason); return; }
     this.commit(msg.t);
-    const shotType = typeof msg.shotType === 'string' ? msg.shotType.slice(0, 16) : 'drive';
+    const shotType = msg.shotType ?? 'normal';
     const e = applyHit(this.game, side, { vel: msg.vel, spin: msg.spin, shot: { shotType } }, this.params);
     this.send(-side, {
       type: msg.type, seq: msg.seq, t: e.t, pos: vec3(msg.pos), vel: vec3(msg.vel), spin: vec3(msg.spin), shotType,

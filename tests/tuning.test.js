@@ -49,7 +49,7 @@ test('시점: 비스듬히 봐도 드래그 방향이 구질 판정과 맞는다
   for (const [name, cam] of [['새 시점', NEW], ['상대 자리', cameraFor(NEW, 1)], ['기존 시점', CLASSIC]]) {
     assert.ok(dragSin(cam, 0, 0.05) > 0.9, `${name}: 화면 위로 끌기 → 위쪽 드래그 (드라이브)`);
     assert.ok(dragSin(cam, 0, -0.05) < -0.9, `${name}: 화면 아래로 끌기 → 아래쪽 드래그 (커트·스매시)`);
-    assert.ok(Math.abs(dragSin(cam, 0.05, 0)) < 0.2, `${name}: 옆으로 끌기 → 옆 (사이드, DIR_SIN ${TUNABLE.DIR_SIN}보다 훨씬 작음)`);
+    assert.ok(Math.abs(dragSin(cam, 0.05, 0)) < 0.2, `${name}: 옆으로 끌기 → 옆 (좌우 조준)`);
     const deg = (Math.asin(dragSin(cam, 0.05 / ASPECT, 0.05)) * 180) / Math.PI;
     assert.ok(deg > 40 && deg < 50, `${name}: 화면 45° → ${deg.toFixed(1)}°`);
   }
@@ -81,7 +81,8 @@ function measure() {
         if (e.type === 'racket' && e.shot) {
           contacts++;
           if (e.pos.z >= NET.HEIGHT + TUNABLE.SMASH_MIN_HEIGHT) eligible++;
-          const k = e.shot.quality.serve ? 'serve' : e.shot.shotType;
+          // 7단계: 같은 회전으로 받아쳐 회전이 쌓인 공은 따로 센다 (드라이브 + 누적 = 'drive+')
+          const k = e.shot.quality.serve ? 'serve' : e.shot.shotType + (e.shot.quality.stack?.add > 0.5 ? '+' : '');
           const s = (shots[k] ??= { n: 0, v: 0, ft: [] });
           s.n++; s.v += e.speed;
           cur = { s, t: e.t, side: e.side };
@@ -97,8 +98,12 @@ function measure() {
   return r;
 }
 
+// 7단계: 회전 누적이 생겨 드라이브끼리 주고받으면 탑스핀이 쌓이고(상한 100 rps), 센 탑스핀은 빨리 떨어지므로
+// 같은 깊이에 보내려면 빠르게(최대 DRIVE_V_MAX) 쳐야 한다. 누적된 드라이브('drive+')는 의도적으로 빠르고 짧으므로
+// v6.0의 "느린 드라이브" 기준은 누적되지 않은 드라이브에 적용하고, 누적 드라이브는 속도 한계 안인지만 본다.
 test('느리지만 오래 나는 공: 드라이브·커트가 v5.2보다 느리고 오래 날며, 스매시는 확실히 빠르다', () => {
   const m = measure();
+  if (m['drive+']) assert.ok(m['drive+'].v <= TUNABLE.DRIVE_V_MAX + 0.1, `누적 드라이브 ${m['drive+'].v.toFixed(2)} m/s`);
   // v5.2 측정: 드라이브 6.18 m/s·0.60 s, 커트 4.53 m/s·0.74 s, 스매시/드라이브 2.34
   assert.ok(m.drive.v <= 5.0 && m.drive.ft >= 0.72, `드라이브 ${m.drive.v.toFixed(2)} m/s, ${m.drive.ft.toFixed(3)} s`);
   assert.ok(m.cut.v <= 3.6 && m.cut.ft >= 1.0, `커트 ${m.cut.v.toFixed(2)} m/s, ${m.cut.ft.toFixed(3)} s`);
@@ -114,10 +119,11 @@ test('사람 대역: 타점·세기·타이밍 오차를 섞어 쳐도 드라이
     let n = 0, ok = 0, seed = 1;
     for (const y of [-1.2, -1.5, -1.8, -2.0]) for (const z of [0.05, 0.15, 0.3, 0.5, 0.7]) for (const x of [0, 0.5]) {
       for (const s of [0.2, 0.5, 0.9]) for (const dt of [0, 0.1, 0.2, 0.3]) for (let r = 0; r < 2; r++) {
-        let speed = TUNABLE.BLOCK_SPEED + s * (TUNABLE.SPEED_FULL - TUNABLE.BLOCK_SPEED);
-        if (type === 'cut') speed = Math.min(speed, TUNABLE.SMASH_SPEED * 0.9);
+        // 7단계: 구질은 버튼(k)으로 고른다. v6.3까지는 커트가 스매시로 판정되지 않게 스윙 속도를 SMASH_SPEED 아래로 제한했지만,
+        // 이제 방향·속도가 구질을 바꾸지 않으므로 세기 그대로 휘두른다
+        const speed = TUNABLE.BLOCK_SPEED + s * (TUNABLE.SPEED_FULL - TUNABLE.BLOCK_SPEED);
         const samples = [];
-        for (let i = 0; i <= 12; i++) samples.push({ t: -0.1 + i / 120, x, y: z - sin * speed * 0.1 * (1 - i / 12), b: true });
+        for (let i = 0; i <= 12; i++) samples.push({ t: -0.1 + i / 120, x, y: z - sin * speed * 0.1 * (1 - i / 12), b: true, k: type });
         const ball = createBall({ pos: vec(x, y, z), vel: vec(0, -4, -1), spin: vec(2 * Math.PI * 20, 0, 0), t: 0 });
         const shot = classifyShot(samples, ball, { t: 0, side: -1, apexT: -dt, rng: createRng(seed++), racketX: x });
         assert.equal(shot.shotType, type);

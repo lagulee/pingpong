@@ -202,7 +202,8 @@ test('[7] 잠들었다 깨어남(Hibernation): 저장된 상태로 새 Room이 �
 
 test('[5단계] 서버 검증 한도 실측: AI 경기 타구가 모두 한도 안이고, 한도는 실측 최댓값의 1.2배 이상', () => {
   let n = 0, vmax = 0, wmax = 0;
-  for (let seed = 1; seed <= 6; seed++) {
+  // 7단계: 회전을 잘못 읽은 실수로 랠리가 짧아져(경기당 타구 수 감소) 6판 → 8판으로 늘려 1000타 이상을 잰다
+  for (let seed = 1; seed <= 8; seed++) {
     const a = createAI(-1, DIFFICULTIES[seed % 3], createRng(seed * 7 + 1));
     const b = createAI(1, DIFFICULTIES[(seed + 1) % 3], createRng(seed * 13 + 5));
     const g = createRally({ players: { [-1]: a.player, [1]: b.player }, ais: [a, b], rng: createRng(seed), firstServer: seed % 2 ? -1 : 1 });

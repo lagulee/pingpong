@@ -37,29 +37,34 @@ test('자동 랠리는 같은 시드면 완전히 같게 흘러간다 (결정론
   assert.deepStrictEqual(run(), run());
 });
 
-test('로봇이 만든 가상 샘플이 의도한 구질로 판정된다', () => {
-  // 구질 하나만 고르도록 비율을 바꾸고, 로봇(−1)이 첫 공(+1이 보낸 공)을 칠 때 판정을 본다
+// 7단계: 로봇은 들어온 회전에 맞는 구질 안에서 비율대로 고르므로(회전 읽기), 비율을 한 구질만 남겨도 그 구질만 치지 않는다.
+// 그래서 "모든 타격이 그 구질"이 아니라 "로봇이 그 구질을 고른 타격이 그 구질로 판정되는가"를 본다 (블록·스매시와 같은 방식).
+test('로봇이 만든 가상 샘플(구질 버튼 포함)이 의도한 구질로 판정된다', () => {
+  // 구질 하나만 고르도록 비율을 바꾸고, 회전을 자주 잘못 읽게 해(READ 0) 맞지 않는 구질(사이드·일반 등)도 나오게 한다
   const only = (type) => {
-    const p = { ...TUNABLE };
-    for (const s of ['DRIVE', 'BLOCK', 'CUT', 'SIDE', 'SMASH']) p[`AI_HARD_W_${s}`] = s === type ? 1 : 0;
+    const p = { ...TUNABLE, AI_HARD_READ: 0 };
+    for (const s of ['DRIVE', 'BLOCK', 'CUT', 'SIDE', 'SMASH', 'NORMAL']) p[`AI_HARD_W_${s}`] = s === type ? 1 : 0;
     return p;
   };
-  const expect = { DRIVE: 'drive', CUT: 'cut', SIDE: 'side' };
+  const expect = { DRIVE: 'drive', CUT: 'cut', SIDE: 'side', NORMAL: 'normal' };
   for (const [type, shot] of Object.entries(expect)) {
-    let hits = 0, match = 0;
-    for (let seed = 1; seed <= 10; seed++) {
+    let picked = 0, match = 0;
+    for (let seed = 1; seed <= 20; seed++) {
       const params = only(type);
-      playRally(seed, 'HARD', 'HARD', params, (e) => {
-        if (e.type === 'racket') { hits++; if (e.shot.shotType === shot) match++; }
+      playRally(seed, 'HARD', 'HARD', params, (e, game) => {
+        if (e.type !== 'racket') return;
+        const ai = game.ais.find((x) => x.player.side === e.side);
+        if (ai.lastPlanType === type) { picked++; if (e.shot.shotType === shot) match++; }
       });
     }
-    assert.ok(hits >= 10 && match / hits >= 0.9, `${type}: ${match}/${hits}`);
+    assert.ok(picked >= 10 && match / picked >= 0.9, `${type}: ${match}/${picked}`);
   }
   // 블록·스매시는 공 상황(빠른 공·높은 공)에서만 고르므로, 고른 경우만 판정을 확인한다
   for (const [type, shot] of [['BLOCK', 'block'], ['SMASH', 'smash']]) {
     let picked = 0, match = 0;
-    for (let seed = 1; seed <= 20; seed++) {
-      const params = only(type);
+    for (let seed = 1; seed <= (type === 'SMASH' ? 200 : 20); seed++) {
+      // 블록·스매시는 맞는 대응으로만 고른다. 상대(쉬움)도 회전을 바르게 읽게 해 랠리가 이어져 높은 공이 나오게 한다
+      const params = { ...only(type), AI_HARD_READ: 1, AI_EASY_READ: 1 };
       params.AI_HARD_W_DRIVE = 1e-6; // 고를 수 없을 때만 드라이브
       // v6.0: 세게 친 공은 낮게 날아 바운드도 낮다. 스매시 기회(높은 공)는 약하게 높이 친 공에서 나오므로
       // 스매시는 쉬움 로봇(약한 공)을 상대로 확인한다. 쉬움 로봇은 스매시를 고르지 않는다(W_SMASH 0).
@@ -73,14 +78,17 @@ test('로봇이 만든 가상 샘플이 의도한 구질로 판정된다', () =>
   }
 });
 
+// 7단계: 쉬움 로봇도 공에는 거의 다 닿지만 회전을 잘못 읽어 아웃·네트를 낸다. 그래서 "라켓에 맞힌 비율"이 아니라
+// "상대 코트에 넘긴 비율"(내 타격 뒤 상대 코트 바운드)로 받아낸 정도를 잰다.
 test('난이도: 어려움 로봇은 쉬움 로봇보다 많이 받아낸다', () => {
-  // 같은 상대(보통)에게서 온 공을 받아 넘긴 비율
+  // 같은 상대(보통)에게서 온 공을 받아 상대 코트에 넘긴 비율
   const returnRate = (diff) => {
-    let chances = 0, returns = 0;
+    let chances = 0, returns = 0, mine = false;
     for (let seed = 1; seed <= 15; seed++) {
       playRally(seed, diff, 'NORMAL', TUNABLE, (e, game) => {
         if (e.type === 'bounce' && e.side === -1 && game.rules.phase === 'rally' && bouncedOn(game.rules, -1)) chances++;
-        if (e.type === 'racket' && e.side === -1) returns++;
+        if (e.type === 'racket') mine = e.side === -1;
+        if (mine && (e.type === 'bounce' || e.type === 'edge') && e.side === 1) { returns++; mine = false; }
       });
     }
     return returns / chances;

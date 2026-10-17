@@ -154,14 +154,43 @@ export const TRAIL_COLORS = Object.freeze({
   top: FEEL.COLOR_TRAIL_TOP, back: FEEL.COLOR_TRAIL_BACK, side: FEEL.COLOR_TRAIL_SIDE, none: FEEL.COLOR_TRAIL_NONE,
 });
 
+// ── 회전 읽기 (7단계) ─────────────────────────────────────
+// 판정용 회전(carriedSpin)의 종류와 세기. frac = 회전 / 그 종류의 상한(드라이브·커트·사이드 SPIN_CAP),
+// level = 1~FEEL.SPIN_LEVELS 칸 (회전이 약하면 0). 화면의 회전 표지와 꼬리 진하기에 쓴다.
+export function spinRead(vel, spin, p = TUNABLE) {
+  const kind = spinKind(vel, spin, p);
+  if (kind === 'none') return { kind, rps: 0, frac: 0, level: 0 };
+  const h = Math.hypot(vel.x, vel.y);
+  const top = h > 1e-6 ? (spin.x * -vel.y / h + spin.y * vel.x / h) / (2 * Math.PI) : 0;
+  const rps = kind === 'side' ? Math.abs(spin.z / (2 * Math.PI)) : Math.abs(top);
+  const cap = kind === 'top' ? p.DRIVE_SPIN_CAP : kind === 'back' ? p.CUT_SPIN_CAP : p.SIDE_SPIN_CAP;
+  const frac = Math.min(1, rps / Math.max(cap, 1e-9));
+  return { kind, rps, frac, level: Math.max(1, Math.min(FEEL.SPIN_LEVELS, Math.ceil(frac * FEEL.SPIN_LEVELS - 1e-9))) };
+}
+
+// 두 색(0xRRGGBB)을 f(0~1)만큼 섞는다
+export function mixColor(a, b, f) {
+  const ch = (c, k) => (c >> k) & 255;
+  const m = (k) => Math.round(ch(a, k) + (ch(b, k) - ch(a, k)) * f) << k;
+  return m(16) | m(8) | m(0);
+}
+
+// 꼬리 색: 회전 종류 색을 세기(frac)만큼 진하게 (약한 회전은 회색 쪽으로, TRAIL_MIX_MIN이 최소 진하기)
+export function trailColor(vel, spin, p = TUNABLE) {
+  const r = spinRead(vel, spin, p);
+  if (r.kind === 'none') return TRAIL_COLORS.none;
+  return mixColor(TRAIL_COLORS.none, TRAIL_COLORS[r.kind], FEEL.TRAIL_MIX_MIN + (1 - FEEL.TRAIL_MIX_MIN) * r.frac);
+}
+
 // ── 판정 팝업 ───────────────────────────────────────────
-// me: 화면을 보는 플레이어 쪽. PERFECT는 내 타격에만, SMASH!는 누구의 스매시든, EDGE!는 모서리 바운드.
+// me: 화면을 보는 플레이어 쪽. PERFECT·MAX SPIN은 내 타격에만, SMASH!는 누구의 스매시든, EDGE!는 모서리 바운드.
 export function popupsFor(e, me = -1, p = TUNABLE) {
   if (!on(p.FX_POPUP)) return [];
   const out = [];
   if (e.type === 'racket' && e.shot) {
     if (e.shot.shotType === 'smash') out.push('smash');
     if (e.side === me && e.shot.quality?.timing === 'PERFECT') out.push('perfect');
+    if (e.side === me && e.shot.quality?.stack?.capped) out.push('spinmax'); // 7단계: 회전 누적이 상한에 닿음
   }
   if (e.type === 'edge') out.push('edge');
   return out;

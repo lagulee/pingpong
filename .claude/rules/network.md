@@ -61,7 +61,7 @@ paths:
 | `resume` | S→C | `{ startAt, firstServer, players, game(경기 상태), opp? }` 재접속한 사람에게 |
 | `ping` / `pong` | C→S / S→C | `{ t0 }` / `{ t0, t1, t2 }` 시계 동기화 |
 | `toss` | C→S, S→C | `{ seq, t, x }` (+ 서버가 붙이는 `side`). `makeToss(x, t)`가 결정론적이라 이것으로 충분 |
-| `serve` / `hit` | C→S, S→C | `{ seq, t, pos, vel, spin, shotType, racket: { x, z } }` (+ `side`). `racket`은 타격 순간 라켓 위치(친 사람 기준 좌표) |
+| `serve` / `hit` | C→S, S→C | `{ seq, t, pos, vel, spin, shotType, racket: { x, z } }` (+ `side`). `racket`은 타격 순간 라켓 위치(친 사람 기준 좌표). `shotType`은 `SHOT_TYPES`(`normal`·`drive`·`cut`·`side`·`smash`·`block`·`mishit`, 7단계) 중 하나 |
 | `reject` | S→C | `{ seq, t, reason }` 보낸 사람에게만. 사유: `time` `turn` `speed` `spin` `far` `pos` `away` `bad` |
 | `correct` | S→C | `{ side, seq, t, pos, vel, spin }` 바운드 직후 서버 기준 공 상태 (`side`·`seq` = 그 공을 친 타격) |
 | `point` | S→C | `{ kind, winner, loser, reason, score, games, rally, t, gameOver, matchOver, nextAt, rules }` (`rules` = 득점 직후 규칙 상태) |
@@ -106,7 +106,7 @@ $$\text{offset} = \frac{(t_1 - t_0) + (t_2 - t_3)}{2}$$
 
 | 검사 | 기준 | 사유 |
 |---|---|---|
-| 형식 | `pos`·`vel`·`spin`·`racket`이 유한한 수 | `bad` |
+| 형식 | `pos`·`vel`·`spin`·`racket`이 유한한 수, `shotType`이 허용 목록(`SHOT_TYPES`) 안 (7단계) | `bad` |
 | 차례 | 보낸 사람이 `canHit`이고, 서브 순간이면 `serve`·아니면 `hit` | `turn` |
 | 시각 | 서버 경기 시각 기준 $-0.6 \le t - t_{now} \le +0.05$ s (`T_PAST`, `T_FUTURE`; v5.0의 0.3에서 늘림), 확정 시각 이후, 그 전에 득점이 나지 않음 | `time` / `turn` |
 | 최대 속도 | $\lvert v \rvert \le 22$ m/s (`MAX_V`) | `speed` |
@@ -115,7 +115,15 @@ $$\text{offset} = \frac{(t_1 - t_0) + (t_2 - t_3)}{2}$$
 | 공 위치 | `pos`와 서버가 계산한 공의 거리 $\le 0.05$ m (`BALL_TOL`) | `pos` |
 
 - 한도 실측(5단계): AI 경기 60판 87,590타 최대 15.15 m/s(스매시)·79.2 rps(드라이브). 사람만 낼 수 있는 실타 `MISHIT_SPEED` 18 m/s × 1.2 → 22 m/s, 회전 79.2 × 1.5 ≈ 120 rps. 테스트가 "한도 ≥ 실측 최댓값 × 1.2"를 확인한다.
+- 7단계 회전 누적: 상한(드라이브 100, 커트·사이드 70 rps)이 있어 AI 경기 30판 4,799타 최대 98.6 rps(드라이브), 14.99 m/s → 한도(120 rps, 22 m/s)는 그대로다. 테스트가 "상한 ≤ MAX_SPIN / 1.2"도 확인한다.
 - 토스: 서브 대기 중 서브권자만, 상대가 끊겨 있으면 `away`. 클라이언트가 보낸 점수는 믿지 않는다.
+
+## 구질 버튼과 결정론 (7단계)
+
+- 구질 판정·회전 누적·판정용 회전은 **친 사람의 클라이언트에서만** 계산한다. 서버는 결과 `vel`·`spin`의 한도와 `shotType` 허용 목록만 검증하고, 되감기는 받은 `vel`·`spin`을 다시 적용할 뿐 다시 판정하지 않는다. 그래서 누적이 결정론·서버 판정과 어긋나지 않는다.
+- 판정용 회전의 출발점 `game.inSpin = { t, spin }`(마지막 타격의 회전)은 `applyHit`가 기록하고, 되감기·재접속용 경기 상태(`matchSnapshot`/`restoreMatch`)에 들어간다. 토스하면 null.
+- 구질 판정 값(`BUTTON_WINDOW`, `SPIN_CARRY`, 구질별 회전·λ·`SPIN_CAP`·`STACK`)은 대전 중 기본값으로 고정된다. 모바일 버튼 크기·위치(`MOB_BTN_*`)는 화면 값이라 바꿀 수 있다.
+- 옛 페이지(다른 `VERSION`)는 입장할 때 `version`으로 거절되므로 v6 클라이언트와 섞이지 않는다.
 
 ## 검증 테스트
 

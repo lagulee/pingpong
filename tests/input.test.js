@@ -1,9 +1,10 @@
 // 2단계 타격 판정 테스트 (.claude/rules/input.md 검증 1~3 + 추가 테스트)
+// 7단계: 구질은 버튼(샘플의 k)이 정한다. 드래그 방향은 구질 판정에 쓰지 않는다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   classifyShot, analyzeDrag, judgeType, gradeTiming, aimErrors, createRng, rayPlaneY,
-  sampleAt, pruneSamples, checkHit, spinLambda, racketLocal,
+  sampleAt, pruneSamples, checkHit, spinLambda, racketLocal, buttonAt, createShotKeys, stackSpin, spinParts,
 } from '../public/js/input.js';
 import {
   createBall, step, predictPath, positionAt, makeLaunch, ballToLocal, toWorld, flightLanding, cloneBall,
@@ -14,8 +15,8 @@ const R = BALL.RADIUS;
 const DT = PHYSICS.DT;
 const RPS = 2 * Math.PI;
 
-// 드래그 샘플: 시각 t1에 (x1, z1)에 도착하는 T초짜리 직선(+옆으로 볼록한 호) 드래그, 120 Hz
-function drag({ ux, uy, x1 = 0, z1 = 0.25, t1 = 1, T = 0.15, curve = 0, b = true, hz = 120 }) {
+// 드래그 샘플: 시각 t1에 (x1, z1)에 도착하는 T초짜리 직선(+옆으로 볼록한 호) 드래그, 120 Hz, 구질 버튼 k
+function drag({ ux, uy, x1 = 0, z1 = 0.25, t1 = 1, T = 0.15, curve = 0, b = true, hz = 120, k = null }) {
   const n = Math.round(T * hz);
   const sp = Math.hypot(ux, uy) || 1;
   const L = Math.hypot(ux, uy) * T;
@@ -24,7 +25,7 @@ function drag({ ux, uy, x1 = 0, z1 = 0.25, t1 = 1, T = 0.15, curve = 0, b = true
     const tau = i / n;
     const back = T * (1 - tau);
     const bump = curve * L * 4 * tau * (1 - tau);
-    out.push({ t: t1 - back, x: x1 - ux * back + (-uy / sp) * bump, y: z1 - uy * back + (ux / sp) * bump, b });
+    out.push({ t: t1 - back, x: x1 - ux * back + (-uy / sp) * bump, y: z1 - uy * back + (ux / sp) * bump, b, k });
   }
   return out;
 }
@@ -50,13 +51,14 @@ function firstEvent(ball, seconds = 2) {
 const out = (ballIn, r) => createBall({ pos: ballIn.pos, vel: r.vel, spin: r.spin, t: ballIn.t });
 const onOppTable = (e) => e && (e.type === 'bounce' || e.type === 'edge') && e.pos.y > 0;
 
-// 대표 드래그 5종 (공 위치에 라켓 중심이 도착)
+// 대표 스윙 6종 (공 위치에 라켓 중심이 도착). 7단계: 버튼(k)이 구질, 스윙은 세기·좌우 조준
 const SAMPLES = {
-  drive: (b) => drag({ ux: 0.1, uy: 1.8, x1: b.pos.x, z1: b.pos.z, t1: b.t }),
-  smash: (b) => drag({ ux: 0, uy: -4.0, x1: b.pos.x, z1: b.pos.z, t1: b.t }), // 빠르게 내려치기 (최고 속도 기준)
-  cut: (b) => drag({ ux: 0, uy: -1.0, x1: b.pos.x, z1: b.pos.z, t1: b.t }),
-  side: (b) => drag({ ux: 1.8, uy: 0.2, x1: b.pos.x, z1: b.pos.z, t1: b.t, curve: 0.25, T: 0.1 }),
+  drive: (b) => drag({ ux: 0.1, uy: 1.8, x1: b.pos.x, z1: b.pos.z, t1: b.t, k: 'drive' }),
+  smash: (b) => drag({ ux: 0, uy: -4.0, x1: b.pos.x, z1: b.pos.z, t1: b.t, k: 'smash' }), // 빠르게 내려치기 (최고 속도 기준)
+  cut: (b) => drag({ ux: 0, uy: -1.0, x1: b.pos.x, z1: b.pos.z, t1: b.t, k: 'cut' }),
+  side: (b) => drag({ ux: 1.8, uy: 0.2, x1: b.pos.x, z1: b.pos.z, t1: b.t, curve: 0.25, T: 0.1, k: 'side' }),
   block: (b) => drag({ ux: 0.02, uy: 0.01, x1: b.pos.x, z1: b.pos.z, t1: b.t }),
+  normal: (b) => drag({ ux: 0.1, uy: 1.8, x1: b.pos.x, z1: b.pos.z, t1: b.t }), // 버튼 없이 휘두르기
 };
 const LOW = () => incoming({ z: 0.25 });
 // 높은 공: v6.0에서 스매시 높이가 네트 + 50 cm(0.65 m)로 올라 0.55 → 0.75 m
@@ -64,13 +66,22 @@ const HIGH = () => incoming({ y: -1.3, z: 0.75, vy: -3 });
 
 // ── input.md 검증 테스트 ─────────────────────────────────────
 
-test('[1] 대표 드래그 샘플 5종이 각각 드라이브·스매시·커트·사이드스핀·블록으로 판정된다', () => {
+// 7단계: 기존 "드래그 방향 5종 → 5구질"은 구질을 버튼이 정하게 되어 "버튼 4종 + 일반 + 블록 → 6구질"로 바꿨다
+test('[1] 구질 버튼 4종 + 버튼 없는 스윙 + 멈춤이 각각 드라이브·스매시·커트·사이드스핀·일반·블록으로 판정된다', () => {
   for (const [type, mk] of Object.entries(SAMPLES)) {
     const b = type === 'smash' ? HIGH() : LOW();
     const r = classifyShot(mk(b), b, { apexT: b.t });
     assert.equal(r.shotType, type, `${type} 샘플 → ${r.shotType}`);
     assert.ok(['vel', 'spin', 'quality'].every((k) => k in r));
   }
+  // 드래그 방향은 구질을 바꾸지 않는다: 위로 쓸어도 커트 버튼이면 커트, 아래로 쓸어도 드라이브 버튼이면 드라이브
+  const b0 = LOW();
+  assert.equal(classifyShot(drag({ ux: 0, uy: 1.8, z1: b0.pos.z, t1: b0.t, k: 'cut' }), b0).shotType, 'cut');
+  assert.equal(classifyShot(drag({ ux: 0, uy: -1.8, z1: b0.pos.z, t1: b0.t, k: 'drive' }), b0).shotType, 'drive');
+  assert.equal(classifyShot(drag({ ux: 1.8, uy: 0, z1: b0.pos.z, t1: b0.t, curve: 0.3 }), b0).shotType, 'normal', '곡선이어도 버튼 없으면 일반');
+  // 일반 스윙은 무회전 (들어온 공도 무회전이면 회전이 0)
+  const n = classifyShot(SAMPLES.normal(b0), b0);
+  assert.ok(Math.hypot(n.spin.x, n.spin.y, n.spin.z) < 1e-9, '일반 스윙 = 무회전');
   // 구질별 결과 특징: 드라이브 탑스핀, 커트 백스핀(+y로 칠 때 탑스핀 축은 −x), 스매시가 가장 빠름
   const b = LOW(), h = HIGH();
   const d = classifyShot(SAMPLES.drive(b), b), c = classifyShot(SAMPLES.cut(b), b), s = classifyShot(SAMPLES.smash(h), h);
@@ -80,11 +91,11 @@ test('[1] 대표 드래그 샘플 5종이 각각 드라이브·스매시·커트
   assert.ok(sp(s) > sp(d) && sp(d) > sp(c), `스매시 ${sp(s)} > 드라이브 ${sp(d)} > 커트 ${sp(c)}`);
 });
 
-test('[2] 낮은 공에 스매시 동작을 하면 스매시로 판정되지 않는다: 실타 설정(LOW_SMASH_MISHIT = 1)이면 네트에 걸린다', () => {
-  const params = { ...TUNABLE, LOW_SMASH_MISHIT: 1 };
-  for (const z of [0.1, 0.2, 0.3]) {
+// 7단계: LOW_SMASH_MISHIT 설정이 없어지고, 낮은 공(노란 고리)에 스매시 버튼을 쓰면 항상 실타(네트)다
+test('[2] 낮은 공에 스매시 버튼을 쓰면 스매시로 판정되지 않고 무조건 네트에 걸린다', () => {
+  for (const z of [0.1, 0.2, 0.3, NET.HEIGHT + TUNABLE.SMASH_MIN_HEIGHT - 0.01]) {
     const b = incoming({ z });
-    const r = classifyShot(SAMPLES.smash(b), b, { apexT: b.t, params });
+    const r = classifyShot(SAMPLES.smash(b), b, { apexT: b.t });
     assert.notEqual(r.shotType, 'smash', `z = ${z}`);
     assert.equal(r.shotType, 'mishit');
     const { event, ball } = firstEvent(out(b, r));
@@ -97,25 +108,29 @@ test('[2] 낮은 공에 스매시 동작을 하면 스매시로 판정되지 않
   assert.equal(classifyShot(SAMPLES.smash(hi), hi).shotType, 'smash');
 });
 
-test('v6.3: 낮은 공(노란 고리)에 빠른 내려치기는 기본값에서 커트 — 센 커트(세기 1)로 상대 코트에 들어간다', () => {
+// 7단계: v6.3의 "낮은 공 빠른 내려치기 = 커트"는 방향 판정이 없어져 "버튼 없이 = 일반 스윙"이 됐다
+test('낮은 공을 버튼 없이 빠르게 내려치면 일반 스윙(실타 아님) — 무회전 공이면 상대 코트에 들어간다', () => {
   for (const z of [0.15, 0.25, 0.35, NET.HEIGHT + TUNABLE.SMASH_MIN_HEIGHT - 0.01]) {
     const b = incoming({ z });
-    const r = classifyShot(SAMPLES.smash(b), b, { apexT: b.t });
-    assert.equal(r.shotType, 'cut', `z = ${z}`);
+    const r = classifyShot(drag({ ux: 0, uy: -4.0, z1: b.pos.z, t1: b.t }), b, { apexT: b.t });
+    assert.equal(r.shotType, 'normal', `z = ${z}`);
     assert.equal(r.quality.strength, 1);
-    assert.ok(r.spin.x > 0, '백스핀');
     const { event } = firstEvent(out(b, r));
     assert.ok(onOppTable(event), `z = ${z}: 첫 충돌 ${event?.type} y=${event?.pos.y.toFixed(2)}`);
-    // 느린 커트와 같은 구질, 더 세다
-    const slow = classifyShot(SAMPLES.cut(b), b, { apexT: b.t });
-    assert.equal(slow.shotType, 'cut');
-    assert.ok(r.quality.strength > slow.quality.strength);
   }
-  // 높은 공(빨간 고리)은 그대로 스매시, 서브의 빠른 내려치기도 그대로 빠른 서브(스매시)
+  // 높은 공(빨간 고리) + 스매시 버튼 = 스매시. 스매시 버튼이어도 스윙이 SMASH_SPEED보다 느리면 일반 스윙
   const hi = incoming({ y: -1.3, z: 0.75, vy: -3 });
   assert.equal(classifyShot(SAMPLES.smash(hi), hi).shotType, 'smash');
+  const slow = classifyShot(drag({ ux: 0, uy: -1.0, z1: hi.pos.z, t1: hi.t, k: 'smash' }), hi);
+  assert.equal(slow.shotType, 'normal');
+  assert.equal(slow.quality.smashSlow, true);
+  // 방향은 상관없다: 위로 세게 휘둘러도 스매시 버튼이면 스매시
+  assert.equal(classifyShot(drag({ ux: 0, uy: 4.0, z1: hi.pos.z, t1: hi.t, k: 'smash' }), hi).shotType, 'smash');
+  // 서브에서는 스매시 버튼을 막는다 (일반 서브)
   const toss = incoming({ z: 0.3, vy: 0, vz: -1 });
-  assert.equal(classifyShot(SAMPLES.smash(toss), toss, { serve: true }).shotType, 'smash');
+  const sv = classifyShot(SAMPLES.smash(toss), toss, { serve: true });
+  assert.equal(sv.shotType, 'normal');
+  assert.equal(sv.quality.smashNoServe, true);
 });
 
 test('[3] 백스핀 공을 블록하면 반사된 공이 네트를 넘지 못한다', () => {
@@ -143,7 +158,7 @@ test('탑스핀 공을 블록하면 백스핀 공을 블록했을 때보다 높�
   assert.ok(spinLambda('block', top) < spinLambda('block', back));
 });
 
-test('무회전 공을 PERFECT로 치면 5구질 모두 상대 코트, 목표 지점 5 cm 이내에 떨어진다', () => {
+test('무회전 공을 PERFECT로 치면 6구질(일반 포함) 모두 상대 코트, 목표 지점 5 cm 이내에 떨어진다', () => {
   for (const [type, mk] of Object.entries(SAMPLES)) {
     const b = type === 'smash' ? HIGH() : LOW();
     const r = classifyShot(mk(b), b, { apexT: b.t, rng: createRng(1) });
@@ -257,8 +272,8 @@ test('80 ms보다 오래된 드래그는 판정에 영향이 없고, 샘플이 �
 
 test('좌우로 반대로 그으면 사이드스핀 부호와 휘는 방향이 반대가 된다', () => {
   const b = LOW();
-  const right = classifyShot(drag({ ux: 1.8, uy: 0.2, curve: 0.25, x1: 0, z1: b.pos.z, t1: b.t, T: 0.1 }), b);
-  const left = classifyShot(drag({ ux: -1.8, uy: 0.2, curve: -0.25, x1: 0, z1: b.pos.z, t1: b.t, T: 0.1 }), b);
+  const right = classifyShot(drag({ ux: 1.8, uy: 0.2, curve: 0.25, x1: 0, z1: b.pos.z, t1: b.t, T: 0.1, k: 'side' }), b);
+  const left = classifyShot(drag({ ux: -1.8, uy: 0.2, curve: -0.25, x1: 0, z1: b.pos.z, t1: b.t, T: 0.1, k: 'side' }), b);
   assert.equal(right.shotType, 'side');
   assert.equal(left.shotType, 'side');
   assert.ok(right.spin.z > 0 && left.spin.z < 0, `${right.spin.z} / ${left.spin.z}`);
@@ -376,7 +391,11 @@ test('TUNABLE: 새 판정·구질·AI 값이 모두 슬라이더 범위와 묶�
   const grouped = Object.values(TUNABLE_GROUPS).flat();
   assert.equal(new Set(grouped).size, grouped.length, '묶음 중복 없음');
   assert.deepEqual([...grouped].sort(), Object.keys(TUNABLE_DEFAULTS).sort());
-  for (const k of ['BLOCK_SPEED', 'SMASH_SPEED', 'CURVE_MIN', 'PERFECT_WINDOW', 'DRIVE_V_MAX', 'AI_NORMAL_DELAY', 'AI_HARD_W_SMASH']) {
+  for (const k of [
+    'BLOCK_SPEED', 'SMASH_SPEED', 'PERFECT_WINDOW', 'DRIVE_V_MAX', 'AI_NORMAL_DELAY', 'AI_HARD_W_SMASH',
+    'BUTTON_WINDOW', 'SPIN_CARRY', 'NORMAL_V_MAX', 'NORMAL_LAMBDA_SIDE', 'CUT_SPIN_CAP', 'DRIVE_STACK', 'SIDE_LAMBDA_SIDE',
+    'AI_NORMAL_READ', 'AI_EASY_W_NORMAL', 'MOB_BTN_SIZE',
+  ]) {
     assert.ok(k in TUNABLE_DEFAULTS && k in TUNABLE_RANGES, k);
   }
   for (const [k, r] of Object.entries(TUNABLE_RANGES)) assert.ok(k in TUNABLE_DEFAULTS, `범위만 있는 키 ${k}`);
@@ -384,7 +403,7 @@ test('TUNABLE: 새 판정·구질·AI 값이 모두 슬라이더 범위와 묶�
 
 // 사람처럼 가속·감속하는 스윙: 공에서 off만큼 떨어져 정지 → 버튼 누르고 dur 동안 dist 이동(사인 곡선).
 // 공은 정점 시각 1.0에 라켓 평면(y = −1.6)을 지나는 등속 수평 비행으로 근사한다.
-function humanSwing({ dir, dist, dur, off, startRel, z = 0.3, vy = -4.5 }) {
+function humanSwing({ dir, dist, dur, off, startRel, z = 0.3, vy = -4.5, k = null }) {
   const apexT = 1.0, yPlane = -1.6;
   const b = createBall({ pos: { x: 0, y: yPlane - vy * 0.6, z }, vel: { x: 0, y: vy, z: 0 }, t: 0.4 });
   const player = { side: -1, yPlane, samples: [] };
@@ -393,7 +412,7 @@ function humanSwing({ dir, dist, dur, off, startRel, z = 0.3, vy = -4.5 }) {
     const t = b.t;
     const f = Math.min(1, Math.max(0, (t - t0) / dur));
     const prog = (1 - Math.cos(Math.PI * f)) / 2;
-    player.samples.push({ t, x: 0, y: z - dir * off + dir * dist * prog, b: t >= t0 });
+    player.samples.push({ t, x: 0, y: z - dir * off + dir * dist * prog, b: t >= t0, k: t >= t0 ? k : null });
     const kind = checkHit(player, b, t, DT);
     if (kind) {
       const r = classifyShot(player.samples, b, { t, apexT, pressed: kind !== 'weak' });
@@ -406,32 +425,32 @@ function humanSwing({ dir, dist, dur, off, startRel, z = 0.3, vy = -4.5 }) {
 }
 
 test('사람형 스윙: 휘두르기 시작한 순간이 아니라 라켓이 공에 닿는 순간 친다', () => {
-  // 공 12 cm 아래에서 위로 35 cm를 0.15 s에 — 시작 시각이 달라도 모두 드라이브, 세기 0.6 이상
+  // 공 12 cm 아래에서 위로 35 cm를 0.15 s에 (드라이브 버튼) — 시작 시각이 달라도 모두 드라이브, 세기 0.6 이상
   for (const startRel of [-0.12, -0.1, -0.07, -0.05]) {
-    const r = humanSwing({ dir: 1, dist: 0.35, dur: 0.15, off: 0.12, startRel });
+    const r = humanSwing({ dir: 1, dist: 0.35, dur: 0.15, off: 0.12, startRel, k: 'drive' });
     assert.equal(r.kind, 'swing');
     assert.equal(r.shotType, 'drive', `시작 ${startRel}`);
     assert.ok(r.quality.strength >= 0.6, `시작 ${startRel}: 세기 ${r.quality.strength}`);
     assert.ok(r.progress > 0.25, '가속이 시작되자마자 치지 않는다');
   }
   // 정점 근처에서 시작하면 PERFECT 범위
-  assert.equal(humanSwing({ dir: 1, dist: 0.35, dur: 0.15, off: 0.12, startRel: -0.07 }).quality.timing, 'PERFECT');
-  // 높은 공을 빠르게 내려치면 스매시, 천천히 내리면 커트 (높은 공 z: v6.0 스매시 높이 0.65 m에 맞춰 0.45 → 0.75)
+  assert.equal(humanSwing({ dir: 1, dist: 0.35, dur: 0.15, off: 0.12, startRel: -0.07, k: 'drive' }).quality.timing, 'PERFECT');
+  // 높은 공을 스매시 버튼으로 빠르게 내려치면 스매시, 커트 버튼으로 천천히 내리면 커트 (높은 공 z: v6.0 스매시 높이 0.65 m에 맞춰 0.75)
   for (const startRel of [-0.1, -0.06, -0.04]) {
-    assert.equal(humanSwing({ dir: -1, dist: 0.3, dur: 0.12, off: 0.1, startRel, z: 0.75 }).shotType, 'smash', `짧은 스매시 시작 ${startRel}`);
-    assert.equal(humanSwing({ dir: -1, dist: 0.4, dur: 0.12, off: 0.12, startRel, z: 0.75 }).shotType, 'smash', `스매시 시작 ${startRel}`);
+    assert.equal(humanSwing({ dir: -1, dist: 0.3, dur: 0.12, off: 0.1, startRel, z: 0.75, k: 'smash' }).shotType, 'smash', `짧은 스매시 시작 ${startRel}`);
+    assert.equal(humanSwing({ dir: -1, dist: 0.4, dur: 0.12, off: 0.12, startRel, z: 0.75, k: 'smash' }).shotType, 'smash', `스매시 시작 ${startRel}`);
   }
   for (const startRel of [-0.12, -0.08]) {
-    assert.equal(humanSwing({ dir: -1, dist: 0.2, dur: 0.2, off: 0.08, startRel }).shotType, 'cut', `커트 시작 ${startRel}`);
+    assert.equal(humanSwing({ dir: -1, dist: 0.2, dur: 0.2, off: 0.08, startRel, k: 'cut' }).shotType, 'cut', `커트 시작 ${startRel}`);
   }
-  // 빠른 커트(25 cm / 0.12~0.15 s)도 낮은 공에서 실타(네트), 높은 공에서 스매시가 되지 않고 커트다
+  // 빠른 커트(25 cm / 0.12~0.15 s)도 커트 버튼이면 낮은 공·높은 공 모두 커트다 (빠르기로 스매시가 되지 않음)
   for (const [dur, z] of [[0.15, 0.2], [0.12, 0.2], [0.15, 0.75], [0.12, 0.75]]) {
     for (const startRel of [-0.08, -0.05]) {
-      const r = humanSwing({ dir: -1, dist: 0.25, dur, off: 0.08, startRel, z });
+      const r = humanSwing({ dir: -1, dist: 0.25, dur, off: 0.08, startRel, z, k: 'cut' });
       assert.equal(r.shotType, 'cut', `빠른 커트 ${dur}s, 공 높이 ${z}, 시작 ${startRel}: ${r.shotType}`);
     }
   }
   // 공이 오기 한참 전에 휘둘러 지나가 버리면 헛스윙 → 버튼을 뗀 뒤 도달 범위 뒤끝에서 약한 블록 (또는 놓침)
-  const whiff = humanSwing({ dir: 1, dist: 0.35, dur: 0.15, off: 0.12, startRel: -0.4 });
+  const whiff = humanSwing({ dir: 1, dist: 0.35, dur: 0.15, off: 0.12, startRel: -0.4, k: 'drive' });
   assert.ok(!whiff || whiff.shotType === 'block' || whiff.kind !== 'swing');
 });

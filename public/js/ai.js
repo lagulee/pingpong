@@ -4,18 +4,28 @@
 // 이 파일은 'three'·DOM을 쓰지 않는다 (Node의 자동 랠리 테스트가 그대로 불러 쓴다).
 import {
   step, predictPath, positionAt, solveAim, ballToLocal, ballToWorld, toWorld, toLocal, createBall, vec,
-  tossTimeAt, makeLaunch, serveLanding, simTime,
+  tossTimeAt, makeLaunch, serveLanding, simTime, carriedSpin,
 } from '../shared/physics.js';
 import { NET, TABLE, PHYSICS, SWING, PRACTICE, SERVE, RULES, SCENARIO, TUNABLE, SERVE_GUIDE } from '../shared/constants.js';
 import { applyEvent, canHit, startRally, toServe } from '../shared/rules.js';
 import {
   createMatch, holdBall, startToss, applyHit, stepBall, stepGame, isServeHit, isEarly,
 } from '../shared/match.js';
-import { classifyShot, checkHit, racketLocal, pruneSamples } from './input.js';
+import { classifyShot, checkHit, racketLocal, pruneSamples, spinParts } from './input.js';
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const DEG = Math.PI / 180;
-const SHOTS = ['DRIVE', 'BLOCK', 'CUT', 'SIDE', 'SMASH'];
+const SHOTS = ['DRIVE', 'BLOCK', 'CUT', 'SIDE', 'SMASH', 'NORMAL'];
+// 로봇 구질 → 누르는 구질 버튼 (7단계. 일반은 버튼 없음).
+// 블록은 드라이브 버튼을 누른 채 멈춘다: 라켓이 제자리에 늦게 도착해 아직 움직이는 중에 공이 닿으면 스윙으로 판정되는데,
+// 그때 버튼이 없으면 일반 스윙(회전을 그대로 받음)이 되어 탑스핀 공 블록이 거의 다 아웃됐다 (블록은 탑스핀 공에만 고른다)
+const SHOT_KEY = { DRIVE: 'drive', CUT: 'cut', SIDE: 'side', SMASH: 'smash', BLOCK: 'drive' };
+// 들어온 회전 종류별 "맞는 대응" (7단계): 그 밖의 구질(일반 포함)은 잘못 읽은 대응이다
+const CORRECT = {
+  top: ['DRIVE', 'CUT', 'BLOCK', 'SMASH'],
+  back: ['DRIVE', 'CUT', 'SMASH'],
+  side: ['SIDE', 'SMASH'],
+};
 
 // ── 플레이어 (사람·로봇 공통 상태) ────────────────────────────
 export function createPlayer(side) {
@@ -55,6 +65,8 @@ export function createAI(side, difficulty, rng) {
     thinkAt: null,           // 이 시각에 궤적을 예측하고 계획을 세운다
     plan: null,
     lastPlanType: null,      // 마지막으로 고른 구질 (표시·테스트용)
+    lastRead: null,          // 마지막으로 읽은 회전 { kind, level, wrong } (테스트·측정용)
+    inSpin: null,            // 상대 타격의 회전 { t, spin } (판정용 회전의 출발점)
     lastSampleT: -Infinity,
   };
 }
@@ -62,22 +74,51 @@ export function createAI(side, difficulty, rng) {
 const diffParam = (ai, key, params) => params[`AI_${ai.difficulty}_${key}`];
 const uniform = (rng, a, b) => a + (b - a) * rng();
 
-// 상대가 쳤다: 반응 지연 뒤에 생각한다
-export function aiOnIncoming(ai, t, params = TUNABLE) {
+// 상대가 쳤다: 반응 지연 뒤에 생각한다. inSpin: 상대 타격의 회전 { t, spin }
+export function aiOnIncoming(ai, t, params = TUNABLE, inSpin = null) {
   ai.thinkAt = t + diffParam(ai, 'DELAY', params);
   ai.plan = null;
+  ai.inSpin = inSpin;
 }
 
-function pickShot(ai, params, allowed) {
-  const w = SHOTS.map((s) => (allowed[s] ? Math.max(0, diffParam(ai, `W_${s}`, params)) : 0));
+// 들어온 회전 읽기 (7단계). ball: 기준 좌표 공(spin = 판정용 회전). 반환 { kind: 'none'|'top'|'back'|'side', level(0~1) }
+export function readSpin(ball, params = TUNABLE) {
+  const { top, side } = spinParts(ball);
+  if (Math.max(Math.abs(top), Math.abs(side)) < SWING.AI_READ_MIN) return { kind: 'none', level: 0 };
+  if (Math.abs(side) >= Math.abs(top)) return { kind: 'side', level: clamp(Math.abs(side) / params.SIDE_SPIN_CAP, 0, 1) };
+  return top > 0 ? { kind: 'top', level: clamp(top / params.DRIVE_SPIN_CAP, 0, 1) }
+    : { kind: 'back', level: clamp(-top / params.CUT_SPIN_CAP, 0, 1) };
+}
+
+// 비율대로 하나 고른다 (모두 0이면 목록에서 고르게)
+function pickWeighted(ai, params, list) {
+  if (!list.length) return 'DRIVE';
+  const w = list.map((s) => Math.max(0, diffParam(ai, `W_${s}`, params)));
   const total = w.reduce((a, b) => a + b, 0);
-  if (total <= 0) return 'DRIVE';
+  if (total <= 0) return list[Math.min(list.length - 1, Math.floor(ai.rng() * list.length))];
   let r = ai.rng() * total;
-  for (let i = 0; i < SHOTS.length; i++) {
+  for (let i = 0; i < list.length; i++) {
     r -= w[i];
-    if (r < 0) return SHOTS[i];
+    if (r < 0) return list[i];
   }
-  return 'DRIVE';
+  return list[list.length - 1];
+}
+
+// 회전을 잘못 읽을 확률 (7단계): (1 − READ)·(0.5 + 0.5·세기). 쉬울수록, 회전이 셀수록 크다
+export const misreadChance = (difficulty, level, params = TUNABLE) =>
+  (1 - params[`AI_${difficulty}_READ`]) * (0.5 + 0.5 * clamp(level, 0, 1));
+
+// 구질 고르기: read(들어온 회전)가 있으면 맞는 대응 중에서 고르되,
+// (1 − READ)·(0.5 + 0.5·세기) 확률로 잘못 읽어 맞지 않는 구질(일반 포함)을 고른다 (쉬움일수록, 회전이 셀수록 자주)
+function pickShot(ai, params, allowed, read = null) {
+  const ok = SHOTS.filter((s) => allowed[s]);
+  if (!read || read.kind === 'none') { ai.lastRead = read && { ...read, wrong: false }; return pickWeighted(ai, params, ok); }
+  const right = ok.filter((s) => CORRECT[read.kind].includes(s));
+  const wrongs = ok.filter((s) => !CORRECT[read.kind].includes(s));
+  const pWrong = misreadChance(ai.difficulty, read.level, params);
+  const wrong = wrongs.length > 0 && (right.length === 0 || ai.rng() < pWrong);
+  ai.lastRead = { ...read, wrong };
+  return wrong ? wrongs[Math.min(wrongs.length - 1, Math.floor(ai.rng() * wrongs.length))] : pickWeighted(ai, params, right);
 }
 
 // 궤적 예측 → 구질·세기·타격 시각 결정 → 가상 드래그 경로 계획
@@ -99,11 +140,15 @@ function think(ai, ball, t, params) {
   const inSpeed = Math.hypot(apexLocal.vel.x, apexLocal.vel.y);
 
   const allowed = {
-    DRIVE: true, CUT: true, SIDE: true,
+    DRIVE: true, CUT: true, SIDE: true, NORMAL: true,
     BLOCK: inSpeed >= 4,                                     // 느린 공은 블록으로 넘기기 어렵다
-    SMASH: pc.z >= NET.HEIGHT + params.SMASH_MIN_HEIGHT + 0.03, // 높은 공만
+    // 높은 공만. 라켓 높이 한계(Z_MAX)에 닿는 너무 높은 공은 휘두를 자리가 없어 스매시하지 않는다
+    SMASH: pc.z >= NET.HEIGHT + params.SMASH_MIN_HEIGHT + 0.03 && pc.z <= SWING.Z_MAX - 0.05,
   };
-  const type = pickShot(ai, params, allowed);
+  // 들어온 회전 읽기 (타격 예정 시각의 판정용 회전)
+  const w = carriedSpin(ai.inSpin, tc, params);
+  const read = w ? readSpin(ballToLocal({ pos: pred.apex.pos, vel: pred.apex.vel, spin: w, t: 0 }, p.side), params) : null;
+  const type = pickShot(ai, params, allowed, read);
   const yPlane = type === 'BLOCK' ? pc.y : pc.y - SWING.AI_PLANE_BACK;
   planSwing(ai, type, pc, tc, t, yPlane, params);
 }
@@ -129,17 +174,19 @@ function planSwing(ai, type, pc, tc, t, yPlane, params) {
   } else {
     ux = clamp(ux, -0.6, 0.6);
     const vy = Math.sqrt(1 - ux * ux);
-    dir = { x: ux, y: type === 'DRIVE' ? vy : type === 'BLOCK' ? 0 : -vy };
+    // 방향은 판정에 쓰지 않는다 (7단계 버튼 구질). 모양만 사람처럼: 드라이브·일반은 위로, 커트·스매시는 아래로
+    dir = { x: ux, y: type === 'DRIVE' || type === 'NORMAL' ? vy : type === 'BLOCK' ? 0 : -vy };
   }
-  if (type === 'CUT') speed = Math.min(speed, params.SMASH_SPEED * 0.9);
   if (type === 'SMASH') speed = Math.max(speed, params.SMASH_SPEED * 1.1);
+  // 스매시는 방향과 상관없으므로(7단계), 내려치기 시작점이 라켓 높이 한계 위면 아래에서 올려 친다
+  if (type === 'SMASH' && pc.z - dir.y * speed * SWING.AI_SWING_TIME > SWING.Z_MAX) dir = { x: dir.x, y: -dir.y };
   if (type === 'BLOCK') speed = 0;
 
   const T = SWING.AI_SWING_TIME;
   const u = { x: dir.x * speed, y: dir.y * speed };
   const start = type === 'BLOCK' ? { x: pc.x, z: pc.z } : { x: pc.x - u.x * T, z: pc.z - u.y * T };
   ai.plan = {
-    type, tc, pc, u, curve, start,
+    type, key: SHOT_KEY[type] ?? null, tc, pc, u, curve, start,
     swingStart: Math.max(t, tc - T),
     pressAt: type === 'BLOCK' ? tc - SWING.AI_BLOCK_LEAD : tc - PHYSICS.DT,
     releaseAt: tc + SWING.AI_FOLLOW_TIME,
@@ -163,7 +210,7 @@ export function aiPlanServe(ai, ball, t, params = TUNABLE) {
   p.apexT = tHit;
   p.apexPos = null;
   ai.thinkAt = null;
-  const type = pickShot(ai, params, { DRIVE: true, CUT: true, SIDE: true, BLOCK: false, SMASH: false });
+  const type = pickShot(ai, params, { DRIVE: true, CUT: true, SIDE: true, NORMAL: true, BLOCK: false, SMASH: false });
   planSwing(ai, type, pc, tc, t, pc.y, params);
 }
 
@@ -218,9 +265,11 @@ export function aiUpdate(ai, ball, t, dt, params = TUNABLE) {
   // 가상 마우스 샘플 (사람 마우스처럼 일정 간격, 버튼 상태가 바뀌면 바로 기록)
   const samples = ai.player.samples;
   const last = samples[samples.length - 1];
-  if (!last || t - ai.lastSampleT >= SWING.AI_SAMPLE_DT - 1e-9 || last.b !== pressed) {
+  // 구질 버튼은 스윙을 시작할 때 누르고 계획이 끝나면 뗀다
+  const key = plan && !plan.skip && t >= plan.swingStart ? plan.key : null;
+  if (!last || t - ai.lastSampleT >= SWING.AI_SAMPLE_DT - 1e-9 || last.b !== pressed || (last.k ?? null) !== key) {
     const j = () => (ai.rng() * 2 - 1) * jitter;
-    samples.push({ t, x: ai.pos.x + j(), y: ai.pos.z + j(), b: pressed });
+    samples.push({ t, x: ai.pos.x + j(), y: ai.pos.z + j(), b: pressed, k: key });
     ai.lastSampleT = t;
     pruneSamples(samples, t);
   }
@@ -323,9 +372,11 @@ export function endFree(game, t, params = TUNABLE) {
   holdServe(game, t, params);
 }
 
+// 상대가 친(보낸) 직후: 받는 쪽 정점 예측, 로봇 반응. 지금 공의 회전을 판정용 회전의 출발점으로 기록한다(7단계)
 export function incoming(game, side, t, params = TUNABLE) {
+  game.inSpin = { t: game.ball.t, spin: vec(game.ball.spin.x, game.ball.spin.y, game.ball.spin.z) };
   predictFor(game.players[side], game.ball, params);
-  for (const ai of game.ais) if (ai.player.side === side) aiOnIncoming(ai, t, params);
+  for (const ai of game.ais) if (ai.player.side === side) aiOnIncoming(ai, t, params, game.inSpin);
 }
 
 // 로봇 갱신 → 타격 판정(이 컴퓨터가 맡은 쪽만) → applyHit. 만든 racket 이벤트에는 shot 판정 결과가 붙는다.
@@ -346,6 +397,7 @@ function hitPhase(game, t, dt, events, params) {
     if (isEarly(rules, side) && (kind === 'weak' || p.robot)) continue;
     const shot = classifyShot(p.samples, ball, {
       t, side, apexT: p.apexT, rng: game.rng, params, pressed: kind !== 'weak', serve: serveHit, dragScale: p.dragScale ?? 1,
+      spinIn: carriedSpin(game.inSpin, t, params) ?? undefined,
     });
     p.lastShot = shot;
     game.lastShot = { side, ...shot };
@@ -491,9 +543,10 @@ function runScenario(game, kind, t, params) {
 
 // ── 서브 가이드라인 ─────────────────────────────────────────
 // side가 기준 좌표 x에서 토스해 타점 높이(SERVE.HIT_Z)에서 PERFECT 타이밍으로 위로 휘두른
-// 보통 세기(SERVE_GUIDE.STRENGTH) 드라이브 서브의 예상 궤적. 실제 서브와 같은 classifyShot 경로를 쓴다.
+// 보통 세기(SERVE_GUIDE.STRENGTH) 서브의 예상 궤적. button: 지금 누른 구질 버튼(7단계, 없으면 무회전 서브).
+// 실제 서브와 같은 classifyShot 경로를 쓴다.
 // 반환: { hit, points, bounces } (모두 세계 좌표. bounces = [내 코트 첫 바운드, 상대 코트 착지]) 또는 null
-export function serveGuide(side, x, params = TUNABLE) {
+export function serveGuide(side, x, params = TUNABLE, button = null) {
   const cx = clamp(x, -SERVE.TOSS_X_MAX, SERVE.TOSS_X_MAX);
   const hit = vec(cx, SERVE.TOSS_Y, SERVE.HIT_Z);
   const speed = params.BLOCK_SPEED + SERVE_GUIDE.STRENGTH * (params.SPEED_FULL - params.BLOCK_SPEED);
@@ -504,7 +557,7 @@ export function serveGuide(side, x, params = TUNABLE) {
     samples.push({ t: tau - T, x: cx, y: hit.z - speed * (T - tau), b: true }); // 아래 → 위 일정 속도
   }
   const ball = ballToWorld(createBall({ pos: hit, vel: vec(0, 0, -1), t: 0 }), side);
-  const shot = classifyShot(samples, ball, { t: 0, side, apexT: 0, params, serve: true, rng: () => 0.5 });
+  const shot = classifyShot(samples, ball, { t: 0, side, apexT: 0, params, serve: true, rng: () => 0.5, button });
   const b = createBall({ pos: ball.pos, vel: shot.vel, spin: shot.spin, t: 0 });
   const points = [{ ...b.pos }], bounces = [];
   const n = Math.round(SERVE_GUIDE.MAX_T / PHYSICS.DT);

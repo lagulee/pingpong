@@ -1,4 +1,4 @@
-// touch.js — 터치(손가락)를 마우스와 같은 라켓 샘플 { t, x, y, b }로 바꾸는 층 (6단계 모바일).
+// touch.js — 터치(손가락)를 마우스와 같은 라켓 샘플 { t, x, y, b, k }로 바꾸는 층 (6단계 모바일).
 // DOM 없이 테스트할 수 있는 순수 함수다. classifyShot·checkHit은 그대로 쓰고, 이 파일은 샘플만 만든다.
 //
 // 규칙 (.claude/rules/input.md "터치 조작"):
@@ -25,7 +25,7 @@ export const touchSpeedScale = (viewHeight, params = TUNABLE) => params.TOUCH_SP
 
 // samples: 라켓 샘플 배열 (마우스와 같은 배열을 함께 쓴다)
 // opts.toPlane(clientX, clientY) → { x, z } | null : 화면 좌표 → 라켓 평면 (오프셋은 여기서 빼서 넘긴다)
-// opts.params: 튜닝 값 (기본 TUNABLE)
+// opts.params: 튜닝 값 (기본 TUNABLE), opts.button() → 지금 누른 구질 버튼 (7단계 화면 버튼, 샘플의 k)
 export function createTouchTracker(samples, opts) {
   const params = () => opts.params ?? TUNABLE;
   let id = null;                          // 추적 중인 손가락 (pointerId)
@@ -37,7 +37,7 @@ export function createTouchTracker(samples, opts) {
   }
   function push(t, b) {
     const prev = samples[samples.length - 1];
-    const s = { t: prev && t < prev.t ? prev.t : t, x: last.x, y: last.z, b };
+    const s = { t: prev && t < prev.t ? prev.t : t, x: last.x, y: last.z, b, k: opts.button?.() ?? null };
     samples.push(s);
     pruneSamples(samples, s.t);
   }
@@ -66,6 +66,11 @@ export function createTouchTracker(samples, opts) {
       id = null;
       push(t + params().TOUCH_LIFT_HOLD, false);
       return true;
+    },
+    // 구질 버튼을 누르거나 뗐을 때 지금 상태를 바로 남긴다 (7단계)
+    mark(t) {
+      const prev = samples[samples.length - 1];
+      push(Math.max(t, prev?.t ?? t), id !== null);
     },
     // 프레임마다: 손가락이 멈춰 있어도 현재 위치를 남긴다 (라켓 평면 y가 바뀌었을 때 반영)
     refresh(t) {

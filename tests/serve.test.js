@@ -38,17 +38,18 @@ function humanServe({ vz, dtOff = 0, dz = 0, x = 0, seed = 1 }) {
 
 const guideSwing = () => TUNABLE.BLOCK_SPEED + SERVE_GUIDE.STRENGTH * (TUNABLE.SPEED_FULL - TUNABLE.BLOCK_SPEED);
 
-test('서브 가이드라인: 양쪽 모두, 토스 위치 어디서나 내 코트 → 상대 코트로 들어가는 궤적', () => {
-  for (const side of [-1, 1]) {
+// 7단계: 가이드는 지금 누른 구질 버튼의 서브를 그린다 (버튼 없음 = 무회전 서브). 버튼 4가지 모두 확인한다.
+test('서브 가이드라인: 양쪽 모두, 토스 위치 어디서나, 구질 버튼마다 내 코트 → 상대 코트로 들어가는 궤적', () => {
+  for (const side of [-1, 1]) for (const button of [null, 'drive', 'cut', 'side']) {
     for (const x of [-SERVE.TOSS_X_MAX, -0.3, 0, 0.3, SERVE.TOSS_X_MAX]) {
-      const g = serveGuide(side, x);
-      assert.ok(g, `side ${side}, x ${x}: 가이드 있음`);
+      const g = serveGuide(side, x, TUNABLE, button);
+      assert.ok(g, `side ${side}, x ${x}, ${button}: 가이드 있음`);
       assert.equal(g.bounces.length, 2);
       assert.ok(toLocal(g.bounces[0], side).y < 0, '첫 바운드는 내 코트');
       assert.ok(toLocal(g.bounces[1], side).y > 0, '두 번째는 상대 코트');
       assert.ok(Math.abs(g.hit.z - SERVE.HIT_Z) < 1e-9, '타점은 고리 높이');
       assert.ok(g.points.length > 10, '점선 점');
-      assert.equal(g.shotType, 'drive');
+      assert.equal(g.shotType, button ?? 'normal');
     }
   }
 });

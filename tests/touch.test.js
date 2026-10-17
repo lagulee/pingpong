@@ -38,9 +38,10 @@ function screenFor({ W, H }, planeY = PLANE_Y, params = TUNABLE) {
 
 // 손가락 스와이프: 라켓이 (x, z)에 도착하도록 (dx, dy) px를 T초 동안 쓴다 (curve: 현 길이 대비 옆으로 볼록한 정도).
 // 반환 { samples, t(도착 시각) }
-function swipe(scr, { x, z, dx, dy, T, curve = 0, t0 = 1, lift = false }) {
+// button: 왼손으로 누르고 있는 구질 버튼 (7단계)
+function swipe(scr, { x, z, dx, dy, T, curve = 0, t0 = 1, lift = false, button = null }) {
   const samples = [];
-  const tr = createTouchTracker(samples, { toPlane: scr.toPlane });
+  const tr = createTouchTracker(samples, { toPlane: scr.toPlane, button: () => button });
   const end = scr.fingerFor(x, z);
   const L = Math.hypot(dx, dy) || 1;
   const n = Math.max(2, Math.round(T * HZ));
@@ -73,17 +74,19 @@ function judge(scr, sw, x, z) {
   return classifyShot(sw.samples, ball, { apexT: sw.t, dragScale: scr.dragScale, pressed: last.b });
 }
 
-// ── 대표 스와이프 5종 ─────────────────────────────────────
+// ── 대표 스와이프 6종 (7단계: 구질은 왼손 버튼, 스와이프는 세기·좌우 조준) ─────────
 // 속도는 화면 높이로 CSS px 기준에 맞춘다: 1 px/ms ≈ 1.3 m/s (TOUCH_SPEED_GAIN 0.7)
 const SWIPES = {
-  drive: { z: 0.3, dx: 15, dy: -120, T: 0.06 },            // 위로 2 px/ms
-  smash: { z: 0.8, dx: 0, dy: 150, T: 0.04 },              // 아래로 3.75 px/ms, 높은 공
-  cut: { z: 0.3, dx: 0, dy: 80, T: 0.1 },                  // 아래로 0.8 px/ms
-  side: { z: 0.3, dx: 120, dy: -10, T: 0.06, curve: 0.25 }, // 옆으로 휘어 쓸기
-  block: { z: 0.3, dx: 1, dy: 1, T: 0.15 },                // 대고 거의 멈춤
+  drive: { z: 0.3, dx: 15, dy: -120, T: 0.06, button: 'drive' },            // 위로 2 px/ms
+  smash: { z: 0.8, dx: 0, dy: 150, T: 0.04, button: 'smash' },              // 아래로 3.75 px/ms, 높은 공
+  cut: { z: 0.3, dx: 0, dy: 80, T: 0.1, button: 'cut' },                    // 아래로 0.8 px/ms
+  side: { z: 0.3, dx: 120, dy: -10, T: 0.06, curve: 0.25, button: 'side' }, // 옆으로 쓸기
+  block: { z: 0.3, dx: 1, dy: 1, T: 0.15, button: 'drive' },                // 대고 거의 멈춤 (버튼을 눌러도 블록)
+  normal: { z: 0.3, dx: 15, dy: -120, T: 0.06 },                           // 버튼 없이 쓸기 = 일반 스윙
 };
 
-test('터치: 가로 휴대폰에서 대표 스와이프 5종이 드라이브·스매시·커트·사이드스핀·블록으로 판정된다', () => {
+// 7단계: 기존 "스와이프 방향 5종 → 5구질"은 구질을 버튼이 정하게 되어 "버튼 + 스와이프 → 6구질"로 바꿨다
+test('터치: 가로 휴대폰에서 왼손 버튼 + 오른손 스와이프가 드라이브·스매시·커트·사이드스핀·블록·일반으로 판정된다', () => {
   const scr = screenFor(PHONE);
   for (const [type, s] of Object.entries(SWIPES)) {
     const sw = swipe(scr, { x: 0.1, ...s });
@@ -139,7 +142,7 @@ test('터치: 라켓은 손가락보다 TOUCH_OFFSET_PX 위에 있다', () => {
 
 test('터치: 손가락을 떼도 TOUCH_LIFT_HOLD 동안은 누름, 그 뒤에는 버튼 없음(약한 블록)', () => {
   const scr = screenFor(PHONE);
-  const sw = swipe(scr, { x: 0, ...SWIPES.drive, lift: true });
+  const sw = swipe(scr, { x: 0, ...SWIPES.drive, lift: true }); // 드라이브 버튼을 누른 채 튕기듯 쓸기
   const hold = TUNABLE.TOUCH_LIFT_HOLD;
   assert.equal(racketPointAt(sw.samples, sw.t + hold * 0.5).b, true);
   assert.equal(racketPointAt(sw.samples, sw.t + hold + 1e-6).b, false);
