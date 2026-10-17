@@ -80,10 +80,11 @@ test('[1] 대표 드래그 샘플 5종이 각각 드라이브·스매시·커트
   assert.ok(sp(s) > sp(d) && sp(d) > sp(c), `스매시 ${sp(s)} > 드라이브 ${sp(d)} > 커트 ${sp(c)}`);
 });
 
-test('[2] 낮은 공에 스매시 동작을 하면 스매시로 판정되지 않고 네트에 걸린다', () => {
+test('[2] 낮은 공에 스매시 동작을 하면 스매시로 판정되지 않는다: 실타 설정(LOW_SMASH_MISHIT = 1)이면 네트에 걸린다', () => {
+  const params = { ...TUNABLE, LOW_SMASH_MISHIT: 1 };
   for (const z of [0.1, 0.2, 0.3]) {
     const b = incoming({ z });
-    const r = classifyShot(SAMPLES.smash(b), b, { apexT: b.t });
+    const r = classifyShot(SAMPLES.smash(b), b, { apexT: b.t, params });
     assert.notEqual(r.shotType, 'smash', `z = ${z}`);
     assert.equal(r.shotType, 'mishit');
     const { event, ball } = firstEvent(out(b, r));
@@ -94,6 +95,27 @@ test('[2] 낮은 공에 스매시 동작을 하면 스매시로 판정되지 않
   // 경계: 네트 + SMASH_MIN_HEIGHT 이상이면 스매시
   const hi = incoming({ z: NET.HEIGHT + TUNABLE.SMASH_MIN_HEIGHT + 0.01 });
   assert.equal(classifyShot(SAMPLES.smash(hi), hi).shotType, 'smash');
+});
+
+test('v6.3: 낮은 공(노란 고리)에 빠른 내려치기는 기본값에서 커트 — 센 커트(세기 1)로 상대 코트에 들어간다', () => {
+  for (const z of [0.15, 0.25, 0.35, NET.HEIGHT + TUNABLE.SMASH_MIN_HEIGHT - 0.01]) {
+    const b = incoming({ z });
+    const r = classifyShot(SAMPLES.smash(b), b, { apexT: b.t });
+    assert.equal(r.shotType, 'cut', `z = ${z}`);
+    assert.equal(r.quality.strength, 1);
+    assert.ok(r.spin.x > 0, '백스핀');
+    const { event } = firstEvent(out(b, r));
+    assert.ok(onOppTable(event), `z = ${z}: 첫 충돌 ${event?.type} y=${event?.pos.y.toFixed(2)}`);
+    // 느린 커트와 같은 구질, 더 세다
+    const slow = classifyShot(SAMPLES.cut(b), b, { apexT: b.t });
+    assert.equal(slow.shotType, 'cut');
+    assert.ok(r.quality.strength > slow.quality.strength);
+  }
+  // 높은 공(빨간 고리)은 그대로 스매시, 서브의 빠른 내려치기도 그대로 빠른 서브(스매시)
+  const hi = incoming({ y: -1.3, z: 0.75, vy: -3 });
+  assert.equal(classifyShot(SAMPLES.smash(hi), hi).shotType, 'smash');
+  const toss = incoming({ z: 0.3, vy: 0, vz: -1 });
+  assert.equal(classifyShot(SAMPLES.smash(toss), toss, { serve: true }).shotType, 'smash');
 });
 
 test('[3] 백스핀 공을 블록하면 반사된 공이 네트를 넘지 못한다', () => {

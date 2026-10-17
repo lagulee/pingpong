@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v6.2';
+export const VERSION = 'v6.3';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -105,6 +105,9 @@ const JUDGE_TUNABLE = {
   WEAK_PITCH: 0,             // 버튼 없이 맞은 약한 블록의 면 기울기 (°, + 위로 열림)
   MISHIT_SPEED: 18,          // 낮은 공 스매시(실타) 속도 (m/s)
   MISHIT_AIM_Z: 0.06,        // 실타가 향하는 네트 위치 높이 (m)
+  // 낮은 공(노란 고리, 스매시 높이 미만)을 빠르게 내려치면: 0 = 커트 (v6.3 기본), 1 = 실타(네트 아랫부분으로 꽂힘, v6.2까지).
+  // 사용자 피드백: 커트와 스매시 동작(아래로 쓸기)이 속도만 달라 구분이 어렵고 MISHIT이 너무 많이 뜸.
+  LOW_SMASH_MISHIT: 0,
 };
 
 // 구질별 결과: 속도 V·회전은 세기 s로 최소→최대 보간. DEPTH는 네트에서 상대 쪽 목표 거리(m),
@@ -294,6 +297,7 @@ export const TUNABLE_RANGES = Object.freeze({
   WEAK_PITCH: r(-45, 45, 1),
   MISHIT_SPEED: r(0, 30, 0.5),
   MISHIT_AIM_Z: r(0, 0.15, 0.005),
+  LOW_SMASH_MISHIT: r(0, 1, 1),
   ...shotRanges('DRIVE', 30),
   ...shotRanges('SMASH', 35),
   ...shotRanges('CUT', 20),

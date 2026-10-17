@@ -48,6 +48,7 @@ const TUNABLE_LABELS = {
   WEAK_PITCH: '약한 블록 면 각도 (°)',
   MISHIT_SPEED: '실타 속도 (m/s)',
   MISHIT_AIM_Z: '실타 네트 높이 (m)',
+  LOW_SMASH_MISHIT: '낮은 공 빠른 내려치기: 0 커트 · 1 실타',
   SERVE_V_MIN: '서브 · 속도 최소 (m/s)',
   SERVE_V_MAX: '서브 · 속도 최대 (m/s)',
   SERVE_DEPTH: '서브 · 목표 깊이 (m)',

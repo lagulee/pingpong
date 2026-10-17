@@ -264,6 +264,8 @@ export function classifyShot(samples, ballState, ctx = {}) {
   const serve = !!ctx.serve;
   let shotType = judgeType(drag, b.pos.z, params, pressed);
   if (serve && shotType === 'mishit') shotType = 'smash'; // 토스한 공 내려치기는 빠른 서브로 본다
+  // 랠리에서 낮은 공(스매시 높이 미만, 노란 고리)을 빠르게 내려치면 커트 (6단계 수정). LOW_SMASH_MISHIT = 1이면 예전처럼 실타
+  else if (shotType === 'mishit' && !(params.LOW_SMASH_MISHIT >= 0.5)) shotType = 'cut';
   const dtApex = ctx.apexT == null ? Infinity : t - ctx.apexT;
   const { timing, accuracy } = gradeTiming(dtApex, params);
   const strength = clamp((drag.speed - params.BLOCK_SPEED) / (params.SPEED_FULL - params.BLOCK_SPEED), 0, 1);
