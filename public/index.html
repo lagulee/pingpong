@@ -97,7 +97,7 @@
     #lobby-status { color: #c9d3e0; min-height: 22px; }
     /* 대전: 핑 (오른쪽 위), 연결 안내, 나가기 */
     #ping {
-      position: fixed; top: 12px; right: 16px; padding: 4px 10px; border-radius: 8px; background: rgba(10, 14, 22, 0.6);
+      position: fixed; top: 12px; right: 56px; padding: 4px 10px; border-radius: 8px; background: rgba(10, 14, 22, 0.6);
       font: 700 14px/1.2 ui-monospace, monospace; pointer-events: none;
     }
     #ping[hidden] { display: none; }
@@ -113,7 +113,38 @@
     #center.center-corrected { color: #ffd84d; }
     #leave-btn { position: fixed; top: 44px; right: 16px; z-index: 10; }
     #leave-btn[hidden] { display: none; }
-    body:has(#debug:not(.collapsed)) #ping, body:has(#debug:not(.collapsed)) #leave-btn { right: 316px; }
+    body:has(#debug:not(.collapsed)) #ping { right: 356px; }
+    body:has(#debug:not(.collapsed)) #leave-btn, body:has(#debug:not(.collapsed)) #settings-btn,
+    body:has(#debug:not(.collapsed)) #settings { right: 316px; }
+    body:not(.mobile) #debug.collapsed { top: 46px; } /* 접힌 디버그 버튼이 설정 ⚙과 겹치지 않게 */
+    /* 설정 (7단계 수정): 오른쪽 위 작은 톱니 버튼과 그 아래 패널 */
+    #settings-btn {
+      position: fixed; top: 8px; right: 12px; z-index: 31; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 8px;
+      background: rgba(10, 14, 22, 0.55); color: #e8eef7; font: 20px/34px system-ui, sans-serif; cursor: pointer; text-align: center;
+    }
+    #settings-btn:hover, #settings-btn.on { background: rgba(40, 52, 80, 0.9); }
+    #settings {
+      position: fixed; top: 48px; right: 12px; z-index: 31; width: 270px; max-height: calc(100vh - 60px); overflow-y: auto;
+      box-sizing: border-box; padding: 10px 14px 12px; border-radius: 12px; background: rgba(18, 24, 36, 0.96);
+      color: #e8eef7; font: 500 14px/1.45 system-ui, sans-serif; box-shadow: 0 8px 30px #000a;
+    }
+    #settings[hidden] { display: none; }
+    #settings .set-head { display: flex; justify-content: space-between; align-items: center; font: 800 16px/1.2 system-ui, sans-serif; }
+    #settings .set-head button { border: 0; background: none; color: #9fb0c8; font-size: 18px; cursor: pointer; padding: 2px 4px; }
+    #settings .set-sec { margin: 12px 0 4px; color: #9fc3ff; font: 700 12px/1.2 system-ui, sans-serif; letter-spacing: 0.04em; }
+    #settings .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    #settings .seg button {
+      padding: 8px 4px; border: 2px solid #33446a; border-radius: 8px; background: #1b2436; color: #c9d3e0;
+      font: 700 14px/1.2 system-ui, sans-serif; cursor: pointer;
+    }
+    #settings .seg button small { display: block; font-weight: 500; font-size: 11px; color: #9fb0c8; }
+    #settings .seg button.on { border-color: #4d8cff; background: #24375e; color: #fff; }
+    #settings .set-desc { margin-top: 6px; color: #9fb0c8; font-size: 12px; line-height: 1.5; }
+    #settings .set-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; cursor: pointer; }
+    #settings .set-row input[type=range] { flex: 1; }
+    #settings kbd {
+      padding: 0 4px; border-radius: 4px; background: #2a3550; font: 700 11px/1.5 ui-monospace, monospace; color: #c9d3e0;
+    }
     #leave-btn {
       padding: 6px 14px; border: 0; border-radius: 8px; background: #33446a; color: #e8eef7;
       font: 700 13px/1 system-ui, sans-serif; cursor: pointer;
@@ -178,8 +209,7 @@
       position: fixed; transform: translate(-50%, -100%); padding: 2px 8px; border-radius: 8px; background: rgba(10, 14, 22, 0.7);
       font: 800 15px/1.3 system-ui, sans-serif; pointer-events: none; white-space: nowrap; z-index: 5;
     }
-    #pause-btn, #mute { border: 0; background: none; color: #e8eef7; font-size: 20px; line-height: 1; cursor: pointer; padding: 0 2px; }
-    #volume { width: 90px; }
+    #pause-btn { border: 0; background: none; color: #e8eef7; font-size: 20px; line-height: 1; cursor: pointer; padding: 0 2px; }
     /* 판정 팝업: 공 위치에서 튀어 올랐다 사라짐 */
     #popups { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
     .popup {
@@ -243,6 +273,7 @@
     }
     #rotate .icon { font-size: 54px; }
     .mob-only { display: none !important; }
+    body.mobile .pc-only { display: none !important; }
 
     /* ── 모바일 모드 (6단계): body.mobile. 손가락 크기(44 px 이상) 버튼, 노치 여백, 스크롤·확대·길게 누르기 막기 ── */
     body.mobile {
@@ -263,14 +294,21 @@
     body.mobile #serve-info { font-size: 10px; }
     body.mobile #center { font-size: 17px; top: 40%; }
     body.mobile #audio-ui {
-      left: auto; bottom: auto; right: calc(6px + env(safe-area-inset-right)); top: calc(4px + env(safe-area-inset-top));
+      left: auto; bottom: auto; right: calc(56px + env(safe-area-inset-right)); top: calc(4px + env(safe-area-inset-top));
       gap: 2px; padding: 2px;
     }
     body.mobile #audio-ui button {
       min-width: 44px; min-height: 44px; align-items: center; justify-content: center; font-size: 22px; padding: 0;
     }
     body.mobile #audio-ui button[hidden] { display: none !important; }
-    body.mobile #volume { display: none; }
+    body.mobile #settings-btn {
+      top: calc(4px + env(safe-area-inset-top)); right: calc(6px + env(safe-area-inset-right)); width: 44px; height: 44px; line-height: 44px; font-size: 24px;
+    }
+    body.mobile #settings {
+      top: calc(52px + env(safe-area-inset-top)); right: calc(6px + env(safe-area-inset-right)); max-height: calc(100vh - 60px - env(safe-area-inset-top));
+    }
+    body.mobile #settings .seg button, body.mobile #settings .set-row { min-height: 40px; }
+    body.mobile #settings .set-row input[type=checkbox] { width: 20px; height: 20px; }
     body.mobile #ping { top: calc(54px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right)); font-size: 11px; padding: 2px 6px; }
     body.mobile #leave-btn { top: calc(80px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right)); min-height: 40px; }
     body.mobile #net-msg { font-size: 14px; top: 30%; }
@@ -331,13 +369,29 @@
   <div id="popups"></div>
   <div id="audio-ui">
     <button id="pause-btn" type="button" title="일시정지 (P)">⏸</button>
-    <button id="mute" type="button">🔊</button>
-    <input id="volume" type="range" min="0" max="1" step="0.01" title="음량">
-    <button id="view-btn" class="mob-only" type="button" title="시점 바꾸기 (Space)">👁</button>
-    <button id="guide-btn" class="mob-only" type="button" title="서브 가이드 (G)">🎯</button>
     <button id="fs-btn" class="mob-only" type="button" title="전체 화면">⛶</button>
   </div>
   <div id="version"></div>
+  <button id="settings-btn" type="button" title="설정">⚙</button>
+  <div id="settings" hidden>
+    <div class="set-head">설정 <button id="settings-close" type="button" title="닫기">✕</button></div>
+    <div class="set-sec">조작 모드</div>
+    <div id="set-control" class="seg">
+      <button type="button" data-v="basic">기본<small>스윙 방향으로 구질</small></button>
+      <button type="button" data-v="advanced">고급<small id="set-adv-sub">Q·W·E·R 구질 버튼</small></button>
+    </div>
+    <div id="set-control-desc" class="set-desc"></div>
+    <div class="set-sec">소리</div>
+    <label class="set-row"><input id="set-sound" type="checkbox"> 소리 켜기 <kbd class="pc-only">M</kbd></label>
+    <label class="set-row">음량 <input id="volume" type="range" min="0" max="1" step="0.01"></label>
+    <label class="set-row"><input id="set-crowd" type="checkbox"> 관중 함성</label>
+    <label class="set-row"><input id="set-heart" type="checkbox"> 매치포인트 심장 박동</label>
+    <div class="set-sec">화면</div>
+    <label class="set-row"><input id="set-view" type="checkbox"> 정면 시점 <kbd class="pc-only">Space</kbd></label>
+    <label class="set-row"><input id="set-guide" type="checkbox"> 서브 가이드 <kbd class="pc-only">G</kbd></label>
+    <label class="set-row"><input id="set-shake" type="checkbox"> 화면 흔들림</label>
+    <label class="set-row mob-only"><input id="set-vibrate" type="checkbox"> 진동</label>
+  </div>
   <div id="pause" hidden>
     <div class="box">
       <h1>일시정지</h1>

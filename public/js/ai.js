@@ -399,6 +399,7 @@ function hitPhase(game, t, dt, events, params) {
       t, side, apexT: p.apexT, rng: game.rng, params, pressed: kind !== 'weak', serve: serveHit, dragScale: p.dragScale ?? 1,
       spinIn: carriedSpin(game.inSpin, t, params) ?? undefined, smashSpeed: p.smashSpeed,
       ringZ: serveHit || p.robot ? undefined : p.apexPos?.z, // 사람: 화면 고리 높이로 스매시 판정 (로봇은 맞은 높이로 고른다)
+      control: p.control, // 사람의 조작 모드 (설정 ⚙: 기본 = 드래그 방향, 고급 = 버튼). 로봇은 없음 = 버튼
     });
     p.lastShot = shot;
     game.lastShot = { side, ...shot };
@@ -545,9 +546,10 @@ function runScenario(game, kind, t, params) {
 // ── 서브 가이드라인 ─────────────────────────────────────────
 // side가 기준 좌표 x에서 토스해 타점 높이(SERVE.HIT_Z)에서 PERFECT 타이밍으로 위로 휘두른
 // 보통 세기(SERVE_GUIDE.STRENGTH) 서브의 예상 궤적. button: 지금 누른 구질 버튼(7단계, 없으면 무회전 서브).
+// control: 조작 모드(7단계 수정). 기본 모드는 버튼을 보지 않으므로 위로 휘두른 드라이브 서브
 // 실제 서브와 같은 classifyShot 경로를 쓴다.
 // 반환: { hit, points, bounces } (모두 세계 좌표. bounces = [내 코트 첫 바운드, 상대 코트 착지]) 또는 null
-export function serveGuide(side, x, params = TUNABLE, button = null) {
+export function serveGuide(side, x, params = TUNABLE, button = null, control = undefined) {
   const cx = clamp(x, -SERVE.TOSS_X_MAX, SERVE.TOSS_X_MAX);
   const hit = vec(cx, SERVE.TOSS_Y, SERVE.HIT_Z);
   const speed = params.BLOCK_SPEED + SERVE_GUIDE.STRENGTH * (params.SPEED_FULL - params.BLOCK_SPEED);
@@ -558,7 +560,7 @@ export function serveGuide(side, x, params = TUNABLE, button = null) {
     samples.push({ t: tau - T, x: cx, y: hit.z - speed * (T - tau), b: true }); // 아래 → 위 일정 속도
   }
   const ball = ballToWorld(createBall({ pos: hit, vel: vec(0, 0, -1), t: 0 }), side);
-  const shot = classifyShot(samples, ball, { t: 0, side, apexT: 0, params, serve: true, rng: () => 0.5, button });
+  const shot = classifyShot(samples, ball, { t: 0, side, apexT: 0, params, serve: true, rng: () => 0.5, button, control });
   const b = createBall({ pos: ball.pos, vel: shot.vel, spin: shot.spin, t: 0 });
   const points = [{ ...b.pos }], bounces = [];
   const n = Math.round(SERVE_GUIDE.MAX_T / PHYSICS.DT);

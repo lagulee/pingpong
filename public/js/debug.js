@@ -22,6 +22,9 @@ const TUNABLE_LABELS = {
   BLOCK_SPEED: '블록 판정 속도 미만 (m/s)',
   SPEED_FULL: '세기 1이 되는 최고 속도 (m/s)',
   SMASH_SPEED: '스매시 버튼: 스윙 최고 속도 이상 (m/s)',
+  BASIC_SMASH_SPEED: '기본 모드 · 스매시 기준 아래 스윙 속도 (m/s)',
+  DIR_SIN: '기본 모드 · 아래쪽 드래그 기준 sinθ',
+  CURVE_MIN: '기본 모드 · 사이드스핀 곡률 기준',
   SMASH_MIN_HEIGHT: '스매시 가능 높이: 네트 위 (m)',
   SMASH_RING_FLOOR: '빨간 고리일 때 스매시 최저 타점: 네트 위 (m)',
   BUTTON_WINDOW: '구질 버튼 인정 시간 (접촉 전, s)',
@@ -93,6 +96,7 @@ const TUNABLE_LABELS = {
   TOUCH_SPEED_GAIN: '터치 · 스윙 감도 배율',
   TOUCH_LIFT_HOLD: '터치 · 뗀 뒤 누름 유지 (s)',
   TOUCH_SMASH_SPEED: '터치 · 스매시 기준 스윙 속도 (m/s)',
+  BASIC_TOUCH_SMASH_SPEED: '터치 · 기본 모드 스매시 기준 속도 (m/s)',
   MOB_CAM_FOV: '모바일 · 카메라 시야각 (°, 세로)',
   MOB_CAM_TZ: '모바일 · 카메라 바라보는 점 높이 (m)',
   MOB_PIXEL_RATIO: '모바일 · 픽셀 비율 상한',
@@ -225,7 +229,7 @@ export function initDebug(enabled, hooks) {
   const foldBtn = el('button', { type: 'button' });
   const setFolded = (v) => {
     panel.classList.toggle('collapsed', v);
-    foldBtn.textContent = v ? '⚙ 디버그' : '⚙ 접기';
+    foldBtn.textContent = v ? '🛠 디버그' : '🛠 접기';
   };
   foldBtn.addEventListener('click', () => { setFolded(!panel.classList.contains('collapsed')); foldBtn.blur(); });
   panel.append(el('div', { className: 'dbg-head' }, foldBtn));

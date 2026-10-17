@@ -9,7 +9,9 @@ import {
   vec, add, sub, scale, length, cross, createBall, makeLaunch, solveAim, solveArc, solveBlock, solveServe,
   faceNormal, racketResponse, ballToLocal, toWorld, flightLanding,
 } from '../shared/physics.js';
-import { NET, TABLE, SWING, TUNABLE, RENDER, SHOT_BUTTONS, SHOT_COMBOS } from '../shared/constants.js';
+import {
+  NET, TABLE, SWING, TUNABLE, RENDER, SHOT_BUTTONS, SHOT_COMBOS, CONTROL_MODES, CONTROL_DEFAULT,
+} from '../shared/constants.js';
 import { createTouchTracker } from './touch.js';
 
 const DEG = Math.PI / 180;
@@ -213,6 +215,22 @@ export function judgeType(drag, zLocal, params = TUNABLE, pressed = true, button
   return SHOT_BUTTONS.includes(button) || SHOT_COMBOS[button] ? button : 'normal';
 }
 
+// 기본 조작 모드 (7단계 수정, v6.3 방식): 버튼 없이 드래그 방향·곡률·속도로 구질을 정한다.
+// 아래로(sinθ ≤ −DIR_SIN) 느리면 커트, smashSpeed(BASIC_SMASH_SPEED) 이상이면 빨간 고리에서 스매시·노란 고리에서 센 커트
+// (v6.3 기본값 LOW_SMASH_MISHIT = 0과 같음), 휘어지게(|κ| ≥ CURVE_MIN) 쓸면 사이드, 나머지(위·옆)는 드라이브
+export function judgeBasic(drag, zLocal, params = TUNABLE, pressed = true, smashSpeed = params.BASIC_SMASH_SPEED) {
+  if (!pressed || drag.speed < params.BLOCK_SPEED) return 'block';
+  if (drag.sin <= -params.DIR_SIN) {
+    if (drag.speed < smashSpeed) return 'cut';
+    return zLocal >= NET.HEIGHT + params.SMASH_MIN_HEIGHT ? 'smash' : 'cut';
+  }
+  if (Math.abs(drag.kappa) >= params.CURVE_MIN) return 'side';
+  return 'drive';
+}
+
+// 저장된 조작 모드 값을 고친다 (모르는 값이면 기본 모드)
+export const controlMode = (v) => (CONTROL_MODES.includes(v) ? v : CONTROL_DEFAULT);
+
 // 타이밍: dt = 타격 시각 − 예측 정점 시각
 export function gradeTiming(dt, params = TUNABLE) {
   const a = Math.abs(dt);
@@ -309,7 +327,8 @@ export function aimTarget(type, drag, racketX, params = TUNABLE) {
 //        serve(서브: 자기 코트 → 상대 코트로 조준, 기본 false), dragScale(사람 시점 보정, 기본 1),
 //        button(구질 버튼, 기본 샘플의 k로 buttonAt), spinIn(판정용 들어온 회전, 세계 좌표 rad/s. 기본 공의 물리 회전),
 //        smashSpeed(스매시 기준 스윙 속도, 기본 SMASH_SPEED. 터치는 TOUCH_SMASH_SPEED),
-//        ringZ(화면 고리 = 예측 정점의 높이. 이 높이가 스매시 높이 이상(빨간 고리)이면 맞은 높이가 조금 낮아도 스매시) }
+//        ringZ(화면 고리 = 예측 정점의 높이. 이 높이가 스매시 높이 이상(빨간 고리)이면 맞은 높이가 조금 낮아도 스매시),
+//        control('advanced' 구질 버튼(기본값, 로봇) | 'basic' 드래그 방향으로 구질, 설정 ⚙) }
 // 반환: { shotType, vel, spin, quality: { timing, accuracy, strength, dtApex, weak, target, button, spinIn, stack } }
 export function classifyShot(samples, ballState, ctx = {}) {
   const params = ctx.params ?? TUNABLE;
@@ -322,15 +341,17 @@ export function classifyShot(samples, ballState, ctx = {}) {
   const drag = analyzeDrag(samples, t, params, ctx.dragScale ?? 1);
   const racketX = ctx.racketX ?? sampleAt(samples, t)?.x ?? b.pos.x;
   const serve = !!ctx.serve;
-  const button = ctx.button !== undefined ? ctx.button : buttonAt(samples, t, params);
-  const smashSpeed = ctx.smashSpeed ?? params.SMASH_SPEED;
+  const basic = ctx.control === 'basic';
+  // 기본 모드는 구질 버튼을 보지 않는다
+  const button = basic ? null : ctx.button !== undefined ? ctx.button : buttonAt(samples, t, params);
+  const smashSpeed = ctx.smashSpeed ?? (basic ? params.BASIC_SMASH_SPEED : params.SMASH_SPEED);
   // 스매시 높이는 화면의 고리(예측 정점 높이 ringZ)와 맞춘다 (7단계 수정): 빨간 고리면 정점보다 조금 일찍·늦게 쳐서
   // 맞은 높이가 스매시 높이보다 낮아도, 네트 + SMASH_RING_FLOOR 이상이면 스매시로 본다 (그보다 낮으면 넣을 각이 없어 실타)
   const ringOk = (ctx.ringZ ?? -Infinity) >= NET.HEIGHT + params.SMASH_MIN_HEIGHT && b.pos.z >= NET.HEIGHT + params.SMASH_RING_FLOOR;
   const smashZ = ringOk ? Math.max(b.pos.z, ctx.ringZ) : b.pos.z;
-  let shotType = judgeType(drag, smashZ, params, pressed, button, smashSpeed);
-  // 서브에서는 스매시 버튼을 막는다 (일반 서브)
-  if (serve && (shotType === 'smash' || shotType === 'mishit')) shotType = 'normal';
+  let shotType = basic ? judgeBasic(drag, smashZ, params, pressed, smashSpeed) : judgeType(drag, smashZ, params, pressed, button, smashSpeed);
+  // 서브에서는 스매시를 막는다: 고급 모드는 일반 서브, 기본 모드는 내려친 동작이므로 커트 서브
+  if (serve && (shotType === 'smash' || shotType === 'mishit')) shotType = basic ? 'cut' : 'normal';
   const parts = spinParts(b);
   const dtApex = ctx.apexT == null ? Infinity : t - ctx.apexT;
   const { timing, accuracy } = gradeTiming(dtApex, params);

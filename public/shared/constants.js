@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v7.3';
+export const VERSION = 'v7.4';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -81,6 +81,11 @@ const JUDGE_TUNABLE = {
   // 스매시 버튼(R): 스윙 최고 속도가 이 이상이어야 스매시 (방향 무관, m/s). 느리면 일반 스윙. v7.0: 2.8(아래로) → 2.0.
   // v7.3: 2.0 → 0 (사용자 요청: 빨간 고리 스매시 성공률↑). 휘두르기만 하면(BLOCK_SPEED 이상) 스매시, 느리면 약한 스매시(SMASH_V_MIN)
   SMASH_SPEED: 0,
+  // 기본 조작 모드(v7.4, 설정 ⚙): v6.3처럼 드래그 방향·곡률·속도로 구질을 정한다 (버튼 없음).
+  // 위·옆 = 드라이브, 아래 = 커트, 아래로 BASIC_SMASH_SPEED 이상 + 빨간 고리 = 스매시, 휘어지게 = 사이드. 값은 v6.3 그대로
+  BASIC_SMASH_SPEED: 2.8,    // 기본 모드: 아래로 이보다 빠르면 스매시 시도 (m/s, 마우스). 낮은 공(노란 고리)이면 센 커트
+  DIR_SIN: 0.5,              // 기본 모드: sinθ가 −이보다 작으면 아래쪽 드래그(커트·스매시)
+  CURVE_MIN: 0.18,           // 기본 모드: 곡률(현에서 벗어난 최대 거리 / 현 길이)이 이 이상이면 사이드스핀
   SMASH_MIN_HEIGHT: 0.50,    // 스매시 가능 높이: 공 중심이 네트 위 이만큼 이상 (m). v6.0: 0.20 → 0.50 (공이 높게 날아 바운드도 높아짐)
   // 빨간 고리(예측 정점이 스매시 높이 이상)일 때 실제로 맞은 높이의 하한: 네트 위 이만큼 이상이면 스매시 (m, v7.2).
   // 사용자 피드백: 빨간 고리에서 스매시가 네트에 걸림 → 정점보다 일찍·늦게 쳐 맞은 높이가 기준 아래면 실타였다.
@@ -221,6 +226,8 @@ const MOBILE_TUNABLE = {
   // 사용자 피드백(모바일 스매시가 계속 NORMAL)을 받아 터치만 1.0(약 1 px/ms, 보통 빠르기 쓸기)으로 낮췄다
   // v7.3: 1.0 → 0 (마우스 SMASH_SPEED와 함께 속도 조건을 없앰)
   TOUCH_SMASH_SPEED: 0,
+  // 기본 조작 모드의 터치 스매시 기준 (m/s, v7.4). 마우스 2.8 × (v7.1 터치 1.0 ÷ 마우스 2.0) = 1.4 ≈ 1.4 px/ms 쓸기
+  BASIC_TOUCH_SMASH_SPEED: 1.4,
   // 모바일 시점: PC 시점(CAM_*)에서 시야각과 바라보는 점 높이만 바꾼다. PC 구도 그대로면 가로 휴대폰에서 타점이
   // 화면 아래 65~80%에 있어, 라켓을 손가락 위로 띄우면 타점 아래에 위로 쓸 자리가 40~50 px밖에 없었다(브라우저 점검).
   // 아래를 더 내려다보고(−0.15 → −0.45) 조금 넓게(50 → 54°) 보면 서브 타점이 화면 62%, 낮은 공(0.2 m)이 70%로 올라온다.
@@ -309,6 +316,9 @@ export const TUNABLE_RANGES = Object.freeze({
   BLOCK_SPEED: r(0, 1.5, 0.01),
   SPEED_FULL: r(0.5, 10, 0.05),
   SMASH_SPEED: r(0, 6, 0.05),
+  BASIC_SMASH_SPEED: r(0, 6, 0.05),
+  DIR_SIN: r(0, 1, 0.01),
+  CURVE_MIN: r(0, 0.5, 0.005),
   SMASH_MIN_HEIGHT: r(0, 0.6, 0.01),
   SMASH_RING_FLOOR: r(0, 0.6, 0.01),
   BUTTON_WINDOW: r(0, 0.3, 0.005),
@@ -396,6 +406,7 @@ export const TUNABLE_RANGES = Object.freeze({
   TOUCH_SPEED_GAIN: r(0.2, 3, 0.01),
   TOUCH_LIFT_HOLD: r(0, 0.3, 0.005),
   TOUCH_SMASH_SPEED: r(0, 6, 0.05),
+  BASIC_TOUCH_SMASH_SPEED: r(0, 6, 0.05),
   MOB_CAM_FOV: r(25, 90, 1),
   MOB_CAM_TZ: r(-1, 1, 0.01),
   MOB_PIXEL_RATIO: r(0.5, 3, 0.05),
@@ -415,6 +426,11 @@ export const SHOT_COMBOS = Object.freeze({ sidecut: 'cut', sidedrive: 'drive' })
 // 구질 버튼 (v7.0): 버튼 이름 → 구질. PC 키는 main.js(Q·W·E·R), 모바일은 화면 버튼
 export const SHOT_BUTTONS = Object.freeze(['drive', 'cut', 'side', 'smash']);
 export const SHOT_KEYS = Object.freeze({ KeyQ: 'drive', KeyW: 'cut', KeyE: 'side', KeyR: 'smash' });
+// 조작 모드 (v7.4, 설정 ⚙): basic = 기본(드래그 방향·속도로 구질, v6.3 방식), advanced = 고급(Q·W·E·R 구질 버튼, 7단계).
+// 사람 클라이언트 전용이다. 로봇은 버튼을 쓰고, 서버는 결과 공(vel·spin)만 검증하므로 두 사람이 서로 다른 모드여도 된다
+export const CONTROL_MODES = Object.freeze(['basic', 'advanced']);
+export const CONTROL_DEFAULT = 'basic';
+export const CONTROL_LABELS = Object.freeze({ basic: '기본', advanced: '고급' });
 export const SHOT_LABELS = Object.freeze({
   normal: 'NORMAL', drive: 'DRIVE', smash: 'SMASH', cut: 'CUT', side: 'SIDESPIN', block: 'BLOCK', mishit: 'MISHIT',
   sidecut: 'SIDE CUT', sidedrive: 'SIDE DRIVE',

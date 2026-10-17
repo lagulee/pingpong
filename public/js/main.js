@@ -23,6 +23,7 @@ import {
 import { initDebug, launchParams, SCENARIO_LABELS } from './debug.js';
 import {
   createMouseInput, rayPlaneY, analyzeDrag, createRng, cameraFor, tunableCamera, dragScaleFor, createShotKeys, shotKeysOf,
+  controlMode,
 } from './input.js';
 import {
   createAI, createPlayer, createRally, stepMatch, serveBall, placeBall, endFree, tossBall, queueScenario,
@@ -93,8 +94,8 @@ let crowdRally = null;                // 관중 함성에 마지막으로 반영
 // 소리 잠금 해제: 사용자 동작마다 다시 시도한다 (iOS는 터치를 뗄 때·다른 앱에서 돌아온 뒤 다시 켜야 할 때가 있다)
 for (const type of ['pointerdown', 'touchend', 'click']) window.addEventListener(type, () => audio.unlock(), { passive: true });
 
-// 음소거 버튼·음량 슬라이더 (이 브라우저에 기억)
-const muteBtn = $('mute');
+// 음소거·음량 (설정 패널, 이 브라우저에 기억)
+const soundEl = $('set-sound');
 const volumeEl = $('volume');
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -104,14 +105,14 @@ const savedVol = Number(store.get('pp-volume'));
 if (store.get('pp-volume') !== null && Number.isFinite(savedVol)) audio.setVolume(savedVol);
 audio.setMuted(store.get('pp-muted') === '1');
 volumeEl.value = audio.volume;
-function syncMute() { muteBtn.textContent = audio.muted ? '🔇' : '🔊'; muteBtn.title = audio.muted ? '소리 켜기 (M)' : '음소거 (M)'; }
+function syncMute() { soundEl.checked = !audio.muted; }
 syncMute();
 function toggleMute() {
   audio.setMuted(!audio.muted);
   store.set('pp-muted', audio.muted ? '1' : '0');
   syncMute();
 }
-muteBtn.addEventListener('click', (e) => { e.stopPropagation(); audio.unlock(); toggleMute(); muteBtn.blur(); });
+soundEl.addEventListener('change', () => { audio.unlock(); if (audio.muted === soundEl.checked) toggleMute(); soundEl.blur(); });
 volumeEl.addEventListener('input', () => {
   audio.setVolume(Number(volumeEl.value));
   store.set('pp-volume', volumeEl.value);
@@ -138,23 +139,21 @@ function setPaused(v) {
   audio.setPaused(v);
 }
 pauseBtn.addEventListener('click', (e) => { e.stopPropagation(); setPaused(!paused); pauseBtn.blur(); });
-pauseEl.addEventListener('click', () => setPaused(false));
+pauseEl.addEventListener('click', () => { setSettingsOpen(false); setPaused(false); });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && PAUSE.AUTO_ON_HIDE && mode === 'practice') setPaused(true);
   if (!document.hidden) client?.wake(); // 모바일 백그라운드 복귀: 끊겼으면 바로 다시 접속, 아니면 시계를 바로 다시 잰다
 });
-// 모바일 화면 버튼: 시점(Space)·서브 가이드(G)·전체 화면, 일시정지 화면의 난이도·새 게임·화살표
-const viewBtn = $('view-btn'), guideBtn = $('guide-btn'), fsBtn = $('fs-btn');
+// 모바일 화면 버튼: 전체 화면, 일시정지 화면의 난이도·새 게임·화살표 (시점·서브 가이드는 7단계 수정부터 설정 ⚙ 안)
+const fsBtn = $('fs-btn');
 const tap = (el, fn) => el.addEventListener('click', (e) => { e.stopPropagation(); fn(); el.blur(); });
-tap(viewBtn, () => { classicView = !classicView; });
-tap(guideBtn, () => { TUNABLE.FX_SERVE_GUIDE = TUNABLE.FX_SERVE_GUIDE >= 0.5 ? 0 : 1; });
 tap(fsBtn, toggleFullscreen);
 fsBtn.hidden = !canFullscreen();
 for (const b of document.querySelectorAll('#pause-actions [data-diff]')) tap(b, () => { setDifficulty(b.dataset.diff); setPaused(false); });
 tap($('pause-new'), () => { newGame(); setPaused(false); });
 tap($('pause-menu'), () => { setPaused(false); toMenu(); }); // 7단계: 일시정지 화면에서 메인화면으로
 tap($('pause-arrows'), () => setArrows(!ballView.arrowsVisible));
-for (const el of [muteBtn, volumeEl, pauseBtn, leaveBtn, viewBtn, guideBtn, fsBtn]) el.addEventListener('pointerdown', (e) => e.stopPropagation());
+for (const el of [pauseBtn, leaveBtn, fsBtn]) el.addEventListener('pointerdown', (e) => e.stopPropagation());
 
 // ── 구질 버튼 (7단계): PC Q·W·E·R, 모바일 화면 버튼. 나중에 누른 버튼이 이긴다 ──
 const shotKeys = createShotKeys();
@@ -191,7 +190,7 @@ let keysShown = '';
 let btnLayout = '';
 // 화면의 구질 버튼 표시: PC는 아래 가운데 키 칩, 모바일은 화면 버튼 (첫 화면에서는 숨김)
 function updateShotButtons() {
-  const playing = mode !== 'menu';
+  const playing = mode !== 'menu' && control === 'advanced'; // 기본 모드는 구질 버튼이 없다 (7단계 수정)
   shotKeysEl.hidden = mobile || !playing;
   shotBtnsEl.hidden = !mobile || !playing;
   const cur = shotKeys.current ?? '';
@@ -211,36 +210,127 @@ function updateShotButtons() {
 if (mobile) {
   $('pause-hint').textContent = '화면을 누르면 이어서 합니다.';
   $('pause-hint2').textContent = '다른 앱으로 가면 자동으로 멈춥니다.';
-  $('menu-hint').textContent = '오른손으로 쓸어 치기 · 왼손으로 구질 버튼 · 가로 화면 권장 · ⛶ 전체 화면';
 }
 
-// ── 조작표 (7단계): 일시정지 화면과 첫 경기 안내판 ──
-const CONTROLS = mobile ? [
-  ['쓸기', '라켓 휘두르기 (빠를수록 세게, 좌우로 조준)'],
-  ['버튼 없이', '일반 스윙 · 무회전 (들어온 회전을 그대로 받음)'],
-  ['<span class="k-drive">드라이브</span>', '강한 탑스핀 · 커트·무회전 공을 들어 올린다'],
-  ['<span class="k-cut">커트</span>', '강한 백스핀 · 커트 공을 커트로, 탑스핀을 백스핀으로'],
-  ['<span class="k-side">사이드</span>', '강한 횡회전 · 센 탑·백 공에는 위험'],
-  ['<span class="k-side">사이드</span> + <span class="k-cut">커트</span>', '횡+백회전 (사이드 드라이브 버튼은 횡+탑)'],
-  ['<span class="k-smash">스매시</span>', '빨간 고리(높은 공)에서 휘두르기 · 노란 고리면 네트'],
-  ['대고 멈춤', '블록'],
-  ['같은 회전', '같은 구질로 받아칠수록 회전이 쌓인다 (꼬리가 진해짐)'],
-] : [
-  ['드래그', '라켓 휘두르기 (빠를수록 세게, 좌우로 조준) · 클릭 = 서브 토스'],
-  ['버튼 없이', '일반 스윙 · 무회전 (들어온 회전을 그대로 받음)'],
-  ['<kbd>Q</kbd>', '<span class="k-drive">드라이브</span> · 강한 탑스핀, 커트·무회전 공을 들어 올린다'],
-  ['<kbd>W</kbd>', '<span class="k-cut">커트</span> · 강한 백스핀, 커트 공을 커트로, 탑스핀을 백스핀으로'],
-  ['<kbd>E</kbd>', '<span class="k-side">사이드</span> · 강한 횡회전, 센 탑·백 공에는 위험'],
-  ['<kbd>W</kbd>+<kbd>E</kbd>', '<span class="k-cut">커트</span>+<span class="k-side">사이드</span> · 횡+백회전 (<kbd>Q</kbd>+<kbd>E</kbd>는 횡+탑)'],
-  ['<kbd>R</kbd>', '<span class="k-smash">스매시</span> · 빨간 고리(높은 공)에서 휘두르기, 노란 고리면 네트'],
-  ['누른 채 멈춤', '블록'],
-  ['같은 회전', '같은 구질로 받아칠수록 회전이 쌓인다 (꼬리가 진해짐)'],
+// ── 조작표 (7단계, 7단계 수정 조작 모드별): 일시정지 화면·첫 경기 안내판·첫 화면 안내 ──
+const COMMON_KEYS = mobile ? [] : [
   ['<kbd>Space</kbd>', '시점 · <kbd>N</kbd> 새 게임 · <kbd>P</kbd>/<kbd>Esc</kbd> 일시정지 · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 난이도'],
-  ['<kbd>G</kbd>', '서브 가이드 · <kbd>V</kbd> 화살표 · <kbd>M</kbd> 음소거'],
+  ['<kbd>G</kbd>', '서브 가이드 · <kbd>V</kbd> 화살표 · <kbd>M</kbd> 음소거 · ⚙ 설정'],
 ];
-for (const id of ['pause-controls', 'intro-controls']) {
-  $(id).innerHTML = CONTROLS.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+const CONTROLS = {
+  // 기본: 스윙 방향·곡률·속도로 구질 (v6.3 방식)
+  basic: [
+    [mobile ? '쓸기' : '드래그', `라켓 휘두르기 (빠를수록 세게, 좌우로 조준)${mobile ? '' : ' · 클릭 = 서브 토스'}`],
+    ['위로 쓸어 올리기', '<span class="k-drive">드라이브</span> · 탑스핀, 커트 공을 들어 올린다'],
+    ['아래로 내리기', '<span class="k-cut">커트</span> · 백스핀, 탑스핀 공을 백스핀으로'],
+    ['휘어지게 (곡선)', '<span class="k-side">사이드</span> · 횡회전'],
+    ['아래로 빠르게', '<span class="k-smash">스매시</span> · 빨간 고리(높은 공)에서, 노란 고리면 센 커트'],
+    [mobile ? '대고 멈춤' : '누른 채 멈춤', '블록'],
+    ['같은 회전', '같은 구질로 받아칠수록 회전이 쌓인다 (꼬리가 진해짐)'],
+    ['⚙ 설정', '고급 모드: 버튼으로 구질 고르기 (무회전·조합 구질)'],
+    ...COMMON_KEYS,
+  ],
+  // 고급: 구질 버튼 (7단계)
+  advanced: mobile ? [
+    ['쓸기', '라켓 휘두르기 (빠를수록 세게, 좌우로 조준)'],
+    ['버튼 없이', '일반 스윙 · 무회전 (들어온 회전을 그대로 받음)'],
+    ['<span class="k-drive">드라이브</span>', '강한 탑스핀 · 커트·무회전 공을 들어 올린다'],
+    ['<span class="k-cut">커트</span>', '강한 백스핀 · 커트 공을 커트로, 탑스핀을 백스핀으로'],
+    ['<span class="k-side">사이드</span>', '강한 횡회전 · 센 탑·백 공에는 위험'],
+    ['<span class="k-side">사이드</span> + <span class="k-cut">커트</span>', '횡+백회전 (사이드 드라이브 버튼은 횡+탑)'],
+    ['<span class="k-smash">스매시</span>', '빨간 고리(높은 공)에서 휘두르기 · 노란 고리면 네트'],
+    ['대고 멈춤', '블록'],
+    ['같은 회전', '같은 구질로 받아칠수록 회전이 쌓인다 (꼬리가 진해짐)'],
+  ] : [
+    ['드래그', '라켓 휘두르기 (빠를수록 세게, 좌우로 조준) · 클릭 = 서브 토스'],
+    ['버튼 없이', '일반 스윙 · 무회전 (들어온 회전을 그대로 받음)'],
+    ['<kbd>Q</kbd>', '<span class="k-drive">드라이브</span> · 강한 탑스핀, 커트·무회전 공을 들어 올린다'],
+    ['<kbd>W</kbd>', '<span class="k-cut">커트</span> · 강한 백스핀, 커트 공을 커트로, 탑스핀을 백스핀으로'],
+    ['<kbd>E</kbd>', '<span class="k-side">사이드</span> · 강한 횡회전, 센 탑·백 공에는 위험'],
+    ['<kbd>W</kbd>+<kbd>E</kbd>', '<span class="k-cut">커트</span>+<span class="k-side">사이드</span> · 횡+백회전 (<kbd>Q</kbd>+<kbd>E</kbd>는 횡+탑)'],
+    ['<kbd>R</kbd>', '<span class="k-smash">스매시</span> · 빨간 고리(높은 공)에서 휘두르기, 노란 고리면 네트'],
+    ['누른 채 멈춤', '블록'],
+    ['같은 회전', '같은 구질로 받아칠수록 회전이 쌓인다 (꼬리가 진해짐)'],
+    ...COMMON_KEYS,
+  ],
+};
+const MENU_HINT = {
+  basic: mobile ? '쓰는 방향으로 구질 · ⚙ 설정에서 고급(구질 버튼) · 가로 화면 권장 · ⛶ 전체 화면'
+    : '드래그 방향으로 구질 · ⚙ 설정에서 고급(Q/W/E/R) · Space 시점 바꾸기',
+  advanced: mobile ? '오른손으로 쓸어 치기 · 왼손으로 구질 버튼 · 가로 화면 권장 · ⛶ 전체 화면'
+    : '드래그로 치기 · Q/W/E/R 구질 · M 음소거 · Space 시점 바꾸기',
+};
+// 내 서브 안내 (가운데 글자)와 PC 위쪽 상태 줄의 구질 안내
+const SERVE_HINT = {
+  basic: mobile ? '내 서브\n① 화면 터치: 공 띄우기  ② 공이 고리에 올 때 쓸기\n위로 = 탑 · 아래로 = 백 · 곡선 = 사이드'
+    : '내 서브\n① 클릭: 공 띄우기  ② 공이 고리에 올 때 휘두르기\n위로 = 탑 · 아래로 = 백 · 곡선 = 사이드',
+  advanced: mobile ? '내 서브\n① 화면 터치: 공 띄우기  ② 공이 고리에 올 때 쓸기\n버튼 없이 = 무회전 · 드라이브 · 커트 · 사이드 버튼'
+    : '내 서브\n① 클릭: 공 띄우기  ② 공이 고리에 올 때 휘두르기\n버튼 없이 = 무회전 · Q 탑 · W 백 · E 사이드',
+};
+const STATUS_SHOT = { basic: '기본 조작(방향으로 구질)', advanced: 'Q/W/E/R 구질' };
+const CONTROL_DESC = {
+  basic: '위로 = 드라이브, 아래로 = 커트, 곡선 = 사이드, 높은 공을 아래로 빠르게 = 스매시. 버튼이 필요 없습니다.',
+  advanced: mobile ? '왼손 화면 버튼으로 구질(드라이브·커트·사이드·스매시·조합)을 고르고 오른손으로 쓸어 칩니다. 버튼 없이 치면 무회전.'
+    : 'Q 드라이브 · W 커트 · E 사이드 · R 스매시를 누른 채 드래그. W+E·Q+E 조합, 버튼 없이 치면 무회전.',
+};
+function renderControls() {
+  for (const id of ['pause-controls', 'intro-controls']) {
+    $(id).innerHTML = CONTROLS[control].map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+  }
+  $('menu-hint').textContent = MENU_HINT[control];
 }
+
+// ── 설정 (7단계 수정, 오른쪽 위 ⚙): 조작 모드(기본/고급), 소리, 화면. 이 브라우저에 기억한다 (조작 모드·소리) ──
+// 조작 모드는 내 타격 판정에만 쓰여(서버는 결과 공만 검증) 대전 중에도 바꿀 수 있고, 상대와 달라도 된다
+let control = controlMode(store.get('pp-control'));
+const settingsEl = $('settings');
+const settingsBtn = $('settings-btn');
+let settingsPaused = false; // 설정을 열면서 연습 경기를 멈췄는가 (닫으면 이어서 한다)
+function setControl(v) {
+  control = controlMode(v);
+  store.set('pp-control', control);
+  shotKeys.clear();
+  markKeys();
+  renderControls();
+  syncSettings();
+}
+// 체크박스 → 연출 켜기/끄기 (TUNABLE_TOGGLES라 대전 중에도 바꿀 수 있다)
+const TOGGLE_INPUTS = {
+  'set-crowd': 'SND_CROWD', 'set-heart': 'SND_HEART', 'set-guide': 'FX_SERVE_GUIDE', 'set-shake': 'FX_SHAKE', 'set-vibrate': 'FX_VIBRATE',
+};
+function syncSettings() {
+  for (const b of $('set-control').children) b.classList.toggle('on', b.dataset.v === control);
+  $('set-control-desc').textContent = CONTROL_DESC[control];
+  syncMute();
+  volumeEl.value = audio.volume;
+  $('set-view').checked = classicView;
+  for (const [id, key] of Object.entries(TOGGLE_INPUTS)) $(id).checked = TUNABLE[key] >= 0.5;
+}
+function setSettingsOpen(v) {
+  if (settingsEl.hidden === !v) return;
+  settingsEl.hidden = !v;
+  settingsBtn.classList.toggle('on', v);
+  if (v) {
+    syncSettings();
+    settingsPaused = mode === 'practice' && !paused;
+    if (settingsPaused) setPaused(true);
+  } else if (settingsPaused) {
+    settingsPaused = false;
+    if (mode === 'practice') setPaused(false);
+  }
+}
+if (mobile) $('set-adv-sub').textContent = '화면 구질 버튼';
+tap(settingsBtn, () => setSettingsOpen(settingsEl.hidden));
+tap($('settings-close'), () => setSettingsOpen(false));
+for (const b of $('set-control').children) tap(b, () => setControl(b.dataset.v));
+$('set-view').addEventListener('change', () => { classicView = $('set-view').checked; });
+for (const [id, key] of Object.entries(TOGGLE_INPUTS)) $(id).addEventListener('change', () => { TUNABLE[key] = $(id).checked ? 1 : 0; });
+for (const el of [settingsBtn, settingsEl]) {
+  el.addEventListener('pointerdown', (e) => e.stopPropagation());
+  el.addEventListener('click', (e) => e.stopPropagation()); // 일시정지 화면 클릭(이어 하기)으로 번지지 않게
+}
+renderControls();
+
 // 첫 경기 안내판: 처음 시작할 때 (다시 보지 않기를 고르면 이 브라우저에서는 생략)
 const introEl = $('intro');
 let introUntil = 0;
@@ -315,7 +405,7 @@ mouse = createMouseInput(canvas, {
     return rayPlaneY(toLocal(r.origin, me), toLocal(r.dir, me), human.yPlane);
   },
   now: () => (online() ? client.matchTime(nowMs()) : clock + acc + (performance.now() / 1000 - realAtFrame)),
-  button: () => shotKeys.current,
+  button: () => (control === 'advanced' ? shotKeys.current : null), // 기본 모드는 구질 버튼을 남기지 않는다
   onPress() {
     if (mode === 'menu') return;
     // 내 서브 차례: 클릭한 자리(라켓 x)에서 공을 띄운다
@@ -376,7 +466,7 @@ window.addEventListener('keydown', (e) => {
   }
   const k = SHOT_KEYS[e.code];
   if (k && !modified(e)) {
-    if (!e.repeat) { shotKeys.press(k); markKeys(); }
+    if (!e.repeat && control === 'advanced') { shotKeys.press(k); markKeys(); }
     return;
   }
   if (e.code === 'KeyV') setArrows(!ballView.arrowsVisible);
@@ -386,7 +476,10 @@ window.addEventListener('keydown', (e) => {
   const i = ['Digit1', 'Digit2', 'Digit3'].indexOf(e.code);
   if (i >= 0) setDifficulty(DIFFICULTIES[i]);
   if (e.code === 'KeyN' && !modified(e)) newGame();
-  if (e.code === 'KeyP' || e.code === 'Escape') setPaused(!paused);
+  if (e.code === 'KeyP' || e.code === 'Escape') {
+    if (!settingsEl.hidden) setSettingsOpen(false);
+    else setPaused(!paused);
+  }
 });
 window.addEventListener('keyup', (e) => {
   if (e.code === 'Space' && !typing(e)) e.preventDefault();
@@ -719,13 +812,14 @@ function dispatch(item) {
 const guideCache = new Map();
 let guideSig = '';
 function guideFor(x) {
-  const btn = shotKeys.current === 'smash' ? null : shotKeys.current; // 지금 누른 구질 버튼의 서브 (스매시는 일반 서브)
-  const sig = JSON.stringify(TUNABLE) + me + btn; // 디버그 패널에서 값이 바뀌거나 자리·버튼이 바뀌면 다시 계산
+  // 지금 누른 구질 버튼의 서브 (스매시는 일반 서브). 기본 모드는 버튼 없이 위로 휘두른 드라이브 서브
+  const btn = control !== 'advanced' || shotKeys.current === 'smash' ? null : shotKeys.current;
+  const sig = JSON.stringify(TUNABLE) + me + btn + control; // 디버그 패널에서 값이 바뀌거나 자리·버튼·조작 모드가 바뀌면 다시 계산
   if (sig !== guideSig) { guideCache.clear(); guideSig = sig; }
   const cx = Math.min(SERVE.TOSS_X_MAX, Math.max(-SERVE.TOSS_X_MAX, x));
   const q = Math.round(cx / SERVE_GUIDE.QUANT_X) * SERVE_GUIDE.QUANT_X;
   const key = q.toFixed(3);
-  if (!guideCache.has(key)) guideCache.set(key, serveGuide(me, q, TUNABLE, btn));
+  if (!guideCache.has(key)) guideCache.set(key, serveGuide(me, q, TUNABLE, btn, control));
   return guideCache.get(key);
 }
 
@@ -790,7 +884,9 @@ function updateCamera() {
     dragScale = Number.isFinite(k) && k > 0 ? k : 1; // 캔버스 크기가 0인 순간 등
   }
   human.dragScale = mouse.touchActive ? dragScale * touchSpeedScale(canvas.clientHeight) : dragScale;
-  human.smashSpeed = mouse.touchActive ? TUNABLE.TOUCH_SMASH_SPEED : undefined; // 터치 스매시 기준 (7단계 수정)
+  human.control = control; // 조작 모드 (설정 ⚙)
+  // 터치 스매시 기준 (7단계 수정, 기본 모드는 7단계 수정 BASIC_TOUCH_SMASH_SPEED). 마우스는 classifyShot이 모드별 기본값을 쓴다
+  human.smashSpeed = !mouse.touchActive ? undefined : control === 'basic' ? TUNABLE.BASIC_TOUCH_SMASH_SPEED : TUNABLE.TOUCH_SMASH_SPEED;
 }
 
 let lastTime = null;
@@ -878,6 +974,7 @@ function frame(now) {
   marker.update(ringPos, tossed || holdingServe ? TUNABLE.SERVE_HIT_RADIUS : TUNABLE.HIT_RADIUS, smashable);
   updateSpinBadge(mode !== 'menu' && waiting && !tossed ? human.apexPos : null, t);
   updateShotButtons();
+  if (!settingsEl.hidden && volumeEl !== document.activeElement) syncSettings(); // 키(M·G·Space)로 바꾼 값도 보이게
   if (!introEl.hidden && performance.now() / 1000 > introUntil) hideIntro();
 
   debug.onFrame(elapsed, ball);
@@ -906,16 +1003,14 @@ function frame(now) {
     centerEl.textContent = mode === 'menu' ? ''
       : tossed ? '공이 고리까지 내려올 때 휘두르기!'
         : !waitServe ? ''
-          : rules.server === me ? (mobile
-            ? '내 서브\n① 화면 터치: 공 띄우기  ② 공이 고리에 올 때 쓸기\n버튼 없이 = 무회전 · 드라이브 · 커트 · 사이드 버튼'
-            : '내 서브\n① 클릭: 공 띄우기  ② 공이 고리에 올 때 휘두르기\n버튼 없이 = 무회전 · Q 탑 · W 백 · E 사이드')
+          : rules.server === me ? SERVE_HINT[control]
             : `${oppName} 서브`;
   }
   statusEl.textContent = mobile
     ? (online() ? `대전 · 방 ${client.code}` : `연습 · ${DIFFICULTY_LABELS[difficulty]} (⏸에서 난이도·새 게임)`)
     : online()
-    ? `대전 · 방 ${client.code} (${RULES.POINTS_TO_WIN}점) · Q/W/E/R 구질 · Space 시점 · G 서브 가이드 · M 음소거`
-    : `연습 경기 (${RULES.POINTS_TO_WIN}점) · ${DIFFICULTY_LABELS[difficulty]} · Q/W/E/R 구질 · `
+    ? `대전 · 방 ${client.code} (${RULES.POINTS_TO_WIN}점) · ${STATUS_SHOT[control]} · Space 시점 · G 서브 가이드 · M 음소거`
+    : `연습 경기 (${RULES.POINTS_TO_WIN}점) · ${DIFFICULTY_LABELS[difficulty]} · ${STATUS_SHOT[control]} · `
       + `1/2/3 난이도 · N 새 게임 · P 일시정지(조작표) · Space 시점${debugEnabled ? '' : ' · ?debug=1 패널'}`;
   requestAnimationFrame(frame);
 }
