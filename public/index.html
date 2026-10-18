@@ -5,20 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>1vs1 탁구</title>
   <style>
-    /* ── 화풍 (7단계 수정): 하늘색 배경 + 크림 카드 + 진한 외곽선 + 아래로 두툼한 3D 버튼 ──
-       색은 여기 토큰에서만 정한다. 글자는 둥글고 굵은 시스템 글꼴(외부 글꼴 없음). */
+    /* ── 화풍 (7단계 수정, 메뉴와 통일): 탁구장 포스터 — 종이색 바탕, 먹색 외곽선, 탁구대 초록, 공 주황, 각진 판과 어긋난 그림자.
+       색은 여기 토큰에서만 정한다. 제목·숫자·버튼은 Black Han Sans(fonts/, OFL), 본문은 시스템 글꼴. */
     :root {
-      --ink: #22262e;        /* 외곽선·진한 글자 */
-      --ink-2: #4a505c;      /* 보조 글자 */
-      --cream: #fff7e6;      /* 카드 */
-      --cream-2: #efdcb6;    /* 카드 아래 두께 */
-      --cream-3: #f7ead0;    /* 카드 안 칸 */
-      --red: #e0464a; --red-2: #b0302f;
-      --lime: #c4d92b; --lime-2: #93a81a;
-      --blue: #3a72e0; --blue-2: #2a55ad;
-      --yellow: #ffcf4a;
-      --sky: #a9cdfb; --sky-2: #7fb0f4;
-      --font: ui-rounded, "SF Pro Rounded", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+      --ink: #161616;        /* 외곽선·진한 글자 (먹색) */
+      --ink-2: #5f594e;      /* 보조 글자 */
+      --cream: #efe9dc;      /* 판·카드 (종이색) */
+      --cream-2: #d6ccb6;    /* 구분선 */
+      --cream-3: #e4dccb;    /* 판 안 칸 */
+      --green: #1f6f4a; --green-2: #26825a;           /* 탁구대 */
+      --red: #e04a2b; --red-2: #b3361b;               /* 나 */
+      --lime: #ff7a1a; --lime-2: #cc5f10;             /* 강조·주 버튼 (공 주황). 이름은 v7.7 그대로 */
+      --blue: #2d5fa8; --blue-2: #214a85;             /* 상대 */
+      --yellow: #ffc93c;
+      --sky: #efe9dc; --sky-2: #e4dccb;               /* 바탕 (3D 장면이 뜨기 전) */
+      --font: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+      --display: "Black Han Sans", var(--font);
       --mono: ui-monospace, "SF Mono", Menlo, monospace;
       /* 어떤 배경 위에서도 읽히는 글자 테두리 (화면 위에 떠 있는 글자용) */
       --stroke: 2px 0 0 var(--ink), -2px 0 0 var(--ink), 0 2px 0 var(--ink), 0 -2px 0 var(--ink),
@@ -31,87 +33,83 @@
 
     /* 공용 부품: 카드와 버튼 */
     .card {
-      background: var(--cream); border: 3px solid var(--ink); border-radius: 22px; color: var(--ink);
-      box-shadow: 0 6px 0 var(--cream-2), 0 6px 0 3px var(--ink), 0 14px 24px rgba(20, 40, 80, 0.25);
+      background: var(--cream); border: 3px solid var(--ink); border-radius: 3px; color: var(--ink);
+      box-shadow: 6px 6px 0 var(--ink);
     }
     .btn, .overlay button, #again, #pause-menu, #leave-btn, #pause .go {
       display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-      padding: 11px 20px; border: 3px solid var(--ink); border-radius: 14px; background: var(--lime); color: var(--ink);
-      font: 900 16px/1 var(--font); cursor: pointer; box-shadow: 0 4px 0 var(--ink); transition: transform 0.06s, box-shadow 0.06s, filter 0.1s;
+      padding: 11px 20px; border: 3px solid var(--ink); border-radius: 2px; background: var(--lime); color: var(--ink);
+      font: 400 17px/1 var(--display); cursor: pointer; box-shadow: 4px 4px 0 var(--ink); transition: transform 0.06s, box-shadow 0.06s, filter 0.1s;
     }
-    .btn:hover, .overlay button:hover, #again:hover, #pause-menu:hover, #leave-btn:hover, #pause:hover .go { filter: brightness(1.06); }
+    .btn:hover, .overlay button:hover, #again:hover, #pause-menu:hover, #leave-btn:hover, #pause:hover .go { background: var(--ink); color: var(--cream); filter: none; }
     .btn:active, .overlay button:active, #again:active, #pause-menu:active, #leave-btn:active {
-      transform: translateY(3px); box-shadow: 0 1px 0 var(--ink);
+      transform: translateY(3px); box-shadow: 1px 1px 0 var(--ink);
     }
     .overlay button { white-space: nowrap; }
     .overlay button.sub, #pause-menu, #leave-btn { background: var(--cream); }
-    .overlay button.hot { background: var(--red); color: #fff; text-shadow: var(--stroke-thin); }
+    .overlay button.hot { background: var(--green); color: #fff; }
     kbd {
-      display: inline-block; min-width: 1.3em; padding: 0 5px; border: 2px solid var(--ink); border-radius: 6px; background: #fff;
-      color: var(--ink); font: 900 12px/1.5 var(--mono); text-align: center; box-shadow: 0 2px 0 var(--ink); vertical-align: 1px;
+      display: inline-block; min-width: 1.3em; padding: 0 5px; border: 2px solid var(--ink); border-radius: 3px; background: #fff;
+      color: var(--ink); font: 900 12px/1.5 var(--mono); text-align: center; box-shadow: 2px 2px 0 var(--ink); vertical-align: 1px;
     }
-    /* 눈 덮인 윗면 (레퍼런스의 눈 모자): 늘어나도 테두리 두께는 그대로 */
-    .snow { position: relative; }
-    .snow::before {
-      content: ""; position: absolute; left: -10px; right: -10px; top: -16px; height: 34px; pointer-events: none;
-      background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 30' preserveAspectRatio='none'%3E%3Cpath d='M4 14C4 6 10 2 18 2H182C190 2 196 6 196 14C196 22 190 23 186 20C183 28 171 28 169 20C160 24 150 23 146 18C140 27 127 27 124 18C112 22 96 22 88 18C82 28 66 28 62 18C52 22 40 22 34 18C28 26 15 26 12 20C6 22 4 19 4 14Z' fill='white' stroke='%2322262e' stroke-width='3' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
-    }
-
     /* ── 게임 화면 왼쪽 위: 상태 칩 + 판정 글자 ── */
     #hud { position: fixed; top: 12px; left: 14px; color: #fff; font: 800 14px/1.4 var(--font); pointer-events: none; max-width: calc(50vw - 200px); } /* 점수판(가운데)과 겹치지 않게 */
     #hud .hud-title { display: none; }
     #status {
-      display: inline-block; padding: 5px 12px; border: 3px solid var(--ink); border-radius: 12px; background: var(--cream);
-      color: var(--ink); font: 900 14px/1.2 var(--font); box-shadow: 0 3px 0 var(--ink);
+      display: inline-block; padding: 5px 12px; border: 3px solid var(--ink); border-radius: 3px; background: var(--cream);
+      color: var(--ink); font: 400 14px/1.2 var(--display); box-shadow: 3px 3px 0 var(--ink);
     }
     #keys-hint { margin-top: 6px; color: #fff; font: 700 12px/1.6 var(--font); text-shadow: var(--stroke-thin); }
     #keys-hint:empty { display: none; }
     #keys-hint kbd { font-size: 11px; text-shadow: none; }
-    #error { color: #fff; background: var(--red); border: 3px solid var(--ink); border-radius: 10px; padding: 0 8px; margin-top: 6px; }
+    #error { color: #fff; background: var(--red); border: 3px solid var(--ink); border-radius: 3px; padding: 0 8px; margin-top: 6px; }
     #error:empty { display: none; }
     /* 마지막 구질 판정 (손으로 확인할 때 보는 글자) */
-    #shot { margin-top: 10px; font: 900 30px/1.1 var(--font); letter-spacing: 0.02em; min-height: 33px; color: #fff; text-shadow: var(--stroke); }
+    #shot { margin-top: 10px; font: 400 30px/1.1 var(--display); letter-spacing: 0.02em; min-height: 33px; color: #fff; text-shadow: var(--stroke); }
     #shot.shot-perfect { color: var(--yellow); }
     #shot.shot-good { color: #8ff08f; }
     #shot.shot-ok { color: #a9ccff; }
     #shot.shot-bad { color: #ff9a8f; }
     #shot-sub, #robot-shot { margin-top: 4px; font: 800 13px/1.4 var(--font); color: #fff; min-height: 18px; text-shadow: var(--stroke-thin); }
-    #combo { margin-top: 4px; font: 900 17px/1.3 var(--font); text-shadow: var(--stroke); }
+    #combo { margin-top: 4px; font: 400 17px/1.3 var(--display); text-shadow: var(--stroke); }
     #combo[hidden] { display: none; }
 
     /* ── 점수판 (화면 위 가운데): 내 점수 빨강 칸, 상대 점수 파랑 칸 ── */
     #scoreboard {
       position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
       display: grid; grid-template-columns: minmax(72px, auto) auto auto auto minmax(72px, auto); align-items: center; column-gap: 8px;
-      padding: 7px 12px 6px; pointer-events: none; text-align: center; font: 900 15px/1.2 var(--font);
+      padding: 7px 12px 6px; pointer-events: none; text-align: center; font: 400 15px/1.2 var(--display);
     }
     #scoreboard .name { display: flex; flex-direction: column; align-items: center; gap: 3px; white-space: nowrap; max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
     #scoreboard .pts {
-      min-width: 1.5em; padding: 4px 8px 2px; border: 3px solid var(--ink); border-radius: 12px; color: #fff;
-      font: 900 32px/1 var(--font); font-variant-numeric: tabular-nums; text-shadow: var(--stroke-thin); box-shadow: 0 3px 0 var(--ink);
+      min-width: 1.5em; padding: 4px 8px 2px; border: 3px solid var(--ink); border-radius: 3px; color: #fff;
+      font: 400 32px/1 var(--display); font-variant-numeric: tabular-nums; text-shadow: var(--stroke-thin); box-shadow: 3px 3px 0 var(--ink);
     }
     #scoreboard .pts.me { background: var(--red); }
     #scoreboard .pts.robot { background: var(--blue); }
-    #scoreboard .sep { font: 900 26px/1 var(--font); color: var(--ink); }
+    #scoreboard .sep { font: 400 26px/1 var(--display); color: var(--ink); }
     #scoreboard .name.me { color: var(--red-2); }
     #scoreboard .name.robot { color: var(--blue-2); }
     #scoreboard .serve {
-      padding: 1px 7px; border: 2px solid var(--ink); border-radius: 999px; background: var(--yellow); color: var(--ink); font: 900 11px/1.3 var(--font);
+      padding: 1px 7px; border: 2px solid var(--ink); border-radius: 3px; background: var(--yellow); color: var(--ink); font: 800 11px/1.3 var(--font);
     }
     #serve-info { grid-column: 1 / 6; margin-top: 5px; padding-top: 4px; border-top: 2px dashed var(--cream-2); font: 800 12px/1.3 var(--font); color: var(--ink-2); }
     #serve-info:empty { display: none; }
 
     /* ── 가운데 안내 글자 ── */
+    /* 가운데 안내: 종이색 띠 (글자 테두리 대신 판 위에 먹색 글자 → 긴 문장도 읽기 쉽다). 결과 색은 띠 색으로 */
     #center {
-      position: fixed; left: 50%; top: 36%; transform: translate(-50%, -50%);
-      color: #fff; font: 900 26px/1.35 var(--font); text-shadow: var(--stroke);
-      pointer-events: none; text-align: center; white-space: pre-line;
+      position: fixed; left: 50%; top: 24%; transform: translate(-50%, -50%); max-width: 80vw; /* 탁구대 먼 쪽을 가리지 않게 위로 */
+      padding: 8px 18px; border: 3px solid var(--ink); border-radius: 2px; background: var(--cream); box-shadow: 5px 5px 0 var(--ink);
+      color: var(--ink); font: 800 18px/1.45 var(--font); pointer-events: none; text-align: center; white-space: pre-line;
     }
-    #center.center-win { color: #8ff08f; }
-    #center.center-lose { color: #ff9a8f; }
-    #center.center-neutral { color: var(--yellow); }
-    #center.center-tentative { color: #e3e8ef; }
-    #center.center-corrected { color: var(--yellow); }
+    #center:empty { display: none; }
+    #center::first-line { font-family: var(--display); font-weight: 400; font-size: 24px; }
+    #center.center-win { background: var(--green); color: #fff; }
+    #center.center-lose { background: var(--red); color: #fff; }
+    #center.center-neutral { background: var(--yellow); }
+    #center.center-tentative { background: var(--cream-3); color: var(--ink-2); }
+    #center.center-corrected { background: var(--yellow); }
 
     /* ── 버전 표시 (배포 반영 확인용) ── */
     #version {
@@ -122,17 +120,17 @@
     /* ── 덮개 화면 공용 (첫 화면·대기실·안내·결과·오류) ── */
     .overlay, #result {
       position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-      background: rgba(127, 176, 244, 0.55); backdrop-filter: blur(3px); z-index: 20;
+      background: rgba(239, 233, 220, 0.78); backdrop-filter: blur(2px); z-index: 20;
     }
     .overlay[hidden], #result[hidden] { display: none; }
     .overlay .box, #result .box {
       min-width: 300px; max-width: 440px; padding: 26px 30px 24px; text-align: center; font: 700 15px/1.6 var(--font);
     }
-    .overlay h1 { margin: 0 0 8px; font: 900 34px/1.1 var(--font); }
+    .overlay h1 { margin: 0 0 8px; font: 400 34px/1.1 var(--display); }
     .overlay .row { display: flex; gap: 10px; justify-content: center; margin-top: 12px; }
     .overlay input[type=text] {
-      padding: 10px 12px; border: 3px solid var(--ink); border-radius: 12px; background: #fff; color: var(--ink);
-      font: 900 16px/1 var(--font); width: 160px; text-align: center; box-shadow: inset 0 3px 0 var(--cream-3); outline: none;
+      padding: 10px 12px; border: 3px solid var(--ink); border-radius: 3px; background: #fff; color: var(--ink);
+      font: 400 16px/1 var(--display); width: 160px; text-align: center; box-shadow: inset 0 3px 0 var(--cream-3); outline: none;
     }
     .overlay input[type=text]:focus { border-color: var(--blue); }
     .overlay .hint { color: var(--ink-2); font-size: 13px; }
@@ -141,9 +139,9 @@
     /* 첫 화면 (7단계 수정): 위에서 본 탁구대. 왼쪽 코트 = 연습, 오른쪽 코트 = 대전. 종이색 바탕, 포스터 글꼴(Black Han Sans).
        색은 --m-* 토큰에서만 정한다 (게임 화면 UI 토큰과 분리). */
     #menu {
-      --m-paper: #efe9dc; --m-ink: #161616; --m-mute: #6d675c;
-      --m-table: #1f6f4a; --m-table-hi: #26825a; --m-line: #ffffff; --m-ball: #ff7a1a;
-      --m-display: "Black Han Sans", var(--font);
+      --m-paper: var(--cream); --m-ink: var(--ink); --m-mute: var(--ink-2);
+      --m-table: var(--green); --m-table-hi: var(--green-2); --m-line: #ffffff; --m-ball: var(--lime);
+      --m-display: var(--display);
       background: var(--m-paper); backdrop-filter: none; color: var(--m-ink);
     }
     #menu .m-wrap { width: min(860px, 92vw); }
@@ -202,15 +200,15 @@
     #menu .err:empty { display: none; }
     #menu-hint { margin-top: 14px; color: var(--m-mute); font-size: 12px; line-height: 1.5; text-align: left; }
     #lobby-code {
-      display: inline-block; margin: 6px 0; padding: 6px 18px; border: 3px solid var(--ink); border-radius: 16px; background: var(--lime);
-      font: 900 48px/1.1 var(--mono); letter-spacing: 0.18em; color: var(--ink); box-shadow: 0 5px 0 var(--ink);
+      display: inline-block; margin: 6px 0; padding: 6px 18px; border: 3px solid var(--ink); border-radius: 3px; background: var(--lime);
+      font: 900 48px/1.1 var(--mono); letter-spacing: 0.18em; color: var(--ink); box-shadow: 5px 5px 0 var(--ink);
     }
     #lobby-players { margin: 10px 0 4px; text-align: left; display: inline-block; white-space: pre-line; }
     #lobby-status { color: var(--ink-2); min-height: 22px; }
 
     /* 결과 화면 */
     #result .box { min-width: 300px; }
-    #result-title { margin: 6px 0 8px; font: 900 44px/1.1 var(--font); }
+    #result-title { margin: 6px 0 8px; font: 400 44px/1.1 var(--display); }
     #result-title.result-win { color: var(--yellow); text-shadow: var(--stroke); }
     #result-title.result-lose { color: var(--blue); text-shadow: var(--stroke); }
     #result-score { color: var(--ink-2); }
@@ -218,17 +216,17 @@
 
     /* ── 대전: 핑 (오른쪽 위), 연결 안내, 나가기 ── */
     #ping {
-      position: fixed; top: 12px; right: 56px; padding: 4px 10px; border: 3px solid var(--ink); border-radius: 10px; background: var(--cream);
-      color: var(--ink); font: 800 12px/1.3 var(--mono); pointer-events: none; box-shadow: 0 3px 0 var(--ink);
+      position: fixed; top: 12px; right: 56px; padding: 4px 10px; border: 3px solid var(--ink); border-radius: 3px; background: var(--cream);
+      color: var(--ink); font: 800 12px/1.3 var(--mono); pointer-events: none; box-shadow: 3px 3px 0 var(--ink);
     }
     #ping[hidden] { display: none; }
     #ping.good { border-left: 10px solid #3fae4a; }
     #ping.ok { border-left: 10px solid #e8b11a; }
     #ping.bad { border-left: 10px solid var(--red); }
     #net-msg {
-      position: fixed; left: 50%; top: 22%; transform: translateX(-50%); padding: 9px 18px; border: 3px solid var(--ink); border-radius: 14px;
-      background: var(--red); color: #fff; font: 900 17px/1.4 var(--font); text-shadow: var(--stroke-thin); pointer-events: none; z-index: 12;
-      box-shadow: 0 4px 0 var(--ink);
+      position: fixed; left: 50%; top: 22%; transform: translateX(-50%); padding: 9px 18px; border: 3px solid var(--ink); border-radius: 3px;
+      background: var(--red); color: #fff; font: 400 17px/1.4 var(--display); text-shadow: var(--stroke-thin); pointer-events: none; z-index: 12;
+      box-shadow: 4px 4px 0 var(--ink);
     }
     #net-msg[hidden] { display: none; }
     #leave-btn { position: fixed; top: 52px; right: 12px; z-index: 10; padding: 7px 14px; font-size: 13px; }
@@ -240,10 +238,10 @@
 
     /* ── 동그란 아이콘 버튼 (설정 ⚙, 일시정지 ⏸, 전체 화면 ⛶) ── */
     #settings-btn, #audio-ui button {
-      width: 38px; height: 38px; padding: 0; border: 3px solid var(--ink); border-radius: 12px; background: var(--cream); color: var(--ink);
-      font: 900 18px/1 var(--font); cursor: pointer; box-shadow: 0 3px 0 var(--ink); display: inline-flex; align-items: center; justify-content: center;
+      width: 38px; height: 38px; padding: 0; border: 3px solid var(--ink); border-radius: 3px; background: var(--cream); color: var(--ink);
+      font: 400 18px/1 var(--display); cursor: pointer; box-shadow: 3px 3px 0 var(--ink); display: inline-flex; align-items: center; justify-content: center;
     }
-    #settings-btn:active, #audio-ui button:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+    #settings-btn:active, #audio-ui button:active { transform: translateY(2px); box-shadow: 1px 1px 0 var(--ink); }
     #settings-btn { position: fixed; top: 8px; right: 12px; z-index: 31; }
     #settings-btn.on { background: var(--lime); }
 
@@ -253,26 +251,26 @@
       box-sizing: border-box; padding: 12px 16px 14px; font: 700 14px/1.45 var(--font);
     }
     #settings[hidden] { display: none; }
-    #settings .set-head { display: flex; justify-content: space-between; align-items: center; font: 900 18px/1.2 var(--font); }
+    #settings .set-head { display: flex; justify-content: space-between; align-items: center; font: 400 18px/1.2 var(--display); }
     #settings .set-head button {
-      width: 30px; height: 30px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink);
-      font: 900 14px/1 var(--font); cursor: pointer; box-shadow: 0 2px 0 var(--ink);
+      width: 30px; height: 30px; border: 2px solid var(--ink); border-radius: 3px; background: #fff; color: var(--ink);
+      font: 400 14px/1 var(--display); cursor: pointer; box-shadow: 2px 2px 0 var(--ink);
     }
     #settings .set-sec {
-      margin: 14px 0 6px; padding: 2px 8px; display: inline-block; border-radius: 8px; background: var(--ink); color: var(--cream);
-      font: 900 11px/1.5 var(--font); letter-spacing: 0.08em;
+      margin: 14px 0 6px; padding: 2px 8px; display: inline-block; border-radius: 3px; background: var(--ink); color: var(--cream);
+      font: 800 11px/1.5 var(--font); letter-spacing: 0.08em;
     }
     /* 조작 모드: 레퍼런스의 탭 막대처럼 고른 칸이 연두 */
-    #settings .seg { display: grid; grid-template-columns: 1fr 1fr; border: 3px solid var(--ink); border-radius: 14px; overflow: hidden; background: var(--cream-3); box-shadow: 0 3px 0 var(--ink); }
+    #settings .seg { display: grid; grid-template-columns: 1fr 1fr; border: 3px solid var(--ink); border-radius: 3px; overflow: hidden; background: var(--cream-3); box-shadow: 3px 3px 0 var(--ink); }
     #settings .seg button {
-      padding: 9px 4px; border: 0; background: none; color: var(--ink-2); font: 900 15px/1.2 var(--font); cursor: pointer;
+      padding: 9px 4px; border: 0; background: none; color: var(--ink-2); font: 400 15px/1.2 var(--display); cursor: pointer;
     }
     #settings .seg button + button { border-left: 3px solid var(--ink); }
     #settings .seg button small { display: block; font-weight: 700; font-size: 11px; }
     #settings .seg button.on { background: var(--lime); color: var(--ink); }
     #settings .set-desc { margin-top: 8px; color: var(--ink-2); font-size: 12px; line-height: 1.5; }
     #settings .set-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; padding: 3px 0; cursor: pointer; white-space: nowrap; }
-    #settings .set-row input[type=range] { flex: 1; accent-color: var(--blue); }
+    #settings .set-row input[type=range] { flex: 1; min-width: 0; accent-color: var(--lime); }
     #settings .set-row input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--lime-2); }
     #settings .set-row kbd { margin-left: auto; }
 
@@ -282,18 +280,18 @@
     /* ── 일시정지 화면 ── */
     #pause {
       position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-      background: rgba(127, 176, 244, 0.55); backdrop-filter: blur(3px); cursor: pointer; z-index: 18;
+      background: rgba(239, 233, 220, 0.78); backdrop-filter: blur(2px); cursor: pointer; z-index: 18;
     }
     #pause[hidden] { display: none; }
     #pause .box { max-width: 560px; max-height: 92vh; overflow-y: auto; box-sizing: border-box; padding: 22px 28px; text-align: center; font: 700 14px/1.6 var(--font); }
-    #pause h1 { margin: 0 0 4px; font: 900 34px/1.1 var(--font); }
+    #pause h1 { margin: 0 0 4px; font: 400 34px/1.1 var(--display); }
     #pause-hint, #pause-hint2 { color: var(--ink-2); font-size: 13px; }
     #pause .go { margin-top: 14px; padding: 12px 32px; font-size: 18px; }
     #pause-menu { margin-top: 10px; padding: 9px 20px; font-size: 14px; }
     #pause-menu[hidden] { display: none; }
 
     /* 조작표 (일시정지·첫 경기 안내) */
-    .controls { margin: 12px auto 0; border-collapse: separate; border-spacing: 0; font: 700 13px/1.5 var(--font); text-align: left; background: #fff; border: 3px solid var(--ink); border-radius: 14px; overflow: hidden; }
+    .controls { margin: 12px auto 0; border-collapse: separate; border-spacing: 0; font: 700 13px/1.5 var(--font); text-align: left; background: #fff; border: 3px solid var(--ink); border-radius: 3px; overflow: hidden; }
     .controls td { padding: 4px 10px; border-bottom: 2px solid var(--cream-3); }
     .controls tr:last-child td { border-bottom: 0; }
     .controls td:first-child { text-align: right; white-space: nowrap; font-weight: 900; background: var(--cream-3); }
@@ -307,36 +305,36 @@
     .c-smash { --c: #f08a12; color: #e07a00; } .c-normal { --c: var(--ink); color: var(--ink); }
     #shot-keys {
       position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; gap: 8px; pointer-events: none;
-      font: 900 13px/1 var(--font);
+      font: 800 13px/1 var(--font);
     }
     #shot-keys[hidden], #shot-btns[hidden], #spin-badge[hidden] { display: none; }
     #shot-keys span {
-      padding: 7px 11px; border: 3px solid var(--ink); border-radius: 12px; background: var(--cream); box-shadow: 0 3px 0 var(--ink);
+      padding: 7px 11px; border: 3px solid var(--ink); border-radius: 3px; background: var(--cream); box-shadow: 3px 3px 0 var(--ink);
       opacity: 0.75; transition: transform 0.06s;
     }
-    #shot-keys span.on { opacity: 1; background: var(--c); color: #fff; text-shadow: var(--stroke-thin); transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+    #shot-keys span.on { opacity: 1; background: var(--c); color: #fff; text-shadow: var(--stroke-thin); transform: translateY(2px); box-shadow: 1px 1px 0 var(--ink); }
     #shot-btns {
       position: fixed; bottom: calc(14px + env(safe-area-inset-bottom)); left: calc(56px + env(safe-area-inset-left));
       display: grid; grid-template-columns: repeat(3, var(--btn, 64px)); gap: 8px; z-index: 11; touch-action: none;
     }
     #shot-btns.right { left: auto; right: calc(14px + env(safe-area-inset-right)); }
     #shot-btns button {
-      width: var(--btn, 64px); height: var(--btn, 64px); border-radius: 16px; border: 3px solid var(--ink);
-      background: var(--cream); font: 900 13px/1.1 var(--font); opacity: 0.88; touch-action: none; box-shadow: 0 4px 0 var(--ink);
+      width: var(--btn, 64px); height: var(--btn, 64px); border-radius: 3px; border: 3px solid var(--ink);
+      background: var(--cream); font: 800 13px/1.1 var(--font); opacity: 0.88; touch-action: none; box-shadow: 4px 4px 0 var(--ink);
       -webkit-user-select: none; user-select: none; padding: 0;
     }
-    #shot-btns button.on { opacity: 1; background: var(--c); color: #fff; text-shadow: var(--stroke-thin); transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+    #shot-btns button.on { opacity: 1; background: var(--c); color: #fff; text-shadow: var(--stroke-thin); transform: translateY(3px); box-shadow: 1px 1px 0 var(--ink); }
 
     /* 들어오는 공의 회전 표지 (내 예측 정점 고리 위) */
     #spin-badge {
-      position: fixed; transform: translate(-50%, -100%); padding: 2px 9px; border: 3px solid var(--ink); border-radius: 10px; background: var(--cream);
-      font: 900 14px/1.3 var(--font); pointer-events: none; white-space: nowrap; z-index: 5; box-shadow: 0 3px 0 var(--ink);
+      position: fixed; transform: translate(-50%, -100%); padding: 2px 9px; border: 3px solid var(--ink); border-radius: 3px; background: var(--cream);
+      font: 400 14px/1.3 var(--display); pointer-events: none; white-space: nowrap; z-index: 5; box-shadow: 3px 3px 0 var(--ink);
     }
 
     /* 판정 팝업: 공 위치에서 튀어 올랐다 사라짐 */
     #popups { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
     .popup {
-      position: absolute; transform: translate(-50%, -50%); font-family: var(--font); font-weight: 900;
+      position: absolute; transform: translate(-50%, -50%); font-family: var(--display); font-weight: 400;
       letter-spacing: 0.04em; text-shadow: var(--stroke); white-space: nowrap;
       animation-name: popup-rise; animation-timing-function: cubic-bezier(0.2, 0.9, 0.3, 1); animation-fill-mode: forwards;
     }
@@ -396,7 +394,7 @@
     /* 세로 화면 안내 (모바일) */
     #rotate {
       position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 50;
-      background: linear-gradient(var(--sky-2), var(--sky)); color: var(--ink); font: 900 22px/1.5 var(--font); text-align: center;
+      background: linear-gradient(var(--sky-2), var(--sky)); color: var(--ink); font: 400 22px/1.5 var(--display); text-align: center;
     }
     #rotate > div { padding: 22px 30px; }
     #rotate .icon { font-size: 54px; }
@@ -416,12 +414,13 @@
     body.mobile #keys-hint { display: none; }
     body.mobile #shot { font-size: 20px; min-height: 22px; margin-top: 6px; }
     body.mobile #shot-sub, body.mobile #robot-shot { font-size: 11px; min-height: 14px; max-width: 34vw; }
-    body.mobile #scoreboard { top: calc(4px + env(safe-area-inset-top)); padding: 3px 8px; column-gap: 5px; font-size: 11px; border-radius: 16px; }
+    body.mobile #scoreboard { top: calc(4px + env(safe-area-inset-top)); padding: 3px 8px; column-gap: 5px; font-size: 11px; border-radius: 3px; }
     body.mobile #scoreboard .pts { font-size: 22px; padding: 3px 6px 1px; }
     body.mobile #scoreboard .sep { font-size: 18px; }
     body.mobile #scoreboard .serve { font-size: 9px; }
     body.mobile #serve-info { font-size: 10px; margin-top: 3px; padding-top: 2px; }
-    body.mobile #center { font-size: 17px; top: 40%; }
+    body.mobile #center { font-size: 13px; top: 40%; padding: 5px 12px; }
+    body.mobile #center::first-line { font-size: 17px; }
     body.mobile #audio-ui {
       left: auto; bottom: auto; right: calc(58px + env(safe-area-inset-right)); top: calc(4px + env(safe-area-inset-top)); gap: 6px;
     }
@@ -440,7 +439,6 @@
     body.mobile #net-msg { font-size: 14px; top: 30%; }
     body.mobile #version { left: calc(10px + env(safe-area-inset-left)); bottom: calc(6px + env(safe-area-inset-bottom)); }
     body.mobile .overlay .box { padding: 12px 18px; max-height: 92vh; overflow-y: auto; box-sizing: border-box; }
-    body.mobile .snow::before { display: none; } /* 낮은 가로 화면에서는 카드가 잘리지 않도록 장식을 뺀다 */
     /* 가로 휴대폰 첫 화면: 머리줄을 줄이고 탁구대를 남은 높이에 맞춘다 */
     body.mobile #menu .m-wrap { width: 92vw; }
     body.mobile #menu .m-head { margin-bottom: 10px; margin-right: 52px; } /* 오른쪽 위 ⚙ 버튼 자리 */
@@ -462,8 +460,8 @@
     body.mobile #pause h1 { font-size: 26px; }
     body.mobile #pause-actions { gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 10px; }
     body.mobile #pause-actions button {
-      min-height: 44px; min-width: 64px; padding: 0 12px; border: 3px solid var(--ink); border-radius: 12px; background: var(--cream);
-      color: var(--ink); font: 900 14px/1 var(--font); box-shadow: 0 3px 0 var(--ink);
+      min-height: 44px; min-width: 64px; padding: 0 12px; border: 3px solid var(--ink); border-radius: 3px; background: var(--cream);
+      color: var(--ink); font: 400 14px/1 var(--display); box-shadow: 3px 3px 0 var(--ink);
     }
     body.mobile #result .box { padding: 14px 20px; }
     body.mobile #result-title { font-size: 30px; }
@@ -505,7 +503,7 @@
   </div>
   <div id="center"></div>
   <div id="result" hidden>
-    <div class="box card snow">
+    <div class="box card">
       <h2 id="result-title"></h2>
       <div id="result-score"></div>
       <button id="again" type="button">다시 하기</button>
