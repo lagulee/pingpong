@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v7.5';
+export const VERSION = 'v7.6';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -163,6 +163,15 @@ const SHOT_TUNABLE = {
   SERVE_V_MIN: 2.7, SERVE_V_MAX: 4.3, SERVE_DEPTH: 0.9, SERVE_SPIN_SCALE: 0.45, // v6.0: 3.5–5.5의 √0.6배 (게임 중력)
   SERVE_ASSIST_V: 5.8,       // 서브 속도 보조 상한 (v6.0: 7.5 → 5.8): 고른 속도로 들어가는 서브가 없으면 이 속도까지 올려 본다 (m/s)
   SERVE_ERR_SCALE: 0.3,      // 서브 방향·속도 오차 배율 (1 = 랠리와 같음). 작을수록 타이밍이 어긋나도 잘 들어간다
+  // 퍼펙트 콤보 (v7.6, 사용자 요청): PERFECT 타이밍 공격 스윙(일반·드라이브·커트·사이드·스매시·조합)을 이어 치면 콤보가 쌓이고,
+  // 단계 L = min(콤보 − 1, COMBO_MAX)만큼 공의 위력이 오른다(첫 PERFECT는 그대로, 둘째 연속부터). PERFECT가 아닌 타격·블록·실타, 또는 실점하면 0으로 돌아간다(서브는 그대로).
+  //   회전 × (1 + COMBO_SPIN·L) — 회전 누적 상한도 같은 배율로 오른다
+  //   속도: 목표 정점 × (1 − COMBO_APEX·L)로 낮고 빠르게, 속도 한계(V_MAX)와 스매시 속도 × (1 + COMBO_SPEED·L)
+  // 사람 전용(로봇은 쌓지 않음). 결과 공은 서버 한도(ONLINE.MAX_V·MAX_SPIN) 안이다.
+  COMBO_MAX: 5,
+  COMBO_SPEED: 0.06,
+  COMBO_SPIN: 0.05,
+  COMBO_APEX: 0.05,
 };
 
 // AI 로봇 난이도별 수치 (EASY 쉬움 / NORMAL 보통 / HARD 어려움)
@@ -330,6 +339,10 @@ export const TUNABLE_RANGES = Object.freeze({
   SERVE_HIT_RADIUS: r(0.05, 0.5, 0.005),
   REACH_Y: r(0.05, 0.8, 0.01),
   PERFECT_WINDOW: r(0, 0.2, 0.005),
+  COMBO_MAX: r(0, 10, 1),
+  COMBO_SPEED: r(0, 0.15, 0.005),
+  COMBO_SPIN: r(0, 0.15, 0.005),
+  COMBO_APEX: r(0, 0.1, 0.005),
   GOOD_WINDOW: r(0, 0.3, 0.005),
   OK_WINDOW: r(0, 0.5, 0.005),
   ACC_PERFECT: r(0, 1, 0.01),
@@ -692,7 +705,11 @@ export const FEEL = Object.freeze({
     smash: Object.freeze({ text: 'SMASH!', color: '#ff5a3c', size: 46 }),
     edge: Object.freeze({ text: 'EDGE!', color: '#7fe8ff', size: 40 }),
     spinmax: Object.freeze({ text: 'MAX SPIN', color: '#c48bff', size: 30 }),
+    combo: Object.freeze({ text: 'PERFECT ×2', color: '#ffd84d', size: 36 }), // v7.6 퍼펙트 콤보 (글자·색은 effects.js popupText)
   }),
+  COMBO_COLOR_LOW: 0xffd84d,  // 퍼펙트 콤보 팝업·표시 색: 1단계 노랑 → 최고 단계 빨강
+  COMBO_COLOR_HIGH: 0xff3b30,
+  COMBO_SIZE_GAIN: 16,       // 최고 단계 콤보 팝업이 1단계보다 커지는 글자 크기 (px)
 });
 
 // 소리 합성 레시피. 각 층(layer)은 사인파(tone) 또는 필터 거친 노이즈(noise)다.
@@ -794,8 +811,10 @@ export const ONLINE = Object.freeze({
   SYNC_INTERVAL: 5,          // 게임 중 시계 다시 재는 간격 (s)
   // 서버 hit 검증 (실측: AI 경기 60판 87,590타 최대 15.15 m/s(스매시)·79.2 rps(드라이브).
   // 사람만 낼 수 있는 실타 MISHIT_SPEED 18 m/s × 1.2 = 21.6 → 22, 회전 79.2 × 1.5 ≈ 120)
-  MAX_V: 22,                 // 타구 최대 속도 (m/s)
-  MAX_SPIN: 120,             // 타구 최대 회전 (rps)
+  // v7.6 퍼펙트 콤보: 최고 단계 스매시 SMASH_V_MAX 15 × 1.3 = 19.5 m/s × 1.2 = 23.4 → 24,
+  // 최고 단계 드라이브가 누적 상한 100 × 1.25 + 들어온 회전 효과 ≈ 121 rps (사람 대역 측정) → 121 × 1.2 ≈ 150
+  MAX_V: 24,                 // 타구 최대 속도 (m/s). v7.6: 22 → 24
+  MAX_SPIN: 150,             // 타구 최대 회전 (rps). v7.6: 120 → 150
   RACKET_TOL: 0.04,          // 라켓-공 거리 여유: x·z 각각 HIT_RADIUS(서브 SERVE_HIT_RADIUS) + 이 값 (m)
   BALL_TOL: 0.05,            // 보낸 공 위치와 서버가 계산한 공 위치 차이 한도 (m)
   T_PAST: 0.6,               // 서버 시각보다 이만큼 과거인 타격까지 받는다 (s, v5.1: 0.3 → 0.6 지연 흔들림 대비)

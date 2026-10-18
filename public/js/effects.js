@@ -189,11 +189,35 @@ export function popupsFor(e, me = -1, p = TUNABLE) {
   const out = [];
   if (e.type === 'racket' && e.shot) {
     if (e.shot.shotType === 'smash') out.push('smash');
-    if (e.side === me && e.shot.quality?.timing === 'PERFECT') out.push('perfect');
+    // 퍼펙트 콤보: 둘째 연속 PERFECT부터 'combo' 팝업(글자는 popupText)이 PERFECT를 대신한다
+    if (e.side === me && e.shot.quality?.timing === 'PERFECT') out.push(e.shot.quality.comboLevel > 0 ? 'combo' : 'perfect');
     if (e.side === me && e.shot.quality?.stack?.capped) out.push('spinmax'); // 7단계: 회전 누적이 상한에 닿음
   }
   if (e.type === 'edge') out.push('edge');
   return out;
+}
+
+// 팝업 글자와 색: 콤보 팝업은 "PERFECT ×N", 단계가 오를수록 노랑 → 주황 → 빨강, 글자도 커진다
+export function popupText(kind, e) {
+  const def = FEEL.POPUPS[kind];
+  if (!def) return null;
+  if (kind !== 'combo') return def;
+  const q = e?.shot?.quality ?? {};
+  const f = Math.min(1, (q.comboLevel ?? 0) / Math.max(1, TUNABLE.COMBO_MAX));
+  const color = `#${mixColor(FEEL.COMBO_COLOR_LOW, FEEL.COMBO_COLOR_HIGH, f).toString(16).padStart(6, '0')}`;
+  return { text: `PERFECT ×${q.combo ?? 0}`, color, size: Math.round(def.size + f * FEEL.COMBO_SIZE_GAIN) };
+}
+
+// 콤보 표시(HUD): 콤보 1 이상이면 다음 PERFECT의 위력 단계와 증가율. 0이면 null
+export function comboHud(combo, p = TUNABLE) {
+  if (!(combo >= 1)) return null;
+  const next = Math.min(combo, p.COMBO_MAX);
+  const f = next / Math.max(1, p.COMBO_MAX);
+  const pct = (k) => Math.round(100 * k * next);
+  return {
+    text: `PERFECT 콤보 ×${combo} · 다음 PERFECT 위력 ${next}/${p.COMBO_MAX}단계 (회전 +${pct(p.COMBO_SPIN)}%, 속도 ↑)`,
+    color: `#${mixColor(FEEL.COMBO_COLOR_LOW, FEEL.COMBO_COLOR_HIGH, f).toString(16).padStart(6, '0')}`,
+  };
 }
 
 // ── 화면 시각에 맞춰 내보내는 대기열 ───────────────────────
@@ -276,9 +300,9 @@ export function createFx(p = TUNABLE) {
 // container 안에 글자를 띄워 POPUP_TIME 동안 떠오르며 사라지게 한다. CSS 애니메이션은 index.html.
 export function createPopupLayer(container, p = TUNABLE) {
   return {
-    show(kinds, screen) {
+    show(kinds, screen, e = null) {
       kinds.forEach((kind, i) => {
-        const def = FEEL.POPUPS[kind];
+        const def = popupText(kind, e);
         if (!def) return;
         const el = document.createElement('div');
         el.className = `popup popup-${kind}`;

@@ -18,7 +18,7 @@ import {
 import { canHit, bouncedOn, matchPointSide, idx } from '../shared/rules.js';
 import { createAudio, initSoundTest } from './audio.js';
 import {
-  createFx, createBallHistory, createDisplayQueue, createPopupLayer, frameSteps, vibrationMs, trailColor, spinRead,
+  createFx, createBallHistory, createDisplayQueue, createPopupLayer, frameSteps, vibrationMs, trailColor, spinRead, comboHud,
 } from './effects.js';
 import { initDebug, launchParams, SCENARIO_LABELS } from './debug.js';
 import {
@@ -40,6 +40,7 @@ const canvas = $('game');
 const statusEl = $('status');
 const shotEl = $('shot');
 const shotSubEl = $('shot-sub');
+const comboEl = $('combo');
 const robotShotEl = $('robot-shot');
 const centerEl = $('center');
 const scoreEls = { me: $('score-me'), robot: $('score-robot') };
@@ -722,7 +723,9 @@ function showShot(e) {
     // 회전 누적(7단계): 같은 회전으로 받아쳐 더해진 몫과 상한
     const st = q.stack && q.stack.add > 0.5 ? ` · 회전 ${Math.round(q.stack.base)}+${Math.round(q.stack.add)}${q.stack.capped ? ' MAX' : ''} rps` : '';
     const note = q.smashSlow ? ` · 스매시는 ${q.smashSpeed} m/s 이상으로 (느려서 일반)` : q.smashNoServe ? ' · 서브는 스매시 불가 (일반 서브)' : '';
-    shotSubEl.textContent = `스윙 ${q.dragSpeed.toFixed(2)} m/s · 세기 ${q.strength.toFixed(2)} · 정점 대비 ${dt} · 공 ${e.speed.toFixed(1)} m/s${st}${note}`;
+    // 퍼펙트 콤보: 이 타격에 붙은 위력 단계
+    const cb = q.comboLevel > 0 ? ` · 콤보 ×${q.combo} 위력 ${q.comboLevel}단계` : '';
+    shotSubEl.textContent = `스윙 ${q.dragSpeed.toFixed(2)} m/s · 세기 ${q.strength.toFixed(2)} · 정점 대비 ${dt} · 공 ${e.speed.toFixed(1)} m/s${st}${cb}${note}`;
   } else {
     const who = online() ? nameEls.robot.textContent : '로봇';
     robotShotEl.textContent = `${who}: ${label}${s.quality?.timing ? ` · ${s.quality.timing}` : ''}`;
@@ -824,7 +827,7 @@ function dispatch(item) {
   audio.playImpact(e.type, e.speed, e.shot?.shotType);
   if (mobile) vibrate(vibrationMs(e, me));
   const r = fx.onEvent(e, me);
-  if (r.popups.length) popups.show(r.popups, view.worldToScreen(e.pos));
+  if (r.popups.length) popups.show(r.popups, view.worldToScreen(e.pos), e);
   if (e.type === 'racket') showShot(e);
 }
 
@@ -858,6 +861,17 @@ function updateSpinBadge(pos, t) {
   spinBadgeEl.style.left = `${sp.x}px`;
   spinBadgeEl.style.top = `${sp.y}px`;
   spinBadgeEl.hidden = false;
+}
+
+// ── 퍼펙트 콤보 표시 (7단계 수정) ──
+let comboText = '';
+function updateComboHud(combo) {
+  const h = comboHud(combo);
+  const text = h ? h.text : '';
+  if (text === comboText) return;
+  comboText = text;
+  comboEl.hidden = !h;
+  if (h) { comboEl.textContent = h.text; comboEl.style.color = h.color; }
 }
 
 // ── 그리기 ──
@@ -994,6 +1008,7 @@ function frame(now) {
   const ringPos = waiting ? human.apexPos : holdingServe && guide ? guide.hit : null;
   marker.update(ringPos, tossed || holdingServe ? TUNABLE.SERVE_HIT_RADIUS : TUNABLE.HIT_RADIUS, smashable);
   updateSpinBadge(mode !== 'menu' && waiting && !tossed ? human.apexPos : null, t);
+  updateComboHud(mode !== 'menu' ? human.combo : 0);
   updateShotButtons();
   if (!settingsEl.hidden && volumeEl !== document.activeElement) syncSettings(); // 키(M·G·Space)로 바꾼 값도 보이게
   if (!introEl.hidden && performance.now() / 1000 > introUntil) hideIntro();

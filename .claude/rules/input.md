@@ -181,3 +181,19 @@ $$S_{out} = \min\!\big(S_{cap},\; S_{base}(s) + k\cdot\max(0,\ S_{in}^{같은\ �
 - 값은 v6.3 그대로이고 `BASIC_TOUCH_SMASH_SPEED`만 새로 정했다(2.8 × v7.1 터치/마우스 비 1.0/2.0 = 1.4).
 - 사람 클라이언트 전용이라 대전 중에도 바꿀 수 있고 두 사람의 모드가 달라도 된다(서버는 `vel`·`spin` 한도와 `shotType` 허용 목록만 검증).
 - [x] (`tests/control-mode.test.js`) 대표 드래그 5종 → 드라이브·스매시·커트·사이드·블록 + 상대 코트, 버튼 무시, 낮은 공 빠른 내려치기 = 센 커트, 경계값, 터치 스매시 기준, 누적, 서브 3종·가이드, 모드 값 정규화.
+
+## 퍼펙트 콤보 (v7.6)
+
+| 이번 타격 | 콤보 |
+|---|---|
+| PERFECT + 공격 스윙(일반·드라이브·커트·사이드·스매시·사이드 커트·사이드 드라이브) | + 1 |
+| GOOD·OK·BAD, 블록, 약한 블록, 실타 | 0 |
+| 서브 | 그대로 (세지도 끊지도 않음) |
+| 실점 (다음 서브 대기) | 0 |
+
+- 위력 단계 $L = \min(\text{콤보} - 1,\ \texttt{COMBO\_MAX})$: 첫 PERFECT는 위력 그대로, 둘째 연속 PERFECT부터 한 단계씩.
+- 회전 $\times (1 + \texttt{COMBO\_SPIN}\cdot L)$ (누적 상한도 같은 배율), 목표 정점 $\times (1 - \texttt{COMBO\_APEX}\cdot L)$ → 같은 깊이를 더 낮고 빠르게, 속도 한계(`*_V_MAX`)·스매시 속도 $\times (1 + \texttt{COMBO\_SPEED}\cdot L)$.
+- 기본값 `COMBO_MAX` 5, `COMBO_SPIN` 0.05(최고 +25%), `COMBO_APEX` 0.05(최고 정점 −25%), `COMBO_SPEED` 0.06(최고 +30%). 디버그 패널 "구질" 묶음, 대전 중에는 기본값 고정.
+- `classifyShot(…, { combo })`(이 타격 전 콤보 수) → `quality.combo`(이 타격 뒤)·`quality.comboLevel`. 상태는 `player.combo`(ai.js `hitPhase`가 갱신, `onHold`에서 실점한 쪽을 0으로). 로봇은 쌓지 않는다.
+- 서버 한도: 최고 단계 + 누적 상한 드라이브 약 121 rps, 스매시 최대 19.5 m/s → `MAX_SPIN` 150, `MAX_V` 24.
+- [x] (`tests/combo.test.js`) 콤보 규칙, 콤보 0 = 기존 공, 단계마다 회전·속도 증가 + 상대 코트, 서버 한도, 경기 안 누적·끊김·로봇 무누적, 팝업·HUD.

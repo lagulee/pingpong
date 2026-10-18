@@ -36,6 +36,7 @@ export function createPlayer(side) {
     apexT: null,             // 예측 정점 시각
     apexPos: null,           // 예측 정점 위치 (세계 좌표, 표시용)
     lastShot: null,
+    combo: 0,                // 이어진 퍼펙트 콤보 수 (7단계 수정, 사람만 쌓는다)
   };
 }
 
@@ -294,6 +295,12 @@ export function createRally({ players, ais = [], rng, firstServer = -1, bestOf =
 // 서브 대기를 새로 시작할 때: 플레이어 라켓 평면을 서브 자리로, 로봇 서브권자는 토스 시각을 잡는다
 function onHold(game, t) {
   const server = game.rules.server;
+  // 퍼펙트 콤보는 실점하면 끊긴다 (득점·렛이면 이어진다)
+  for (let i = game.comboSeen ?? 0; i < game.results.length; i++) {
+    const r = game.results[i];
+    if (r.loser && game.players[r.loser]) game.players[r.loser].combo = 0;
+  }
+  game.comboSeen = game.results.length;
   game.scenario = null;
   game.tossAt = null;
   for (const side of [-1, 1]) {
@@ -400,7 +407,9 @@ function hitPhase(game, t, dt, events, params) {
       spinIn: carriedSpin(game.inSpin, t, params) ?? undefined, smashSpeed: p.smashSpeed,
       ringZ: serveHit || p.robot ? undefined : p.apexPos?.z, // 사람: 화면 고리 높이로 스매시 판정 (로봇은 맞은 높이로 고른다)
       control: p.control, // 사람의 조작 모드 (설정 ⚙: 기본 = 드래그 방향, 고급 = 버튼). 로봇은 없음 = 버튼
+      combo: p.robot ? 0 : p.combo, // 퍼펙트 콤보: 사람만 쌓는다
     });
+    if (!p.robot) p.combo = shot.quality.combo;
     p.lastShot = shot;
     game.lastShot = { side, ...shot };
     // 바운드 전 공이 코트 밖으로 나가던 공이면 applyHit가 outside를 붙인다 (쳐도 발리가 아니라 상대의 아웃)

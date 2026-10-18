@@ -257,6 +257,17 @@ export function aimErrors(accuracy, dt, rng, params = TUNABLE) {
   };
 }
 
+// 퍼펙트 콤보 (7단계 수정): 공격 스윙을 PERFECT로 치면 콤보 + 1, PERFECT가 아니거나 블록·실타면 0. 서브는 세지도 끊지도 않는다.
+// 반환 { combo(이 타격 뒤 콤보 수), level(이 타격의 위력 단계 = min(콤보 − 1, COMBO_MAX)) }
+export const COMBO_SHOTS = Object.freeze(['normal', 'drive', 'cut', 'side', 'smash', 'sidecut', 'sidedrive']);
+export function comboAfter(prev, shotType, timing, { serve = false, pressed = true } = {}, params = TUNABLE) {
+  if (serve) return { combo: prev, level: 0 };
+  if (!pressed || timing !== 'PERFECT' || !COMBO_SHOTS.includes(shotType)) return { combo: 0, level: 0 };
+  const combo = prev + 1;
+  // 첫 PERFECT는 위력 그대로, 둘째 연속 PERFECT부터 한 단계씩
+  return { combo, level: Math.min(combo - 1, params.COMBO_MAX) };
+}
+
 // 조합 구질(사이드 커트·사이드 드라이브)은 속도·정점·깊이·면을 바탕 구질 값으로 쓴다
 const PREFIX = { normal: 'NORMAL', drive: 'DRIVE', smash: 'SMASH', cut: 'CUT', side: 'SIDE', block: 'BLOCK', sidecut: 'CUT', sidedrive: 'DRIVE' };
 const lerpP = (params, P, key, s) => params[`${P}_${key}_MIN`] + s * (params[`${P}_${key}_MAX`] - params[`${P}_${key}_MIN`]);
@@ -334,8 +345,9 @@ export function aimTarget(type, drag, racketX, params = TUNABLE) {
 //        button(구질 버튼, 기본 샘플의 k로 buttonAt), spinIn(판정용 들어온 회전, 세계 좌표 rad/s. 기본 공의 물리 회전),
 //        smashSpeed(스매시 기준 스윙 속도, 기본 SMASH_SPEED. 터치는 TOUCH_SMASH_SPEED),
 //        ringZ(화면 고리 = 예측 정점의 높이. 이 높이가 스매시 높이 이상(빨간 고리)이면 맞은 높이가 조금 낮아도 스매시),
-//        control('advanced' 구질 버튼(기본값, 로봇) | 'basic' 드래그 방향으로 구질, 설정 ⚙) }
-// 반환: { shotType, vel, spin, quality: { timing, accuracy, strength, dtApex, weak, target, button, spinIn, stack } }
+//        control('advanced' 구질 버튼(기본값, 로봇) | 'basic' 드래그 방향으로 구질, 설정 ⚙),
+//        combo(이 타격 전까지 이어진 퍼펙트 콤보 수, 기본 0. 로봇은 넘기지 않는다) }
+// 반환: { shotType, vel, spin, quality: { timing, accuracy, strength, dtApex, weak, target, button, spinIn, stack, combo, comboLevel } }
 export function classifyShot(samples, ballState, ctx = {}) {
   const params = ctx.params ?? TUNABLE;
   const side = ctx.side ?? -1;
@@ -361,6 +373,7 @@ export function classifyShot(samples, ballState, ctx = {}) {
   const parts = spinParts(b);
   const dtApex = ctx.apexT == null ? Infinity : t - ctx.apexT;
   const { timing, accuracy } = gradeTiming(dtApex, params);
+  const cb = comboAfter(ctx.combo ?? 0, shotType, timing, { serve, pressed }, params);
   const strength = clamp((drag.speed - params.BLOCK_SPEED) / (params.SPEED_FULL - params.BLOCK_SPEED), 0, 1);
   const err = aimErrors(accuracy, dtApex, rng, params);
   // 서브는 오차를 줄여 타이밍이 조금 어긋나도 들어가게 한다
@@ -369,8 +382,9 @@ export function classifyShot(samples, ballState, ctx = {}) {
   const quality = {
     timing, accuracy, strength, dtApex, weak: !pressed, target: null, dragSpeed: drag.speed, dragSin: drag.sin, serve,
     button, smashSlow: button === 'smash' && shotType === 'normal' && !serve, smashNoServe: serve && button === 'smash', smashSpeed,
-    spinIn: { top: parts.top, side: parts.side }, stack: null,
+    spinIn: { top: parts.top, side: parts.side }, stack: null, combo: cb.combo, comboLevel: cb.level,
   };
+  const boostV = 1 + params.COMBO_SPEED * cb.level, boostW = 1 + params.COMBO_SPIN * cb.level;
 
   let out; // 기준 좌표의 { vel, spin }
   if (serve && shotType !== 'block') {
@@ -398,7 +412,7 @@ export function classifyShot(samples, ballState, ctx = {}) {
     }
   } else {
     const P = PREFIX[shotType];
-    let speed = lerpP(params, P, 'V', strength);
+    let speed = lerpP(params, P, 'V', strength) * boostV; // 퍼펙트 콤보: 스매시 속도 (높은 포물선 구질은 아래 solveArc가 속도를 정한다)
     let topspin = 0, sidespin = 0;
     const dirX = Math.abs(drag.u.x) > 0.05 * drag.speed ? Math.sign(drag.u.x) : (racketX > 0 ? 1 : -1);
     const combo = SHOT_COMBOS[shotType];
@@ -425,14 +439,20 @@ export function classifyShot(samples, ballState, ctx = {}) {
         topspin = lerpP(params, P, 'TOP', strength);
       }
     }
+    // 퍼펙트 콤보: 회전(누적 상한 포함)을 boostW배로
+    topspin *= boostW;
+    sidespin *= boostW;
+    if (quality.stack) quality.stack = { ...quality.stack, spin: quality.stack.spin * boostW };
     const target = aimTarget(shotType, drag, racketX, params);
     quality.target = target;
     // 6단계 높은 포물선: 세기로 목표 정점 높이를 정하고 속도·발사각을 함께 푼다 (스매시는 가장 낮은 각 그대로)
     let aim;
     if (params[`${P}_APEX_WEAK`] != null) {
-      const apex = params[`${P}_APEX_WEAK`] + strength * (params[`${P}_APEX_STRONG`] - params[`${P}_APEX_WEAK`]);
+      // 퍼펙트 콤보: 정점을 낮춰 같은 깊이를 더 빠르게 보내고, 속도 한계도 boostV배로 올린다
+      const apex = (params[`${P}_APEX_WEAK`] + strength * (params[`${P}_APEX_STRONG`] - params[`${P}_APEX_WEAK`]))
+        * (1 - params.COMBO_APEX * cb.level);
       aim = solveArc({
-        pos: b.pos, topspin, sidespin, target, t, apex, vMin: params[`${P}_V_MIN`], vMax: params[`${P}_V_MAX`],
+        pos: b.pos, topspin, sidespin, target, t, apex, vMin: params[`${P}_V_MIN`], vMax: params[`${P}_V_MAX`] * boostV,
       }, params);
       speed = aim.speed;
       quality.apex = aim.apex;

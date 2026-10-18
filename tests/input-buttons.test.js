@@ -236,6 +236,10 @@ test('회전 누적: 다른 종류 회전으로 받으면 쌓이지 않는다 (�
 test('회전 누적 상한은 서버 검증 한도(MAX_SPIN) 안이다', () => {
   for (const P of ['DRIVE', 'CUT', 'SIDE']) assert.ok(TUNABLE[`${P}_SPIN_CAP`] <= ONLINE.MAX_SPIN / 1.2, P);
   assert.ok(Math.hypot(TUNABLE.SIDE_SPIN_CAP, TUNABLE.SIDE_TOP_MAX) <= ONLINE.MAX_SPIN / 1.2);
+  // v7.6 퍼펙트 콤보: 최고 단계의 회전 배율을 곱해도 한도 안
+  const k = 1 + TUNABLE.COMBO_SPIN * TUNABLE.COMBO_MAX;
+  for (const P of ['DRIVE', 'CUT', 'SIDE']) assert.ok(TUNABLE[`${P}_SPIN_CAP`] * k <= ONLINE.MAX_SPIN / 1.2, `${P} 콤보`);
+  assert.ok(TUNABLE.SMASH_V_MAX * (1 + TUNABLE.COMBO_SPEED * TUNABLE.COMBO_MAX) <= ONLINE.MAX_V / 1.2, '스매시 콤보');
 });
 
 // ── 서브 ───────────────────────────────────────────────
