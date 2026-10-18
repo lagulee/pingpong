@@ -138,47 +138,69 @@
     .overlay .hint { color: var(--ink-2); font-size: 13px; }
     .overlay .err { color: var(--red-2); min-height: 22px; margin-top: 10px; font-weight: 900; }
 
-    /* 첫 화면 (7단계 수정 v7.8): 단색 배경 위 흰 카드 하나. 제목 → 닉네임 → 연습 → 대전(방 만들기 | 코드 입장).
+    /* 첫 화면 (7단계 수정): 위에서 본 탁구대. 왼쪽 코트 = 연습, 오른쪽 코트 = 대전. 종이색 바탕, 포스터 글꼴(Black Han Sans).
        색은 --m-* 토큰에서만 정한다 (게임 화면 UI 토큰과 분리). */
     #menu {
-      --m-bg1: #1b2440; --m-bg2: #2f3d6b;            /* 배경 그러데이션 (네이비) */
-      --m-card: #fdfcf8; --m-text: #1b2440; --m-sub: #7a8199; --m-line: #dfe2ec;
-      --m-accent: #ff6f59;                            /* 제목 위 작은 글자 */
-      --m-primary: #ff6f59; --m-primary-2: #d9503d; --m-primary-text: #fff;   /* 연습 (코랄) */
-      --m-second: #e9ecf5; --m-second-2: #c9cfe0; --m-second-text: #1b2440;   /* 대전 버튼 */
-      background: radial-gradient(120% 90% at 50% 0%, var(--m-bg2), var(--m-bg1)); backdrop-filter: none;
+      --m-paper: #efe9dc; --m-ink: #161616; --m-mute: #6d675c;
+      --m-table: #1f6f4a; --m-table-hi: #26825a; --m-line: #ffffff; --m-ball: #ff7a1a;
+      --m-display: "Black Han Sans", var(--font);
+      background: var(--m-paper); backdrop-filter: none; color: var(--m-ink);
     }
-    #menu .box {
-      width: min(360px, 88vw); padding: 30px 28px 22px; border-radius: 26px; background: var(--m-card); color: var(--m-text);
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35); text-align: center;
+    #menu .m-wrap { width: min(860px, 92vw); }
+    #menu .m-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
+    #menu .m-title { margin: 0; font: 400 112px/0.86 var(--m-display); letter-spacing: -0.02em; color: var(--m-ink); }
+    #menu .m-title i {
+      display: inline-block; width: 0.22em; height: 0.22em; margin-left: 0.06em; border-radius: 50%; background: var(--m-ball); vertical-align: baseline;
     }
-    #menu .menu-title { margin: 0 0 22px; color: var(--m-text); font: 900 52px/1 var(--font); letter-spacing: 0.02em; }
-    #menu .menu-title small { display: block; margin-bottom: 8px; color: var(--m-accent); font: 900 14px/1 var(--font); letter-spacing: 0.35em; }
+    #menu .m-sub { margin-top: 12px; font: 800 13px/1 var(--mono); letter-spacing: 0.2em; color: var(--m-mute); }
+    #menu .m-nick { display: flex; flex-direction: column; gap: 6px; font: 800 12px/1 var(--mono); letter-spacing: 0.15em; color: var(--m-mute); }
     #menu input[type=text] {
-      width: 100%; box-sizing: border-box; padding: 13px 14px; border: 2px solid var(--m-line); border-radius: 14px; background: #fff;
-      color: var(--m-text); font: 800 16px/1 var(--font); text-align: center; box-shadow: none; outline: none;
+      padding: 6px 2px; border: 0; border-bottom: 3px solid var(--m-ink); border-radius: 0; background: none; box-shadow: none; outline: none;
+      color: var(--m-ink); font: 400 24px/1.1 var(--m-display); text-align: left;
     }
-    #menu input[type=text]:focus { border-color: var(--m-primary); }
-    #menu button {
-      border: 0; border-radius: 14px; font: 900 16px/1 var(--font); padding: 14px; cursor: pointer; white-space: nowrap;
-      transition: transform 0.06s, box-shadow 0.06s, filter 0.1s;
+    #menu input[type=text]::placeholder { color: rgba(22, 22, 22, 0.3); }
+    #menu-nick { width: 220px; }
+    /* 탁구대: 흰 테두리 + 가운데 네트 */
+    #menu .m-table {
+      display: grid; grid-template-columns: 1fr 14px 1fr; aspect-ratio: 2.74 / 1.525; max-height: 62vh; margin: 0 auto;
+      background: var(--m-table); border: 6px solid var(--m-line); outline: 3px solid var(--m-ink);
     }
-    #menu button:hover { filter: brightness(1.05); }
-    #menu button:active { transform: translateY(3px); }
-    #menu .m-primary {
-      width: 100%; margin-top: 12px; padding: 17px; font-size: 19px; background: var(--m-primary); color: var(--m-primary-text);
-      box-shadow: 0 4px 0 var(--m-primary-2);
+    #menu .m-net { background: var(--m-ink); border-left: 3px solid var(--m-line); border-right: 3px solid var(--m-line); }
+    #menu .m-court {
+      display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 6px;
+      padding: 26px 28px; color: var(--m-line); text-align: left; font: 700 14px/1.4 var(--font);
     }
-    #menu .m-primary:active { box-shadow: 0 1px 0 var(--m-primary-2); }
-    #menu .m-second { background: var(--m-second); color: var(--m-second-text); box-shadow: 0 4px 0 var(--m-second-2); }
-    #menu .m-second:active { box-shadow: 0 1px 0 var(--m-second-2); }
-    #menu .m-online { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
-    #menu .m-join { display: flex; gap: 6px; }
-    #menu #menu-code { width: 0; min-width: 64px; flex: 1; padding: 13px 4px; text-transform: uppercase; letter-spacing: 0.15em; }
-    #menu #menu-join { padding: 14px 12px; }
-    #menu .err { min-height: 0; margin-top: 10px; color: var(--m-primary-2); }
-    #menu .err:empty { margin: 0; }
-    #menu-hint { margin-top: 14px; color: var(--m-sub); font-size: 12px; line-height: 1.5; }
+    #menu .m-court .m-k { font: 400 64px/1 var(--m-display); }
+    #menu .m-court .m-d { opacity: 0.75; margin-bottom: 10px; }
+    #menu button.m-court {
+      width: auto; padding: 26px 28px; border: 0; border-radius: 0; background: none; box-shadow: none; cursor: pointer; transition: background 0.12s;
+    }
+    #menu button.m-court:hover { background: var(--m-table-hi); filter: none; }
+    #menu button.m-court:active { transform: none; box-shadow: none; }
+    #menu .m-go { font: 400 22px/1 var(--m-display); color: var(--m-ball); }
+    /* 연습 코트 위 공 하나 (장식) */
+    #menu button.m-court { position: relative; }
+    #menu button.m-court::before {
+      content: ""; position: absolute; left: 62%; top: 24%; width: 18px; height: 18px; border-radius: 50%; background: var(--m-ball);
+      box-shadow: -14px 22px 0 -4px rgba(0, 0, 0, 0.18); transition: transform 0.2s;
+    }
+    #menu button.m-court:hover::before { transform: translate(-30px, -14px); }
+    #menu .m-btn {
+      padding: 12px 18px; border: 3px solid var(--m-line); border-radius: 2px; background: var(--m-line); color: var(--m-table);
+      font: 400 20px/1 var(--m-display); box-shadow: none; cursor: pointer;
+    }
+    #menu .m-btn:hover { background: var(--m-ball); border-color: var(--m-ball); color: var(--m-ink); filter: none; }
+    #menu .m-btn:active { transform: translateY(1px); box-shadow: none; }
+    #menu .m-btn.m-ghost { background: none; color: var(--m-line); }
+    #menu .m-btn.m-ghost:hover { background: var(--m-line); border-color: var(--m-line); color: var(--m-table); }
+    #menu .m-join { display: flex; align-items: flex-end; gap: 10px; margin-top: 8px; }
+    #menu #menu-code {
+      width: 120px; color: var(--m-line); border-bottom-color: var(--m-line); text-transform: uppercase; letter-spacing: 0.2em; font-size: 22px;
+    }
+    #menu #menu-code::placeholder { color: rgba(255, 255, 255, 0.45); letter-spacing: 0.05em; }
+    #menu .err { min-height: 0; margin-top: 12px; color: #c0392b; text-align: left; }
+    #menu .err:empty { display: none; }
+    #menu-hint { margin-top: 14px; color: var(--m-mute); font-size: 12px; line-height: 1.5; text-align: left; }
     #lobby-code {
       display: inline-block; margin: 6px 0; padding: 6px 18px; border: 3px solid var(--ink); border-radius: 16px; background: var(--lime);
       font: 900 48px/1.1 var(--mono); letter-spacing: 0.18em; color: var(--ink); box-shadow: 0 5px 0 var(--ink);
@@ -419,19 +441,19 @@
     body.mobile #version { left: calc(10px + env(safe-area-inset-left)); bottom: calc(6px + env(safe-area-inset-bottom)); }
     body.mobile .overlay .box { padding: 12px 18px; max-height: 92vh; overflow-y: auto; box-sizing: border-box; }
     body.mobile .snow::before { display: none; } /* 낮은 가로 화면에서는 카드가 잘리지 않도록 장식을 뺀다 */
-    /* 가로 휴대폰 첫 화면: 왼쪽 제목·안내, 오른쪽 입력과 버튼 (세로로 쌓으면 잘린다) */
-    body.mobile #menu .box {
-      width: min(600px, 92vw); padding: 18px 20px; display: grid; grid-template-columns: 1fr 1.3fr; column-gap: 20px; align-items: center;
-      grid-template-areas: "title nick" "title practice" "hint online" "hint err";
-    }
-    body.mobile #menu .menu-title { grid-area: title; margin: 0; font-size: 44px; }
-    body.mobile #menu-nick { grid-area: nick; }
-    body.mobile #menu .m-primary { grid-area: practice; margin-top: 10px; padding: 13px; font-size: 17px; }
-    body.mobile #menu .m-online { grid-area: online; margin-top: 10px; grid-template-columns: auto 1fr; }
-    body.mobile #menu-create { padding-left: 14px; padding-right: 14px; }
-    body.mobile #menu-error { grid-area: err; }
-    body.mobile #menu-hint { grid-area: hint; align-self: start; margin-top: 10px; }
-    body.mobile #menu button, body.mobile #menu input[type=text] { min-height: 44px; padding-top: 0; padding-bottom: 0; }
+    /* 가로 휴대폰 첫 화면: 머리줄을 줄이고 탁구대를 남은 높이에 맞춘다 */
+    body.mobile #menu .m-wrap { width: 92vw; }
+    body.mobile #menu .m-head { margin-bottom: 10px; margin-right: 52px; } /* 오른쪽 위 ⚙ 버튼 자리 */
+    body.mobile #menu-nick { width: 170px; }
+    body.mobile #menu .m-title { font-size: 54px; }
+    body.mobile #menu .m-sub { margin-top: 6px; font-size: 10px; }
+    body.mobile #menu .m-table { aspect-ratio: auto; height: 58vh; max-height: none; }
+    body.mobile #menu .m-court, body.mobile #menu button.m-court { padding: 12px 16px; }
+    body.mobile #menu .m-court .m-k { font-size: 40px; }
+    body.mobile #menu .m-court .m-d { margin-bottom: 4px; font-size: 12px; }
+    body.mobile #menu .m-btn { min-height: 44px; padding: 0 14px; font-size: 17px; }
+    body.mobile #menu input[type=text] { min-height: 40px; font-size: 20px; }
+    body.mobile #menu-hint { display: none; }
     body.mobile .overlay h1 { font-size: 26px; }
     body.mobile .overlay button, body.mobile .overlay input[type=text] { min-height: 44px; }
     body.mobile .overlay .row { margin-top: 8px; }
@@ -452,6 +474,7 @@
     body.mobile #debug button { min-height: 32px; }
     body.mobile #debug .dbg-head button { min-height: 40px; }
   </style>
+  <link rel="stylesheet" href="fonts/black-han-sans.css">
   <script type="importmap">
     {
       "imports": {
@@ -553,15 +576,26 @@
   <div id="net-msg" hidden></div>
   <button id="leave-btn" type="button" hidden title="나가기 (기권)">나가기</button>
   <div id="menu" class="overlay">
-    <div class="box">
-      <h1 class="menu-title"><small>1 VS 1</small>탁구</h1>
-      <input id="menu-nick" type="text" maxlength="12" placeholder="닉네임" autocomplete="off">
-      <button id="menu-practice" type="button" class="m-primary">연습 (로봇)</button>
-      <div class="m-online">
-        <button id="menu-create" type="button" class="m-second">방 만들기</button>
-        <div class="m-join">
-          <input id="menu-code" type="text" maxlength="4" placeholder="코드" autocomplete="off">
-          <button id="menu-join" type="button" class="m-second" title="코드로 입장">입장</button>
+    <div class="m-wrap">
+      <div class="m-head">
+        <div>
+          <h1 class="m-title">탁구<i></i></h1>
+          <div class="m-sub">1 VS 1 · TABLE TENNIS</div>
+        </div>
+        <label class="m-nick">닉네임 <input id="menu-nick" type="text" maxlength="12" placeholder="이름 입력" autocomplete="off"></label>
+      </div>
+      <div class="m-table">
+        <button id="menu-practice" type="button" class="m-court">
+          <span class="m-k">연습</span><span class="m-d">로봇 상대 · 11점 한 게임</span><span class="m-go">시작 →</span>
+        </button>
+        <div class="m-net"></div>
+        <div class="m-court">
+          <span class="m-k">대전</span><span class="m-d">친구에게 방 코드를 보내 1:1</span>
+          <button id="menu-create" type="button" class="m-btn">방 만들기</button>
+          <div class="m-join">
+            <input id="menu-code" type="text" maxlength="4" placeholder="코드" autocomplete="off">
+            <button id="menu-join" type="button" class="m-btn m-ghost" title="코드로 입장">입장</button>
+          </div>
         </div>
       </div>
       <div id="menu-error" class="err"></div>
