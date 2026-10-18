@@ -330,7 +330,7 @@ function setSettingsOpen(v) {
 }
 // 숨은 치트 (7단계 수정): 설정의 진솔쌤❤️ → 비밀번호 → 공/수 고르기. 내 클라이언트 판정만 바뀌고 이 브라우저에 기억한다.
 // 공(attack) = 항상 PERFECT + 헛스윙 보정 +3 cm + 속도·회전 2배 + 스매시 높이 절반, 수(defense) = 위력은 기본, 헛스윙 없음.
-// 켜져 있을 때 다시 누르면 끈다. 화면에는 글자 밝기와 하트 말고 표시하지 않는다.
+// 켜져 있을 때 하트를 누르면 공 ↔ 수가 바뀌고, 끄기는 옆의 작은 ✕. 화면에는 글자 밝기와 하트 말고 표시하지 않는다.
 const CHEAT_MODES = { attack: '진솔쌤💖', defense: '진솔쌤💕' };
 const cheatMode = (v) => (v === '1' ? 'attack' : CHEAT_MODES[v] ? v : null); // '1' = v7.15까지 저장된 값(공)
 let cheat = cheatMode(store.get('pp-cheat'));
@@ -342,12 +342,13 @@ function setCheat(v, msg = '') {
   store.set('pp-cheat', v ?? '0');
   cheatBtn.classList.toggle('on', !!v);
   cheatBtn.textContent = CHEAT_MODES[v] ?? '진솔쌤❤️';
+  $('cheat-off').hidden = !v;
   $('cheat-msg').textContent = msg;
 }
 setCheat(cheat);
 tap(cheatBtn, () => {
   cheatPick.hidden = true;
-  if (cheat) { setCheat(null, '꺼짐'); cheatBox.hidden = true; return; }
+  if (cheat) { setCheat(cheat === 'attack' ? 'defense' : 'attack', cheat === 'attack' ? '수' : '공'); cheatBox.hidden = true; return; }
   cheatBox.hidden = !cheatBox.hidden;
   $('cheat-msg').textContent = '';
   if (!cheatBox.hidden) { $('cheat-pw').value = ''; $('cheat-pw').focus(); }
@@ -361,6 +362,7 @@ cheatBox.addEventListener('submit', (e) => {
   cheatPick.hidden = false;
   $('cheat-msg').textContent = '';
 });
+tap($('cheat-off'), () => { cheatPick.hidden = true; cheatBox.hidden = true; setCheat(null, '꺼짐'); });
 for (const b of cheatPick.querySelectorAll('button')) tap(b, () => { cheatPick.hidden = true; setCheat(b.dataset.m, '❤️'); });
 if (mobile) $('set-adv-sub').textContent = '화면 구질 버튼';
 tap(settingsBtn, () => setSettingsOpen(settingsEl.hidden));

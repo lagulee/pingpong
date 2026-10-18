@@ -281,7 +281,10 @@
     #settings .set-row input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--lime-2); }
     #settings .set-row kbd { margin-left: auto; }
     /* 숨은 치트: 평범한 장식처럼 보이는 작은 글자 */
-    #set-cheat { display: block; margin: 10px 0 0 auto; padding: 0; border: 0; background: none; color: var(--ink-2); font: 700 11px/1.2 inherit; cursor: pointer; opacity: 0.55; }
+    #cheat-row { display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin-top: 10px; }
+    #cheat-off { padding: 0 2px; border: 0; background: none; color: var(--ink-2); font: 700 11px/1.2 inherit; cursor: pointer; opacity: 0.55; }
+    #cheat-off[hidden] { display: none; }
+    #set-cheat { display: block; margin: 0; padding: 0; border: 0; background: none; color: var(--ink-2); font: 700 11px/1.2 inherit; cursor: pointer; opacity: 0.55; }
     #set-cheat.on { opacity: 1; }
     #cheat-box { display: flex; gap: 6px; margin-top: 6px; }
     #cheat-box[hidden] { display: none; }
@@ -554,7 +557,10 @@
     <label class="set-row"><input id="set-guide" type="checkbox"> 서브 가이드 <kbd class="pc-only">G</kbd></label>
     <label class="set-row"><input id="set-shake" type="checkbox"> 화면 흔들림</label>
     <label class="set-row mob-only"><input id="set-vibrate" type="checkbox"> 진동</label>
-    <button id="set-cheat" type="button" title="진솔쌤">진솔쌤❤️</button>
+    <div id="cheat-row">
+      <button id="set-cheat" type="button" title="진솔쌤">진솔쌤❤️</button>
+      <button id="cheat-off" type="button" title="끄기" hidden>✕</button>
+    </div>
     <form id="cheat-box" hidden>
       <input id="cheat-pw" type="password" inputmode="numeric" maxlength="8" placeholder="비밀번호" autocomplete="off">
       <button type="submit">확인</button>
