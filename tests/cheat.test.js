@@ -183,3 +183,67 @@ test('치트(수): 바운드 전 공은 건드리지 않는다 (넓은 범위로
   assert.equal(d.reasons.volley ?? 0, 0);
   assert.equal(d.lost, 0, JSON.stringify(d.reasons));
 });
+
+// ── 치트(수) 라켓 강제 이동 (v7.17) ──
+import { guardRacket, racketPointAt } from '../public/js/input.js';
+import { createOnlineClient } from '../public/js/net.js';
+import { toLocal } from '../public/shared/physics.js';
+import { createWorld } from './net-harness.js';
+
+const near2 = (a, b) => Math.abs(a.x - b.x) < 1e-9 && Math.abs(a.z - b.z) < 1e-9;
+test('라켓 강제 이동: 받을 공이 오면 예상 타점으로 옮겨 가고, 친 뒤에는 실제 위치로 돌아온다', () => {
+  const real = { x: 0.4, z: 0.2 }, aim = { t: 1, x: -0.3, z: 0.5 };
+  assert.deepEqual(guardRacket(real, 0, null, null), real);
+  assert.deepEqual(guardRacket(real, 1 - CHEAT.GUARD_LEAD - 0.1, aim, null), real, '아직 멀면 실제 위치');
+  const mid = guardRacket(real, 1 - (CHEAT.GUARD_LEAD + CHEAT.GUARD_SNAP) / 2, aim, null);
+  assert.ok(mid.x < real.x && mid.x > aim.x, '가는 중');
+  assert.ok(near2(guardRacket(real, 1 - CHEAT.GUARD_SNAP, aim, null), aim));
+  assert.ok(near2(guardRacket(real, 1.2, aim, null), aim), '공이 늦어도 타점에 머문다');
+  assert.ok(near2(guardRacket(real, 1 - CHEAT.GUARD_SNAP / 2, aim, null, { x: 0.1, z: 0.3 }), { x: 0.1, z: 0.3 }), '다 온 뒤에는 공을 따라간다');
+  assert.ok(!near2(guardRacket(real, 1 - CHEAT.GUARD_LEAD / 2, aim, null, { x: 0.1, z: 0.3 }), { x: 0.1, z: 0.3 }), '가는 중에는 예상 타점 쪽');
+  const hold = { t: 2, x: -0.3, z: 0.5 };
+  assert.ok(near2(guardRacket(real, 2, null, hold), hold));
+  assert.ok(near2(guardRacket(real, 2 + CHEAT.GUARD_RETURN, null, hold), real));
+});
+
+test('라켓 강제 이동 (대전): 손을 놓은 치트(수)가 거부 없이 받아 넘기고, 상대 화면의 내 라켓이 친 순간 공 가까이에 있다', () => {
+  const w = createWorld({ seed: 9 });
+  w.code = 'G7QM';
+  // A(로봇) 화면에서 B가 친 순간: A가 받아 둔 B 라켓 위치와 공 사이 거리 (B 기준 좌표)
+  const gaps = [];
+  const A = w.addAI({
+    lat: 40, create: true, aiSeed: 3,
+    hooks: {
+      onStep(events) {
+        const me = A.client.me;
+        for (const e of events) {
+          if (e.type !== 'racket' || e.side !== -me) continue;
+          const r = racketPointAt(A.client.game.players[-me].samples, e.t);
+          const b = toLocal(e.pos, -me);
+          if (r) gaps.push(Math.hypot(r.x - b.x, r.y - b.z));
+        }
+      },
+    },
+  });
+  w.run(() => A.client.status === 'waiting', { maxMs: 5000 });
+  const rejects = [];
+  const B = createOnlineClient({
+    open: () => w.open(40), now: () => w.time, nickname: '수', code: w.code, seed: 2,
+    makePlayer(side) {
+      const human = createPlayer(side);
+      human.cheat = 'defense';
+      human.samples.push({ t: -100, x: 0.4, y: 0.2, b: false, k: null }); // 손을 놓은 라켓 (구석)
+      return { player: human };
+    },
+    hooks: { onReject: (m) => rejects.push(m) },
+  });
+  // B 서브 차례면 토스만 한다 (손을 놓고 있으므로 토스 실패 = 서브 실점, 받는 점만 본다)
+  w.clients.push({ client: B, afterTick: () => { if (B.status === 'playing' && B.game?.rules.phase === 'waitingServe' && B.game.rules.server === B.me) B.toss(0); } });
+  B.connect();
+  w.run(() => B.status === 'playing' && B.matchTime() > 60, { maxMs: 120_000 });
+  assert.equal(rejects.length, 0, JSON.stringify(rejects.slice(0, 3)));
+  assert.ok(gaps.length >= 5, `B 타격 ${gaps.length}`);
+  // 실제 라켓은 (0.4, 0.2)에 그대로지만 상대 화면에서는 대부분 공을 받으러 가 있다
+  const near = gaps.filter((d) => d <= TUNABLE.HIT_RADIUS + 0.05).length;
+  assert.ok(near / gaps.length >= 0.8, `공 가까이 ${near}/${gaps.length}, 거리 ${gaps.map((d) => d.toFixed(2)).join(' ')}`);
+});

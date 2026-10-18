@@ -6,10 +6,10 @@
 import { PHYSICS, TUNABLE, ONLINE, VERSION, FEEL } from '../shared/constants.js';
 import { toLocal } from '../shared/physics.js';
 import { applyHit } from '../shared/match.js';
-import { toServe } from '../shared/rules.js';
+import { toServe, canHit } from '../shared/rules.js';
 import { matchSnapshot, restoreMatch } from '../shared/host.js';
 import { createRally, stepMatch, replayStep, tossBall, holdServe, incoming, createPlayer } from './ai.js';
-import { racketPointAt, pruneSamples, createRng } from './input.js';
+import { racketPointAt, pruneSamples, createRng, guardRacket } from './input.js';
 
 const DT = PHYSICS.DT;
 const vec3 = (v) => ({ x: v.x, y: v.y, z: v.z });
@@ -116,6 +116,7 @@ export function createOnlineClient(opts) {
   let seen = 0;                // 확인한 결과 수
   let replaying = false;
   let lastPingAt = -Infinity, lastRacketT = -Infinity;
+  let guardHold = null; // 치트(수)로 마지막에 친 자리 { t, x, z } (라켓 강제 이동이 실제 위치로 돌아오는 출발점)
   let lostAt = null, retryAt = null, resyncing = false;
 
   const setStatus = (s) => { c.status = s; hooks.onStatus?.(s); };
@@ -234,6 +235,7 @@ export function createOnlineClient(opts) {
         const loc = toLocal(e.pos, c.me);
         // 숨은 치트(수): 넓은 범위로 친 공은 서버 거리 검사(far)를 넘도록 라켓 위치를 공 자리로 보낸다
         const r = e.shot.quality?.guard ? { x: loc.x, y: loc.z } : racketPointAt(p.samples, e.t) ?? { x: loc.x, y: loc.z };
+        if (e.shot.quality?.guard) guardHold = { t: e.t, x: loc.x, z: loc.z };
         lastHit = { side: c.me, seq: ++seq };
         send({
           type: e.shot.quality?.serve ? 'serve' : 'hit', seq, t: e.t, pos: vec3(e.pos),
@@ -460,10 +462,18 @@ export function createOnlineClient(opts) {
     const target = c.matchTime(ms);
     for (let n = 0; g.ball.t < target - DT / 2 && n < ONLINE.MAX_CATCHUP_STEPS; n++) liveStep();
     if (c.status === 'playing' && g.ball.t - lastRacketT >= 1 / ONLINE.RACKET_HZ) {
-      const last = g.players[c.me].samples[g.players[c.me].samples.length - 1];
+      const p = g.players[c.me];
+      const last = p.samples[p.samples.length - 1];
       if (last) {
         lastRacketT = g.ball.t;
-        send({ type: 'racket', t: g.ball.t, x: last.x, z: last.y });
+        let pos = { x: last.x, z: last.y };
+        // 치트(수): 받을 공의 예상 타점으로 라켓을 옮겨 보낸다 (상대 화면에서 라켓이 공을 받으러 가는 것처럼 보이게)
+        if (p.cheat === 'defense') {
+          const a = g.rules.phase === 'rally' && canHit(g.rules, c.me) && p.apexT != null && p.apexPos ? toLocal(p.apexPos, c.me) : null;
+          const b = toLocal(g.ball.pos, c.me);
+          pos = guardRacket(pos, g.ball.t, a && { t: p.apexT, x: a.x, z: a.z }, guardHold, { x: b.x, z: b.z });
+        }
+        send({ type: 'racket', t: g.ball.t, x: pos.x, z: pos.z });
       }
     }
   };

@@ -249,6 +249,19 @@ export function cheatHash(text) {
 }
 export const cheatCodeOk = (text) => cheatHash(String(text ?? '').trim()) === CHEAT.HASH;
 
+// 치트(수) 라켓 강제 이동: 대전 상대에게 보낼 내 라켓 위치 { x, z } (기준 좌표).
+// real: 실제 라켓 { x, z }, t: 경기 시각, aim: 받을 공의 예상 타점 { t, x, z } | null, hold: 마지막으로 수로 친 자리 { t, x, z } | null,
+// ball: 지금 공 위치 { x, z } | null. 타점에 다 온 뒤(GUARD_SNAP 전부터)는 공을 그대로 따라가 짧은 공·늦은 공도 친 순간 공 자리에 있다
+export function guardRacket(real, t, aim, hold, ball = null) {
+  const mix = (p, f) => ({ x: real.x + (p.x - real.x) * f, z: real.z + (p.z - real.z) * f });
+  if (aim) {
+    const f = clamp((CHEAT.GUARD_LEAD - (aim.t - t)) / (CHEAT.GUARD_LEAD - CHEAT.GUARD_SNAP), 0, 1);
+    return mix(ball && f >= 1 ? ball : aim, f);
+  }
+  if (hold) return mix(hold, clamp(1 - (t - hold.t) / CHEAT.GUARD_RETURN, 0, 1));
+  return { x: real.x, z: real.z };
+}
+
 // 스매시 가능 높이 (네트 위, m). 숨은 치트면 CHEAT.SMASH_HEIGHT_SCALE배 (화면의 빨간 고리도 같은 값)
 export const smashMinHeight = (params = TUNABLE, cheat = false) => params.SMASH_MIN_HEIGHT * (cheat ? CHEAT.SMASH_HEIGHT_SCALE : 1);
 

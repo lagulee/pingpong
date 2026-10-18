@@ -65,7 +65,7 @@ paths:
 | `reject` | S→C | `{ seq, t, reason }` 보낸 사람에게만. 사유: `time` `turn` `speed` `spin` `far` `pos` `away` `bad` |
 | `correct` | S→C | `{ side, seq, t, pos, vel, spin }` 바운드 직후 서버 기준 공 상태 (`side`·`seq` = 그 공을 친 타격) |
 | `point` | S→C | `{ kind, winner, loser, reason, score, games, rally, t, gameOver, matchOver, nextAt, rules }` (`rules` = 득점 직후 규칙 상태) |
-| `racket` | C→S, S→C | `{ t, x, z }` 상대 화면에 내 라켓을 보여 주기 위한 위치 (15 Hz) |
+| `racket` | C→S, S→C | `{ t, x, z }` 상대 화면에 내 라켓을 보여 주기 위한 위치 (15 Hz). 숨은 치트(수)면 받을 공 쪽으로 옮긴 위치(v7.17, `guardRacket`) |
 | `opp` | S→C | `{ state: 'away', until }` / `{ state: 'back' }` 상대 끊김·복귀 |
 | `end` | S→C | `{ winner, score, games, by: 'normal' \| 'forfeit' }` |
 | `leave` | C→S | 퇴장 (경기 중이면 기권) |
