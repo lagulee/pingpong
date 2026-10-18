@@ -138,20 +138,47 @@
     .overlay .hint { color: var(--ink-2); font-size: 13px; }
     .overlay .err { color: var(--red-2); min-height: 22px; margin-top: 10px; font-weight: 900; }
 
-    /* 첫 화면: 눈 덮인 빨간 제목판 + 크림 카드 */
-    #menu .box { width: min(400px, 88vw); padding-top: 20px; }
-    .title-card {
-      margin: 6px auto 16px; padding: 18px 16px 12px; border: 3px solid var(--ink); border-radius: 18px; background: var(--red);
-      box-shadow: 0 6px 0 var(--red-2), 0 6px 0 3px var(--ink);
+    /* 첫 화면 (7단계 수정 v7.8): 단색 배경 위 흰 카드 하나. 제목 → 닉네임 → 연습 → 대전(방 만들기 | 코드 입장).
+       색은 --m-* 토큰에서만 정한다 (게임 화면 UI 토큰과 분리). */
+    #menu {
+      --m-bg1: #1b2440; --m-bg2: #2f3d6b;            /* 배경 그러데이션 (네이비) */
+      --m-card: #fdfcf8; --m-text: #1b2440; --m-sub: #7a8199; --m-line: #dfe2ec;
+      --m-accent: #ff6f59;                            /* 제목 위 작은 글자 */
+      --m-primary: #ff6f59; --m-primary-2: #d9503d; --m-primary-text: #fff;   /* 연습 (코랄) */
+      --m-second: #e9ecf5; --m-second-2: #c9cfe0; --m-second-text: #1b2440;   /* 대전 버튼 */
+      background: radial-gradient(120% 90% at 50% 0%, var(--m-bg2), var(--m-bg1)); backdrop-filter: none;
     }
-    .title-card h1 { margin: 0; color: var(--yellow); font: 900 46px/1 var(--font); letter-spacing: 0.02em; text-shadow: 0 3px 0 var(--red-2); }
-    .title-card h1 small { display: block; margin-bottom: 4px; color: #fff; font: 900 16px/1 var(--font); letter-spacing: 0.3em; text-shadow: none; }
-    #menu .big { width: 100%; padding: 14px; font-size: 19px; }
-    #menu .row.split > * { flex: 1; }
-    #menu .divider { display: flex; align-items: center; gap: 10px; margin: 16px 0 2px; color: var(--ink-2); font: 900 12px/1 var(--font); }
-    #menu .divider::before, #menu .divider::after { content: ""; flex: 1; border-top: 2px dashed var(--cream-2); }
-    #menu-code { width: 100px; text-transform: uppercase; letter-spacing: 0.2em; }
-    #menu-hint { margin-top: 12px; }
+    #menu .box {
+      width: min(360px, 88vw); padding: 30px 28px 22px; border-radius: 26px; background: var(--m-card); color: var(--m-text);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35); text-align: center;
+    }
+    #menu .menu-title { margin: 0 0 22px; color: var(--m-text); font: 900 52px/1 var(--font); letter-spacing: 0.02em; }
+    #menu .menu-title small { display: block; margin-bottom: 8px; color: var(--m-accent); font: 900 14px/1 var(--font); letter-spacing: 0.35em; }
+    #menu input[type=text] {
+      width: 100%; box-sizing: border-box; padding: 13px 14px; border: 2px solid var(--m-line); border-radius: 14px; background: #fff;
+      color: var(--m-text); font: 800 16px/1 var(--font); text-align: center; box-shadow: none; outline: none;
+    }
+    #menu input[type=text]:focus { border-color: var(--m-primary); }
+    #menu button {
+      border: 0; border-radius: 14px; font: 900 16px/1 var(--font); padding: 14px; cursor: pointer; white-space: nowrap;
+      transition: transform 0.06s, box-shadow 0.06s, filter 0.1s;
+    }
+    #menu button:hover { filter: brightness(1.05); }
+    #menu button:active { transform: translateY(3px); }
+    #menu .m-primary {
+      width: 100%; margin-top: 12px; padding: 17px; font-size: 19px; background: var(--m-primary); color: var(--m-primary-text);
+      box-shadow: 0 4px 0 var(--m-primary-2);
+    }
+    #menu .m-primary:active { box-shadow: 0 1px 0 var(--m-primary-2); }
+    #menu .m-second { background: var(--m-second); color: var(--m-second-text); box-shadow: 0 4px 0 var(--m-second-2); }
+    #menu .m-second:active { box-shadow: 0 1px 0 var(--m-second-2); }
+    #menu .m-online { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+    #menu .m-join { display: flex; gap: 6px; }
+    #menu #menu-code { width: 0; min-width: 64px; flex: 1; padding: 13px 4px; text-transform: uppercase; letter-spacing: 0.15em; }
+    #menu #menu-join { padding: 14px 12px; }
+    #menu .err { min-height: 0; margin-top: 10px; color: var(--m-primary-2); }
+    #menu .err:empty { margin: 0; }
+    #menu-hint { margin-top: 14px; color: var(--m-sub); font-size: 12px; line-height: 1.5; }
     #lobby-code {
       display: inline-block; margin: 6px 0; padding: 6px 18px; border: 3px solid var(--ink); border-radius: 16px; background: var(--lime);
       font: 900 48px/1.1 var(--mono); letter-spacing: 0.18em; color: var(--ink); box-shadow: 0 5px 0 var(--ink);
@@ -392,27 +419,19 @@
     body.mobile #version { left: calc(10px + env(safe-area-inset-left)); bottom: calc(6px + env(safe-area-inset-bottom)); }
     body.mobile .overlay .box { padding: 12px 18px; max-height: 92vh; overflow-y: auto; box-sizing: border-box; }
     body.mobile .snow::before { display: none; } /* 낮은 가로 화면에서는 카드가 잘리지 않도록 장식을 뺀다 */
-    body.mobile .title-card { margin: 0 auto 8px; padding: 8px 12px 6px; }
-    body.mobile .title-card h1 { font-size: 28px; }
-    body.mobile .title-card h1 small { font-size: 11px; margin-bottom: 2px; }
-    body.mobile #menu .big { padding: 10px; font-size: 16px; }
-    /* 가로 휴대폰 첫 화면: 왼쪽에 제목판·안내, 오른쪽에 입력과 버튼 (세로로 쌓으면 잘린다) */
+    /* 가로 휴대폰 첫 화면: 왼쪽 제목·안내, 오른쪽 입력과 버튼 (세로로 쌓으면 잘린다) */
     body.mobile #menu .box {
-      width: min(660px, 94vw); display: grid; grid-template-columns: 1fr 1.25fr; column-gap: 18px; align-items: center; text-align: center;
-      grid-template-areas: "title nick" "title practice" "title divider" "title create" "hint code" "hint err";
+      width: min(600px, 92vw); padding: 18px 20px; display: grid; grid-template-columns: 1fr 1.3fr; column-gap: 20px; align-items: center;
+      grid-template-areas: "title nick" "title practice" "hint online" "hint err";
     }
-    body.mobile #menu .title-card { grid-area: title; align-self: stretch; display: flex; align-items: center; justify-content: center; margin: 4px 0 8px; }
-    body.mobile #menu .title-card h1 { font-size: 40px; }
-    body.mobile #menu .r-nick { grid-area: nick; margin-top: 0; }
-    body.mobile #menu .r-practice { grid-area: practice; }
-    body.mobile #menu .divider { grid-area: divider; }
-    body.mobile #menu .r-create { grid-area: create; }
-    body.mobile #menu .r-code { grid-area: code; }
-    body.mobile #menu-error { grid-area: err; min-height: 0; margin-top: 4px; }
-    body.mobile #menu-hint { grid-area: hint; align-self: start; margin-top: 8px; font-size: 12px; line-height: 1.5; }
-    body.mobile #menu input[type=text] { width: 100%; box-sizing: border-box; }
-    body.mobile #menu .r-code input { width: 0; flex: 1; }
-    body.mobile #menu .divider { margin-top: 8px; }
+    body.mobile #menu .menu-title { grid-area: title; margin: 0; font-size: 44px; }
+    body.mobile #menu-nick { grid-area: nick; }
+    body.mobile #menu .m-primary { grid-area: practice; margin-top: 10px; padding: 13px; font-size: 17px; }
+    body.mobile #menu .m-online { grid-area: online; margin-top: 10px; grid-template-columns: auto 1fr; }
+    body.mobile #menu-create { padding-left: 14px; padding-right: 14px; }
+    body.mobile #menu-error { grid-area: err; }
+    body.mobile #menu-hint { grid-area: hint; align-self: start; margin-top: 10px; }
+    body.mobile #menu button, body.mobile #menu input[type=text] { min-height: 44px; padding-top: 0; padding-bottom: 0; }
     body.mobile .overlay h1 { font-size: 26px; }
     body.mobile .overlay button, body.mobile .overlay input[type=text] { min-height: 44px; }
     body.mobile .overlay .row { margin-top: 8px; }
@@ -534,20 +553,19 @@
   <div id="net-msg" hidden></div>
   <button id="leave-btn" type="button" hidden title="나가기 (기권)">나가기</button>
   <div id="menu" class="overlay">
-    <div class="box card">
-      <div class="title-card snow"><h1><small>1 VS 1</small>탁구</h1></div>
-      <div class="row r-nick"><input id="menu-nick" type="text" maxlength="12" placeholder="닉네임" autocomplete="off"></div>
-      <div class="row r-practice"><button id="menu-practice" type="button" class="big">🏓 연습 (로봇)</button></div>
-      <div class="divider">친구와 대전</div>
-      <div class="row split r-create">
-        <button id="menu-create" type="button" class="hot">방 만들기</button>
-      </div>
-      <div class="row split r-code">
-        <input id="menu-code" type="text" maxlength="4" placeholder="코드" autocomplete="off">
-        <button id="menu-join" type="button" class="sub">코드로 입장</button>
+    <div class="box">
+      <h1 class="menu-title"><small>1 VS 1</small>탁구</h1>
+      <input id="menu-nick" type="text" maxlength="12" placeholder="닉네임" autocomplete="off">
+      <button id="menu-practice" type="button" class="m-primary">연습 (로봇)</button>
+      <div class="m-online">
+        <button id="menu-create" type="button" class="m-second">방 만들기</button>
+        <div class="m-join">
+          <input id="menu-code" type="text" maxlength="4" placeholder="코드" autocomplete="off">
+          <button id="menu-join" type="button" class="m-second" title="코드로 입장">입장</button>
+        </div>
       </div>
       <div id="menu-error" class="err"></div>
-      <div id="menu-hint" class="hint">드래그로 치기 · Q/W/E/R 구질 · M 음소거 · Space 시점 바꾸기</div>
+      <div id="menu-hint" class="hint"></div>
     </div>
   </div>
   <div id="lobby" class="overlay" hidden>
