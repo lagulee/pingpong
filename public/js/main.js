@@ -38,6 +38,7 @@ import {
 const $ = (id) => document.getElementById(id);
 const canvas = $('game');
 const statusEl = $('status');
+const keysHintEl = $('keys-hint'); // 상태 칩 아래 키 안내 (PC, 화풍 정리)
 const shotEl = $('shot');
 const shotSubEl = $('shot-sub');
 const comboEl = $('combo');
@@ -268,7 +269,11 @@ const SERVE_HINT = {
   advanced: mobile ? '내 서브\n① 화면 터치: 공 띄우기  ② 공이 고리에 올 때 쓸기\n버튼 없이 = 무회전 · 드라이브 · 커트 · 사이드 버튼'
     : '내 서브\n① 클릭: 공 띄우기  ② 공이 고리에 올 때 휘두르기\n버튼 없이 = 무회전 · Q 탑 · W 백 · E 사이드',
 };
-const STATUS_SHOT = { basic: '기본 조작(방향으로 구질)', advanced: 'Q/W/E/R 구질' };
+const KEYS_HINT = {
+  practice: '<kbd>P</kbd> 일시정지·조작표 · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 난이도 · <kbd>N</kbd> 새 게임 · <kbd>Space</kbd> 시점',
+  online: '<kbd>Space</kbd> 시점 · <kbd>G</kbd> 서브 가이드 · <kbd>M</kbd> 음소거',
+};
+const STATUS_SHOT = { basic: '기본 조작', advanced: '고급 조작' };
 const CONTROL_DESC = {
   basic: '위로 = 드라이브, 아래로 = 커트, 곡선 = 사이드, 높은 공을 아래로 빠르게 = 스매시. 버튼이 필요 없습니다.',
   advanced: mobile ? '왼손 화면 버튼으로 구질(드라이브·커트·사이드·스매시·조합)을 고르고 오른손으로 쓸어 칩니다. 버튼 없이 치면 무회전.'
@@ -725,7 +730,9 @@ function showShot(e) {
     const note = q.smashSlow ? ` · 스매시는 ${q.smashSpeed} m/s 이상으로 (느려서 일반)` : q.smashNoServe ? ' · 서브는 스매시 불가 (일반 서브)' : '';
     // 퍼펙트 콤보: 이 타격에 붙은 위력 단계
     const cb = q.comboLevel > 0 ? ` · 콤보 ×${q.combo} 위력 ${q.comboLevel}단계` : '';
-    shotSubEl.textContent = `스윙 ${q.dragSpeed.toFixed(2)} m/s · 세기 ${q.strength.toFixed(2)} · 정점 대비 ${dt} · 공 ${e.speed.toFixed(1)} m/s${st}${cb}${note}`;
+    // 화풍 정리: 꼭 필요한 숫자(스윙·공 속도, 타이밍 차)만 두고, 세기는 디버그 모드에서만
+    const str = debugEnabled ? ` · 세기 ${q.strength.toFixed(2)}` : '';
+    shotSubEl.textContent = `스윙 ${q.dragSpeed.toFixed(2)} m/s · 공 ${e.speed.toFixed(1)} m/s · 정점 ${dt}${str}${st}${cb}${note}`;
   } else {
     const who = online() ? nameEls.robot.textContent : '로봇';
     robotShotEl.textContent = `${who}: ${label}${s.quality?.timing ? ` · ${s.quality.timing}` : ''}`;
@@ -1042,12 +1049,17 @@ function frame(now) {
           : rules.server === me ? SERVE_HINT[control]
             : `${oppName} 서브`;
   }
-  statusEl.textContent = mobile
-    ? (online() ? `대전 · 방 ${client.code}` : `연습 · ${DIFFICULTY_LABELS[difficulty]} (⏸에서 난이도·새 게임)`)
+  // 화풍 정리: 한 줄에 몰려 점수판과 겹치던 안내를 "상태 칩"과 그 아래 짧은 키 안내로 나눴다 (조작 전체는 P 일시정지의 조작표)
+  const status = mobile
+    ? (online() ? `대전 · 방 ${client.code}` : `연습 · ${DIFFICULTY_LABELS[difficulty]}`)
     : online()
-    ? `대전 · 방 ${client.code} (${RULES.POINTS_TO_WIN}점) · ${STATUS_SHOT[control]} · Space 시점 · G 서브 가이드 · M 음소거`
-    : `연습 경기 (${RULES.POINTS_TO_WIN}점) · ${DIFFICULTY_LABELS[difficulty]} · ${STATUS_SHOT[control]} · `
-      + `1/2/3 난이도 · N 새 게임 · P 일시정지(조작표) · Space 시점${debugEnabled ? '' : ' · ?debug=1 패널'}`;
+      ? `대전 · 방 ${client.code} · ${RULES.POINTS_TO_WIN}점 · ${STATUS_SHOT[control]}`
+      : `연습 · ${DIFFICULTY_LABELS[difficulty]} · ${RULES.POINTS_TO_WIN}점 · ${STATUS_SHOT[control]}`;
+  if (statusEl.textContent !== status) statusEl.textContent = status;
+  const keys = mobile || mode === 'menu' ? ''
+    : online() ? KEYS_HINT.online
+      : KEYS_HINT.practice;
+  if (keysHintEl.dataset.k !== keys) { keysHintEl.dataset.k = keys; keysHintEl.innerHTML = keys; }
   requestAnimationFrame(frame);
 }
 

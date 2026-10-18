@@ -19,12 +19,35 @@ function boxSize(sx, sy, sz) {
   return [sx, sz, sy];
 }
 
-function makeBox(sx, sy, sz, color, opts = {}) {
+// ── 카툰 화풍 (7단계 수정): 계단 명암(툰) 재질 + 뒷면을 키운 껍데기로 그린 외곽선 ──
+let toonRamp = null;
+function toonGradient() {
+  if (toonRamp) return toonRamp;
+  const steps = RENDER.TOON_STEPS;
+  const data = new Uint8Array(steps.length * 4);
+  steps.forEach((v, i) => { data.set([255 * v, 255 * v, 255 * v, 255], i * 4); });
+  toonRamp = new THREE.DataTexture(data, steps.length, 1, THREE.RGBAFormat);
+  toonRamp.minFilter = toonRamp.magFilter = THREE.NearestFilter; // 단계 사이를 섞지 않아야 만화처럼 끊긴다
+  toonRamp.needsUpdate = true;
+  return toonRamp;
+}
+function toon(opts) {
+  return new THREE.MeshToonMaterial({ gradientMap: toonGradient(), ...opts });
+}
+// 외곽선: geo(원래보다 두께만큼 큰 모양)의 뒷면만 진한 색으로 그린다. 그림자는 내지 않는다.
+function outline(geo, opts = {}) {
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: RENDER.COLOR_OUTLINE, side: THREE.BackSide, ...opts }));
+  m.castShadow = false;
+  return m;
+}
+
+function makeBox(sx, sy, sz, color, opts = {}, line = RENDER.OUTLINE_W) {
   const geo = new THREE.BoxGeometry(...boxSize(sx, sy, sz));
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.6, ...opts });
+  const mat = toon({ color, ...opts });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
+  if (line > 0) mesh.add(outline(new THREE.BoxGeometry(...boxSize(sx + 2 * line, sy + 2 * line, sz + 2 * line))));
   return mesh;
 }
 
@@ -34,12 +57,12 @@ function buildTable() {
   const L = TABLE.LENGTH, W = TABLE.WIDTH, T = TABLE.THICKNESS;
 
   // 상판: 윗면이 물리 z = 0
-  const top = makeBox(W, L, T, RENDER.COLOR_TABLE, { roughness: 0.5 });
+  const top = makeBox(W, L, T, RENDER.COLOR_TABLE);
   top.position.copy(toThree({ x: 0, y: 0, z: -T / 2 }));
   group.add(top);
 
   // 흰 선 (얇은 판을 상판 위에 살짝 띄움)
-  const lineMat = new THREE.MeshStandardMaterial({ color: RENDER.COLOR_LINE, roughness: 0.4 });
+  const lineMat = toon({ color: RENDER.COLOR_LINE });
   const lift = RENDER.LINE_LIFT;
   const addLine = (cx, cy, sx, sy) => {
     const geo = new THREE.BoxGeometry(...boxSize(sx, sy, lift));
@@ -77,7 +100,7 @@ function buildNet() {
   const mesh = makeBox(span, NET.THICKNESS, H - band, RENDER.COLOR_NET, {
     transparent: true,
     opacity: RENDER.NET_OPACITY,
-  });
+  }, 0);
   mesh.castShadow = false;
   mesh.position.copy(toThree({ x: 0, y: 0, z: (H - band) / 2 }));
   group.add(mesh);
@@ -88,22 +111,53 @@ function buildNet() {
 
   for (const sx of [-1, 1]) {
     const geo = new THREE.CylinderGeometry(NET.POST_RADIUS, NET.POST_RADIUS, H, 16);
-    const post = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: RENDER.COLOR_POST, metalness: 0.5, roughness: 0.4 }));
+    const post = new THREE.Mesh(geo, toon({ color: RENDER.COLOR_POST }));
     post.position.copy(toThree({ x: sx * span / 2, y: 0, z: H / 2 }));
     post.castShadow = true;
+    const w = RENDER.OUTLINE_W / 2;
+    post.add(outline(new THREE.CylinderGeometry(NET.POST_RADIUS + w, NET.POST_RADIUS + w, H + 2 * w, 16)));
     group.add(post);
   }
   return group;
 }
 
 function buildFloor() {
+  const group = new THREE.Group();
   const geo = new THREE.PlaneGeometry(RENDER.FLOOR_SIZE, RENDER.FLOOR_SIZE);
-  const mat = new THREE.MeshStandardMaterial({ color: RENDER.COLOR_FLOOR, roughness: 0.9 });
-  const floor = new THREE.Mesh(geo, mat);
+  const floor = new THREE.Mesh(geo, toon({ color: RENDER.COLOR_FLOOR }));
   floor.rotation.x = -Math.PI / 2;               // Three.js에서 바닥(xz 평면)으로 눕힘
   floor.position.copy(toThree({ x: 0, y: 0, z: -TABLE.HEIGHT }));
   floor.receiveShadow = true;
-  return floor;
+  group.add(floor);
+  // 탁구대 아래 둥근 깔개: 바닥과 색이 달라 탁구대 높이·위치를 읽기 쉽다
+  const mx = RENDER.MAT_SIZE.x / 2, my = RENDER.MAT_SIZE.y / 2, r = RENDER.MAT_RADIUS;
+  const shape = new THREE.Shape();
+  shape.moveTo(-mx + r, -my);
+  shape.lineTo(mx - r, -my); shape.quadraticCurveTo(mx, -my, mx, -my + r);
+  shape.lineTo(mx, my - r); shape.quadraticCurveTo(mx, my, mx - r, my);
+  shape.lineTo(-mx + r, my); shape.quadraticCurveTo(-mx, my, -mx, my - r);
+  shape.lineTo(-mx, -my + r); shape.quadraticCurveTo(-mx, -my, -mx + r, -my);
+  const mat = new THREE.Mesh(new THREE.ShapeGeometry(shape, 8), toon({ color: RENDER.COLOR_MAT }));
+  mat.rotation.x = -Math.PI / 2;
+  mat.position.copy(toThree({ x: 0, y: 0, z: -TABLE.HEIGHT + RENDER.LINE_LIFT }));
+  mat.receiveShadow = true;
+  group.add(mat);
+  return group;
+}
+
+// 하늘: 위에서 아래로 밝아지는 그러데이션 (화면에 고정된 배경)
+function makeSkyTexture() {
+  const c = document.createElement('canvas');
+  c.width = 2; c.height = 256;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, '#' + RENDER.COLOR_SKY_TOP.toString(16).padStart(6, '0'));
+  grad.addColorStop(1, '#' + RENDER.COLOR_BACKGROUND.toString(16).padStart(6, '0'));
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 2, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 // 공 무늬 텍스처: 적도 띠 + 점 하나. 실제 ω로 돌아가므로 회전 방향과 세기를 눈으로 읽을 수 있다.
@@ -142,8 +196,9 @@ function setArrow(arrow, origin, v, k, show) {
 // 공 + 속도(초록)·회전(분홍, 오른손 법칙 축) 디버그 화살표
 export function createBallView(scene) {
   const geo = new THREE.SphereGeometry(BALL.RADIUS, RENDER.BALL_SEGMENTS, RENDER.BALL_SEGMENTS / 2);
-  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: makeBallTexture(), roughness: 0.45 }));
+  const mesh = new THREE.Mesh(geo, toon({ map: makeBallTexture() }));
   mesh.castShadow = true;
+  mesh.add(outline(new THREE.SphereGeometry(BALL.RADIUS + RENDER.OUTLINE_BALL, RENDER.BALL_SEGMENTS, RENDER.BALL_SEGMENTS / 2)));
   scene.add(mesh);
   const velArrow = makeArrow(DEBUG_ARROW.COLOR_VEL);
   const spinArrow = makeArrow(DEBUG_ARROW.COLOR_SPIN);
@@ -175,18 +230,22 @@ export function createBallView(scene) {
 // 라켓: 원판(고무) + 손잡이. update(pos, normal)은 물리 좌표 위치·면 법선(공을 향하는 쪽)
 export function createRacketView(scene, color, opacity = 1) {
   const group = new THREE.Group();
+  const fade = { transparent: opacity < 1, opacity };
+  const w = RENDER.OUTLINE_RACKET;
   const blade = new THREE.Mesh(
     new THREE.CylinderGeometry(RACKET.RADIUS, RACKET.RADIUS, RACKET.THICKNESS, RENDER.RACKET_SEGMENTS),
-    new THREE.MeshStandardMaterial({ color, roughness: 0.7, transparent: opacity < 1, opacity }),
+    toon({ color, ...fade }),
   );
   blade.castShadow = true;
+  blade.add(outline(new THREE.CylinderGeometry(RACKET.RADIUS + w, RACKET.RADIUS + w, RACKET.THICKNESS + w, RENDER.RACKET_SEGMENTS), fade));
   group.add(blade); // 원판 축 = 그룹 로컬 y = 면 법선
   const handle = new THREE.Mesh(
     new THREE.BoxGeometry(RACKET.HANDLE_LENGTH, RACKET.HANDLE_WIDTH, RACKET.HANDLE_WIDTH),
-    new THREE.MeshStandardMaterial({ color: RENDER.COLOR_HANDLE, roughness: 0.8 }),
+    toon({ color: RENDER.COLOR_HANDLE, ...fade }),
   );
   handle.position.x = RACKET.RADIUS + RACKET.HANDLE_LENGTH / 2; // 손잡이 = 그룹 로컬 +x
   handle.castShadow = true;
+  handle.add(outline(new THREE.BoxGeometry(RACKET.HANDLE_LENGTH + w, RACKET.HANDLE_WIDTH + 2 * w, RACKET.HANDLE_WIDTH + 2 * w), fade));
   group.add(handle);
   group.visible = false;
   scene.add(group);
@@ -278,7 +337,8 @@ export function createGuideView(scene) {
   };
 }
 
-// 공 꼬리: 점(Points)을 가산 혼합으로 그린다. 점 색 = 구질 색 × 밝기(오래된 점일수록 어둡게 → 투명해 보임)
+// 공 꼬리: 점(Points)을 그린다. 점 색 = 구질 색, 오래된 점일수록 투명하게.
+// 화풍 정리: 밝은 하늘·크림 바닥에서는 가산 혼합이 하얗게 바래 보여, 점마다 알파(RGBA)를 둔 보통 혼합으로 바꿨다.
 // update(points[{ pos, color }]) — pos는 물리 좌표, color는 0xRRGGBB, 오래된 것부터.
 function makeDotTexture() {
   const n = FEEL.TRAIL_SPRITE_SIZE;
@@ -296,14 +356,14 @@ function makeDotTexture() {
 
 export function createTrailView(scene) {
   const N = FEEL.TRAIL_MAX_POINTS;
-  const pos = new Float32Array(N * 3), col = new Float32Array(N * 3);
+  const pos = new Float32Array(N * 3), col = new Float32Array(N * 4);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 4)); // 4성분이면 점마다 알파를 쓴다
   geo.setDrawRange(0, 0);
   const mat = new THREE.PointsMaterial({
     size: FEEL.TRAIL_POINT_SIZE, map: makeDotTexture(), vertexColors: true, transparent: true,
-    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+    depthWrite: false, sizeAttenuation: true,
   });
   const points = new THREE.Points(geo, mat);
   points.frustumCulled = false;
@@ -316,9 +376,9 @@ export function createTrailView(scene) {
         const q = list[list.length - n + i];
         const v = toThree(q.pos);
         pos[i * 3] = v.x; pos[i * 3 + 1] = v.y; pos[i * 3 + 2] = v.z;
-        const fade = ((i + 1) / n) ** 1.5; // 새 점일수록 밝게
+        const fade = ((i + 1) / n) ** 1.5; // 새 점일수록 진하게
         c.setHex(q.color);
-        col[i * 3] = c.r * fade; col[i * 3 + 1] = c.g * fade; col[i * 3 + 2] = c.b * fade;
+        col[i * 4] = c.r; col[i * 4 + 1] = c.g; col[i * 4 + 2] = c.b; col[i * 4 + 3] = fade;
       }
       geo.setDrawRange(0, n);
       geo.attributes.position.needsUpdate = true;
@@ -336,7 +396,8 @@ export function createRenderer(canvas, quality = {}) {
   renderer.shadowMap.type = (quality.softShadow ?? true) ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(RENDER.COLOR_BACKGROUND);
+  scene.background = makeSkyTexture();
+  scene.fog = new THREE.Fog(RENDER.COLOR_BACKGROUND, RENDER.FOG_NEAR, RENDER.FOG_FAR);
 
   const camera = new THREE.PerspectiveCamera(RENDER.CAMERA_CLASSIC.fov, 1, RENDER.CAMERA_NEAR, RENDER.CAMERA_FAR);
 

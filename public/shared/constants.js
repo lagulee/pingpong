@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v7.6';
+export const VERSION = 'v7.7';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -649,16 +649,28 @@ export const RENDER = Object.freeze({
   DRAG_REF_POINT: Object.freeze({ x: 0, y: -1.3, z: 0.5 }), // 시점별 마우스 감도(mm/화면)를 재는 기준 타점
   MAX_PIXEL_RATIO: 2,
   FLOOR_SIZE: 30,
-  COLOR_BACKGROUND: 0x10141c,
-  COLOR_FLOOR: 0x3a2f2a,
-  COLOR_TABLE: 0x1d4f91,
+  // 카툰 화풍 (v7.7): 하늘색 배경, 밝은 단색 + 계단 명암(툰) + 진한 외곽선
+  COLOR_BACKGROUND: 0xa9cdfb, // 하늘 아래쪽 (안개 색도 같음)
+  COLOR_SKY_TOP: 0x7fb0f4,    // 하늘 위쪽 (세로 그러데이션)
+  FOG_NEAR: 5,               // 바닥이 하늘로 녹아드는 거리 (m). 바닥 끝(FLOOR_SIZE/2)보다 가까이서 다 녹아야 경계가 안 보인다
+  FOG_FAR: 13,
+  COLOR_FLOOR: 0xf3e4c4,     // 크림색 바닥
+  COLOR_MAT: 0xe6cf9f,       // 탁구대 아래 깔개 (바닥보다 조금 진하게: 깊이 단서)
+  MAT_SIZE: Object.freeze({ x: 4.2, y: 7.0 }),
+  MAT_RADIUS: 0.6,           // 깔개 모서리 둥글기 (m)
+  COLOR_TABLE: 0x2f9a57,     // 초록 상판 (하늘색 배경·파란 백스핀 꼬리와 구분)
   COLOR_LINE: 0xffffff,
-  COLOR_LEG: 0x222222,
-  COLOR_NET: 0x111111,
-  COLOR_NET_BAND: 0xf2f2f2,
-  COLOR_POST: 0x555555,
-  AMBIENT_INTENSITY: 0.45,
-  KEY_LIGHT_INTENSITY: 2.2,
+  COLOR_LEG: 0x3a3f4a,
+  COLOR_NET: 0x2b2f38,
+  COLOR_NET_BAND: 0xffffff,
+  COLOR_POST: 0x3a3f4a,
+  COLOR_OUTLINE: 0x22262e,   // 외곽선 (UI의 --ink와 같은 색)
+  OUTLINE_W: 0.012,          // 탁구대·네트 외곽선 두께 (m)
+  OUTLINE_BALL: 0.0045,      // 공 외곽선 두께 (m, 공 반지름 0.02)
+  OUTLINE_RACKET: 0.006,     // 라켓 외곽선 두께 (m)
+  TOON_STEPS: Object.freeze([0.55, 0.8, 1]), // 툰 명암 단계 (어두움 → 밝음)
+  AMBIENT_INTENSITY: 1.1,
+  KEY_LIGHT_INTENSITY: 2.0,
   KEY_LIGHT_POS: Object.freeze({ x: 1.5, y: -1.0, z: 3.5 }),
   SHADOW_MAP_SIZE: 2048,
   LINE_LIFT: 0.001,          // 흰 선이 상판과 겹쳐 깜빡이지 않도록 띄우는 높이
@@ -667,8 +679,8 @@ export const RENDER = Object.freeze({
   COLOR_BALL_MARK: 0xffffff,
   BALL_SEGMENTS: 24,
   BALL_TEXTURE_SIZE: 128,    // 공 무늬 텍스처 가로 픽셀 (세로는 절반)
-  COLOR_RACKET_ME: 0xd8342c, // 내 라켓 고무 (빨강)
-  COLOR_RACKET_AI: 0x2a4fd0, // 로봇 라켓 고무 (파랑)
+  COLOR_RACKET_ME: 0xe0464a, // 내 라켓 고무 (빨강)
+  COLOR_RACKET_AI: 0x3a72e0, // 로봇 라켓 고무 (파랑)
   COLOR_HANDLE: 0x9a6a3a,
   RACKET_SEGMENTS: 32,
   RACKET_OPACITY_ME: 0.8,    // 내 라켓은 살짝 비쳐서 공을 가리지 않게
