@@ -379,6 +379,12 @@ test('checkHit: 스윙은 도달 범위 안에서, 블록은 라켓 평면·약�
   // 좌우로 HIT_RADIUS 밖이면 없음
   player.samples = drag({ ux: 0, uy: 2, x1: TUNABLE.HIT_RADIUS + 0.05, z1: 0.25, t1: 1 });
   assert.equal(checkHit(player, b, 1, DT), null);
+  // 도달 범위는 원(화면의 라켓·고리와 같은 크기): 좌우·높이가 각각 범위 안이어도 대각선 거리가 넘으면 없음
+  const d = TUNABLE.HIT_RADIUS * 0.8;
+  player.samples = drag({ ux: 0, uy: 2, x1: d, z1: 0.25 + d, t1: 1 });
+  assert.equal(checkHit(player, b, 1, DT), null);
+  player.samples = drag({ ux: 0, uy: 2, x1: d * 0.85, z1: 0.25 + d * 0.85, t1: 1 });
+  assert.equal(checkHit(player, b, 1, DT), 'swing');
   // 앞뒤 범위 밖
   player.samples = drag({ ux: 0, uy: 2, x1: 0, z1: 0.25, t1: 1 });
   assert.equal(checkHit(player, incoming({ y: -1.5 + TUNABLE.REACH_Y + 0.1 }), 1, DT), null);

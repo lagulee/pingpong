@@ -227,7 +227,7 @@ export function createBallView(scene) {
   };
 }
 
-// 라켓: 원판(고무) + 손잡이. update(pos, normal)은 물리 좌표 위치·면 법선(공을 향하는 쪽)
+// 라켓: 원판(고무) + 손잡이. update(pos, normal, radius)은 물리 좌표 위치·면 법선(공을 향하는 쪽)·원판 반지름
 export function createRacketView(scene, color, opacity = 1) {
   const group = new THREE.Group();
   const fade = { transparent: opacity < 1, opacity };
@@ -237,8 +237,10 @@ export function createRacketView(scene, color, opacity = 1) {
     toon({ color, ...fade }),
   );
   blade.castShadow = true;
-  blade.add(outline(new THREE.CylinderGeometry(RACKET.RADIUS + w, RACKET.RADIUS + w, RACKET.THICKNESS + w, RENDER.RACKET_SEGMENTS), fade));
   group.add(blade); // 원판 축 = 그룹 로컬 y = 면 법선
+  // 외곽선은 원판과 따로 키워 굵기를 일정하게 둔다
+  const bladeLine = outline(new THREE.CylinderGeometry(RACKET.RADIUS + w, RACKET.RADIUS + w, RACKET.THICKNESS + w, RENDER.RACKET_SEGMENTS), fade);
+  group.add(bladeLine);
   const handle = new THREE.Mesh(
     new THREE.BoxGeometry(RACKET.HANDLE_LENGTH, RACKET.HANDLE_WIDTH, RACKET.HANDLE_WIDTH),
     toon({ color: RENDER.COLOR_HANDLE, ...fade }),
@@ -252,9 +254,15 @@ export function createRacketView(scene, color, opacity = 1) {
 
   const m = new THREE.Matrix4();
   const down = new THREE.Vector3(0, -1, 0);
-  function update(pos, normal) {
+  // radius: 원판 반지름 = 칠 수 있는 범위(HIT_RADIUS, 서브는 SERVE_HIT_RADIUS). 고리와 같은 크기로 그린다
+  function update(pos, normal, radius = RACKET.RADIUS) {
     if (!pos) { group.visible = false; return; }
     group.visible = true;
+    const k = radius / RACKET.RADIUS;
+    blade.scale.set(k, 1, k);
+    const kl = (radius + w) / (RACKET.RADIUS + w);
+    bladeLine.scale.set(kl, 1, kl);
+    handle.position.x = radius + RACKET.HANDLE_LENGTH / 2;
     group.position.copy(toThree(pos));
     const n = toThree(normal).normalize();
     // 손잡이는 면 안에서 아래쪽을 향하게

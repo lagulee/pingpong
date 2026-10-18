@@ -532,13 +532,13 @@ function serveShot(type, drag, b, t, racketX, strength, err, params) {
 // player: { side, samples, yPlane(기준 좌표 라켓 평면 y) }, ball: 세계 좌표 공(이번 스텝 시작 상태)
 // 반환: 'swing'(휘두르는 중, 도달 범위 안) | 'block'(버튼 누르고 정지, 라켓 평면 통과)
 //     | 'weak'(버튼 없음, 도달 범위 뒤끝 통과 — 늦게 휘두를 여유를 준다) | null
-// radius: 좌우·높이 도달 범위 (서브는 SERVE_HIT_RADIUS로 넓힌다)
+// radius: 좌우·높이 도달 범위(원 반지름, 화면의 라켓 반지름과 같음. 서브는 SERVE_HIT_RADIUS로 넓힌다)
 export function checkHit(player, ball, t, dt, params = TUNABLE, radius = params.HIT_RADIUS) {
   const s = racketPointAt(player.samples, t);
   if (!s) return null;
   const b = ballToLocal(ball, player.side);
   const dx = b.pos.x - s.x, dz = b.pos.z - s.y;
-  if (Math.abs(dx) > radius || Math.abs(dz) > radius) return null;
+  if (Math.hypot(dx, dz) > radius) return null; // 원: 화면의 라켓·고리와 같은 크기
   const yp = player.yPlane;
   const crosses = (y) => b.vel.y < 0 && b.pos.y >= y && b.pos.y + b.vel.y * dt < y;
   if (s.b && Math.abs(b.pos.y - yp) <= params.REACH_Y) {

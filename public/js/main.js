@@ -16,6 +16,7 @@ import {
   REJECT_LABELS, MOBILE, FEEL, SHOT_KEYS, SHOT_BUTTONS,
 } from '../shared/constants.js';
 import { canHit, bouncedOn, matchPointSide, idx } from '../shared/rules.js';
+import { isServeHit } from '../shared/match.js';
 import { createAudio, initSoundTest } from './audio.js';
 import {
   createFx, createBallHistory, createDisplayQueue, createPopupLayer, frameSteps, vibrationMs, trailColor, spinRead, comboHud,
@@ -992,12 +993,15 @@ function frame(now) {
   const rules = game.rules;
   const live = !game.free && (rules.phase === 'serving' || rules.phase === 'rally');
   const follow = (side) => (live && canHit(rules, side) && bouncedOn(rules, side) ? ball : null);
-  myRacket.update(racketWorld(human, t, follow(me)), racketNormal(human, t, me));
+  // 라켓 크기 = 고리 크기 = 칠 수 있는 범위 (서브 차례·토스 뒤에는 넓은 서브 범위)
+  const reach = (side) => (rules.server === side && (rules.phase === 'waitingServe' || isServeHit(rules))
+    ? TUNABLE.SERVE_HIT_RADIUS : TUNABLE.HIT_RADIUS);
+  myRacket.update(racketWorld(human, t, follow(me)), racketNormal(human, t, me), reach(me));
   const op = opp();
   // 상대 라켓은 상대 쪽 공과 같은 지연으로 그린다 (라켓 위치도 같은 경로로 늦게 오므로 공과 맞아떨어진다)
   const opT = online() ? viewT - ballLag.expected : viewT;
   const rp = racketWorld(op, opT, follow(-me) && shown) ?? toWorld({ x: SWING.HOME.x, y: SWING.HOME_Y, z: SWING.HOME.z }, -me);
-  robotRacket.update(rp, racketNormal(op, opT, -me));
+  robotRacket.update(rp, racketNormal(op, opT, -me), reach(-me));
 
   // 내가 칠 공의 예측 정점 (상대가 친 공이 나에게 오는 중) 또는 내 서브 타점
   // 내 서브 (공을 들고 있거나, 토스했지만 아직 치지 않음): 가이드라인과 넓은 서브 도달 범위 고리

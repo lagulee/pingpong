@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v7.8';
+export const VERSION = 'v7.9';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -34,9 +34,9 @@ export const BALL = Object.freeze({
   INERTIA_FACTOR: 2 / 3,     // 얇은 구 껍질: 관성모멘트 I = (2/3)·m·r²
 });
 
-// 라켓 (물리 판정용 원판 근사. 타격 도달 범위는 TUNABLE.HIT_RADIUS)
+// 라켓 (물리 판정용 원판 근사. 화면의 라켓 반지름은 타격 도달 범위 TUNABLE.HIT_RADIUS/SERVE_HIT_RADIUS)
 export const RACKET = Object.freeze({
-  RADIUS: 0.08,              // 판정 원판 반지름 (렌더링 크기도 이 값)
+  RADIUS: 0.08,              // 물리 접촉 원판 반지름 (렌더링은 이 크기의 모형을 도달 범위만큼 키운다)
   THICKNESS: 0.01,           // 판정 두께 (고무 포함)
   HANDLE_LENGTH: 0.1,        // 손잡이 길이 (렌더링용)
   HANDLE_WIDTH: 0.025,
@@ -96,7 +96,7 @@ const JUDGE_TUNABLE = {
   // 판정용 회전(v7.0): 받는 쪽은 상대가 쳐 보낸 회전에 공기 중 감쇠만 곱한 값 × SPIN_CARRY를 "들어온 회전"으로 읽는다.
   // 물리 바운드 마찰이 백스핀을 거의 지우기 때문(커트 28.5 → 2.9 rps). 공의 비행·바운드는 물리 회전 그대로.
   SPIN_CARRY: 1.0,
-  HIT_RADIUS: 0.18,          // 라켓 중심에서 좌우·높이 도달 범위 (m)
+  HIT_RADIUS: 0.18,          // 라켓 중심에서 공 중심까지 도달 범위(원 반지름, 화면의 라켓·고리 반지름) (m)
   SERVE_HIT_RADIUS: 0.24,    // 서브(토스한 공)를 칠 때의 도달 범위 (m). 랠리보다 넓게 해 헛스윙을 줄인다
   REACH_Y: 0.30,             // 라켓 평면에서 앞뒤 도달 범위 (m)
   PERFECT_WINDOW: 0.05,      // |타격 − 정점| 이내면 PERFECT (s)
