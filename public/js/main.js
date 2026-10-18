@@ -328,21 +328,26 @@ function setSettingsOpen(v) {
     if (mode === 'practice') setPaused(false);
   }
 }
-// 숨은 치트 (7단계 수정): 설정의 진솔쌤❤️ → 비밀번호 → 타이밍 항상 PERFECT. 내 클라이언트 판정만 바뀌고 이 브라우저에 기억한다.
-// 켜져 있을 때 다시 누르면 끈다. 화면에는 글자 밝기 말고 표시하지 않는다.
-let cheat = store.get('pp-cheat') === '1';
+// 숨은 치트 (7단계 수정): 설정의 진솔쌤❤️ → 비밀번호 → 공/수 고르기. 내 클라이언트 판정만 바뀌고 이 브라우저에 기억한다.
+// 공(attack) = 항상 PERFECT + 헛스윙 보정 +3 cm + 속도·회전 2배 + 스매시 높이 절반, 수(defense) = 위력은 기본, 헛스윙 없음.
+// 켜져 있을 때 다시 누르면 끈다. 화면에는 글자 밝기와 하트 말고 표시하지 않는다.
+const CHEAT_MODES = { attack: '진솔쌤💖', defense: '진솔쌤💕' };
+const cheatMode = (v) => (v === '1' ? 'attack' : CHEAT_MODES[v] ? v : null); // '1' = v7.15까지 저장된 값(공)
+let cheat = cheatMode(store.get('pp-cheat'));
 const cheatBtn = $('set-cheat');
 const cheatBox = $('cheat-box');
+const cheatPick = $('cheat-pick');
 function setCheat(v, msg = '') {
   cheat = v;
-  store.set('pp-cheat', v ? '1' : '0');
-  cheatBtn.classList.toggle('on', v);
-  cheatBtn.textContent = v ? '진솔쌤💖' : '진솔쌤❤️';
+  store.set('pp-cheat', v ?? '0');
+  cheatBtn.classList.toggle('on', !!v);
+  cheatBtn.textContent = CHEAT_MODES[v] ?? '진솔쌤❤️';
   $('cheat-msg').textContent = msg;
 }
 setCheat(cheat);
 tap(cheatBtn, () => {
-  if (cheat) { setCheat(false, '꺼짐'); cheatBox.hidden = true; return; }
+  cheatPick.hidden = true;
+  if (cheat) { setCheat(null, '꺼짐'); cheatBox.hidden = true; return; }
   cheatBox.hidden = !cheatBox.hidden;
   $('cheat-msg').textContent = '';
   if (!cheatBox.hidden) { $('cheat-pw').value = ''; $('cheat-pw').focus(); }
@@ -351,8 +356,12 @@ cheatBox.addEventListener('submit', (e) => {
   e.preventDefault();
   const ok = cheatCodeOk($('cheat-pw').value);
   $('cheat-pw').value = '';
-  if (ok) { cheatBox.hidden = true; setCheat(true, '❤️'); } else $('cheat-msg').textContent = '틀렸어요';
+  if (!ok) { $('cheat-msg').textContent = '틀렸어요'; return; }
+  cheatBox.hidden = true;
+  cheatPick.hidden = false;
+  $('cheat-msg').textContent = '';
 });
+for (const b of cheatPick.querySelectorAll('button')) tap(b, () => { cheatPick.hidden = true; setCheat(b.dataset.m, '❤️'); });
 if (mobile) $('set-adv-sub').textContent = '화면 구질 버튼';
 tap(settingsBtn, () => setSettingsOpen(settingsEl.hidden));
 tap($('settings-close'), () => setSettingsOpen(false));
@@ -991,7 +1000,7 @@ function updateCamera() {
   }
   human.dragScale = mouse.touchActive ? dragScale * touchSpeedScale(canvas.clientHeight) : dragScale;
   human.control = control; // 조작 모드 (설정 ⚙)
-  human.cheat = cheat; // 숨은 치트 (진솔쌤❤️)
+  human.cheat = cheat; // 숨은 치트 (진솔쌤❤️): 'attack' | 'defense' | null
   // 터치 스매시 기준 (7단계 수정, 기본 모드는 7단계 수정 BASIC_TOUCH_SMASH_SPEED). 마우스는 classifyShot이 모드별 기본값을 쓴다
   human.smashSpeed = !mouse.touchActive ? undefined : control === 'basic' ? TUNABLE.BASIC_TOUCH_SMASH_SPEED : TUNABLE.TOUCH_SMASH_SPEED;
 }
@@ -1079,7 +1088,7 @@ function frame(now) {
   }
   guideView.update(guide);
   const waiting = live && canHit(rules, me);
-  const smashable = !tossed && !!human.apexPos && human.apexPos.z >= NET.HEIGHT + smashMinHeight(TUNABLE, cheat); // 치트면 빨간 고리도 낮게
+  const smashable = !tossed && !!human.apexPos && human.apexPos.z >= NET.HEIGHT + smashMinHeight(TUNABLE, cheat === 'attack'); // 치트(공)면 빨간 고리도 낮게
   const ringPos = waiting ? human.apexPos : holdingServe && guide ? guide.hit : null;
   marker.update(ringPos, tossed || holdingServe ? TUNABLE.SERVE_HIT_RADIUS : TUNABLE.HIT_RADIUS, smashable);
   updateSpinBadge(mode !== 'menu' && waiting && !tossed ? human.apexPos : null, t);

@@ -141,3 +141,45 @@ test('치트 성능: 퍼펙트 콤보 최고 단계와 겹쳐도 서버 한도(M
   assert.ok(vmax <= ONLINE.MAX_V, `속도 ${vmax.toFixed(1)} m/s`);
   assert.ok(wmax <= ONLINE.MAX_SPIN, `회전 ${wmax.toFixed(0)} rps`);
 });
+
+// ── 치트(수) (v7.16): 위력은 기본, 헛스윙 없음 ──
+import { createAI, createRally, stepMatch, createPlayer } from '../public/js/ai.js';
+import { createRng } from '../public/js/input.js';
+
+// 사람 자리(−1)에 손을 놓은 라켓(구석, 버튼 없음)을 두고 로봇 서브로 한 점씩 겨룬다
+function passivePoints(mode, diff, n) {
+  const out = { lost: 0, won: 0, hits: [], reasons: {} };
+  for (let seed = 1; seed <= n; seed++) {
+    const human = createPlayer(-1);
+    human.cheat = mode;
+    human.samples.push({ t: 0, x: 0.4, y: 0.2, b: false, k: null });
+    const robot = createAI(1, diff, createRng(seed * 3));
+    const g = createRally({ players: { [-1]: human, [1]: robot.player }, ais: [robot], rng: createRng(seed), firstServer: 1 });
+    for (let i = 0; i < 240 * 20 && !g.results.some((r) => r.type === 'point'); i++) {
+      for (const e of stepMatch(g)) if (e.type === 'racket' && e.side === -1) out.hits.push(e);
+    }
+    const r = g.results.find((x) => x.type === 'point');
+    if (!r) continue;
+    if (r.winner === -1) out.won++; else { out.lost++; out.reasons[r.reason] = (out.reasons[r.reason] ?? 0) + 1; }
+  }
+  return out;
+}
+
+test('치트(수): 손을 놓고 있어도 로봇 공을 놓치지 않는다 (치트 없으면 전부 실점)', () => {
+  assert.equal(passivePoints(null, 'HARD', 6).lost, 6);
+  const d = passivePoints('defense', 'HARD', 12);
+  assert.equal(d.lost, 0, JSON.stringify(d.reasons));
+  assert.ok(d.hits.length >= 12);
+  // 위력은 기본: 받아 넘긴 공은 보통 공 속도 한계 안이고, 대전에서 라켓 위치를 공 자리로 보내도록 표시된다
+  for (const e of d.hits) {
+    assert.ok(e.speed <= TUNABLE.NORMAL_V_MAX + 0.5, `${e.speed.toFixed(2)} m/s`);
+    assert.equal(e.shot.quality.guard, true);
+    assert.notEqual(e.shot.quality.cheat?.speed, 2);
+  }
+});
+
+test('치트(수): 바운드 전 공은 건드리지 않는다 (넓은 범위로 발리 실점을 하지 않음)', () => {
+  const d = passivePoints('defense', 'NORMAL', 8);
+  assert.equal(d.reasons.volley ?? 0, 0);
+  assert.equal(d.lost, 0, JSON.stringify(d.reasons));
+});

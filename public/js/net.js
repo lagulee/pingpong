@@ -232,7 +232,8 @@ export function createOnlineClient(opts) {
         if (e.type !== 'racket' || e.side !== c.me || !e.shot) continue;
         const p = g.players[c.me];
         const loc = toLocal(e.pos, c.me);
-        const r = racketPointAt(p.samples, e.t) ?? { x: loc.x, y: loc.z };
+        // 숨은 치트(수): 넓은 범위로 친 공은 서버 거리 검사(far)를 넘도록 라켓 위치를 공 자리로 보낸다
+        const r = e.shot.quality?.guard ? { x: loc.x, y: loc.z } : racketPointAt(p.samples, e.t) ?? { x: loc.x, y: loc.z };
         lastHit = { side: c.me, seq: ++seq };
         send({
           type: e.shot.quality?.serve ? 'serve' : 'hit', seq, t: e.t, pos: vec3(e.pos),

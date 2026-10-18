@@ -287,6 +287,9 @@
     #cheat-box[hidden] { display: none; }
     #cheat-box input { flex: 1; min-width: 0; padding: 4px 6px; border: 2px solid var(--ink); border-radius: 3px; font: inherit; }
     #cheat-box button { padding: 4px 10px; border: 2px solid var(--ink); border-radius: 3px; background: var(--lime); font: 700 12px/1 inherit; cursor: pointer; }
+    #cheat-pick { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+    #cheat-pick[hidden] { display: none; }
+    #cheat-pick button { padding: 4px 14px; border: 2px solid var(--ink); border-radius: 3px; background: var(--cream-3); font: 700 13px/1 inherit; cursor: pointer; }
     #cheat-msg { min-height: 0; margin-top: 4px; color: var(--ink-2); font-size: 11px; text-align: right; }
 
     /* ── 음소거·일시정지 (왼쪽 아래, 버전 위) ── */
@@ -556,6 +559,10 @@
       <input id="cheat-pw" type="password" inputmode="numeric" maxlength="8" placeholder="비밀번호" autocomplete="off">
       <button type="submit">확인</button>
     </form>
+    <div id="cheat-pick" hidden>
+      <button type="button" data-m="attack">공</button>
+      <button type="button" data-m="defense">수</button>
+    </div>
     <div id="cheat-msg"></div>
   </div>
   <div id="pause" hidden>

@@ -397,21 +397,31 @@ function hitPhase(game, t, dt, events, params) {
     if (!canHit(rules, side)) continue;
     const p = game.players[side];
     const serveHit = isServeHit(rules);
-    // 숨은 치트(헛스윙 보정): 사람이면 보이지 않게 도달 범위를 조금 넓힌다
-    const extra = !p.robot && p.cheat ? CHEAT.REACH_EXTRA : 0;
-    const kind = checkHit(p, ball, t, dt, params, (serveHit ? params.SERVE_HIT_RADIUS : params.HIT_RADIUS) + extra);
+    // 숨은 치트: 공(attack)은 보이지 않게 도달 범위를 조금 넓히고, 수(defense)는 탁구대 전체로 넓혀 헛스윙이 없다
+    const cheat = p.robot ? null : p.cheat;
+    const guard = cheat === 'defense';
+    const reach = (serveHit ? params.SERVE_HIT_RADIUS : params.HIT_RADIUS) + (cheat === 'attack' ? CHEAT.REACH_EXTRA : 0);
+    let kind = checkHit(p, ball, t, dt, params, guard ? CHEAT.GUARD_RADIUS : reach);
+    // 치트(수): 라켓 평면까지 오지 않는 짧은 공도, 내 코트에 바운드한 뒤 내려와 GUARD_LOW 높이가 되면 받는다
+    if (!kind && guard && !serveHit && !isEarly(rules, side)) {
+      const lb = ballToLocal(ball, side);
+      if (lb.pos.y < 0 && lb.vel.z < 0 && lb.pos.z <= CHEAT.GUARD_LOW) kind = 'block';
+    }
     if (!kind) continue;
     // 자기 쪽에 바운드하기 전 공: 일부러 휘두르거나 막은 경우만 맞는다(발리 → 실점).
     // 버튼 없이 라켓이 놓여 있던 경우와 로봇은 치지 않는다.
-    if (isEarly(rules, side) && (kind === 'weak' || p.robot)) continue;
+    // 치트(수)는 바운드 전 공을 건드리지 않는다 (넓은 범위로 발리 실점을 하지 않게. 나가는 공은 그대로 상대 아웃)
+    if (isEarly(rules, side) && (kind === 'weak' || p.robot || guard)) continue;
     const shot = classifyShot(p.samples, ball, {
-      t, side, apexT: p.apexT, rng: game.rng, params, pressed: kind !== 'weak', serve: serveHit, dragScale: p.dragScale ?? 1,
+      t, side, apexT: p.apexT, rng: game.rng, params, pressed: guard || kind !== 'weak', serve: serveHit, dragScale: p.dragScale ?? 1, // 치트(수): 손을 떼도 조준 블록
       spinIn: carriedSpin(game.inSpin, t, params) ?? undefined, smashSpeed: p.smashSpeed,
       ringZ: serveHit || p.robot ? undefined : p.apexPos?.z, // 사람: 화면 고리 높이로 스매시 판정 (로봇은 맞은 높이로 고른다)
       control: p.control, // 사람의 조작 모드 (설정 ⚙: 기본 = 드래그 방향, 고급 = 버튼). 로봇은 없음 = 버튼
       combo: p.robot ? 0 : p.combo, // 퍼펙트 콤보: 사람만 쌓는다
-      perfect: !p.robot && !!p.cheat, // 숨은 치트 (설정 ⚙의 진솔쌤❤️)
-      cheat: !p.robot && !!p.cheat, // 숨은 치트 성능 (스매시 높이·속도·회전)
+      // 숨은 치트 (설정 ⚙의 진솔쌤❤️): 공 = 항상 PERFECT + 성능(스매시 높이·속도·회전), 수 = 블록만 오차 없이 (위력은 기본)
+      perfect: cheat === 'attack' || (guard && kind !== 'swing'),
+      cheat: cheat === 'attack',
+      guard,
     });
     if (!p.robot) p.combo = shot.quality.combo;
     p.lastShot = shot;

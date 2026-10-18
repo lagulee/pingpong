@@ -398,7 +398,8 @@ export function aimTarget(type, drag, racketX, params = TUNABLE) {
 //        control('advanced' 구질 버튼(기본값, 로봇) | 'basic' 드래그 방향으로 구질, 설정 ⚙),
 //        combo(이 타격 전까지 이어진 퍼펙트 콤보 수, 기본 0. 로봇은 넘기지 않는다),
 //        perfect(숨은 치트: 타이밍을 항상 PERFECT로, 기본 false),
-//        cheat(숨은 치트 성능: 스매시 높이 낮춤 + 공격 스윙 속도·회전 최대 2배, 기본 false) }
+//        cheat(숨은 치트(공) 성능: 스매시 높이 낮춤 + 공격 스윙 속도·회전 최대 2배, 기본 false),
+//        guard(숨은 치트(수): 결과에 quality.guard를 붙인다. 대전에서 라켓 위치를 공 자리로 보낸다, 기본 false) }
 // 반환: { shotType, vel, spin, quality: { timing, accuracy, strength, dtApex, weak, target, button, spinIn, stack, combo, comboLevel } }
 export function classifyShot(samples, ballState, ctx = {}) {
   const cheat = !!ctx.cheat;
@@ -439,7 +440,7 @@ export function classifyShot(samples, ballState, ctx = {}) {
   const quality = {
     timing, accuracy, strength, dtApex, weak: !pressed, target: null, dragSpeed: drag.speed, dragSin: drag.sin, serve,
     button, smashSlow: button === 'smash' && shotType === 'normal' && !serve, smashNoServe: serve && button === 'smash', smashSpeed,
-    spinIn: { top: parts.top, side: parts.side }, stack: null, combo: cb.combo, comboLevel: cb.level,
+    spinIn: { top: parts.top, side: parts.side }, stack: null, combo: cb.combo, comboLevel: cb.level, guard: !!ctx.guard,
   };
   const boostV = 1 + params.COMBO_SPEED * cb.level, boostW = 1 + params.COMBO_SPIN * cb.level;
 
@@ -556,6 +557,18 @@ export function classifyShot(samples, ballState, ctx = {}) {
       }
     }
     out = { vel: add(launch.vel, fx.dv), spin: add(launch.spin, fx.dw) };
+  }
+  // 숨은 치트(수): 받아 넘긴 공(오차·들어온 회전 포함)이 상대 코트에 안 들어가면, 무회전 일반 공으로 정점 높이를 바꿔 가며 다시 조준한다
+  if (ctx.guard && !serve && !landsIn(flightLanding(createBall({ pos: b.pos, vel: out.vel, spin: out.spin, t }), params, 0))) {
+    const target = aimTarget('normal', drag, racketX, params);
+    for (const apex of CHEAT.GUARD_APEX) {
+      const am = solveArc({ pos: b.pos, target, t, apex, vMin: params.NORMAL_V_MIN, vMax: params.NORMAL_V_MAX }, params);
+      const l = makeLaunch({ pos: b.pos, t, speed: am.speed, elevation: am.elevation, azimuth: am.azimuth });
+      if (!landsIn(flightLanding(l, params, 0))) continue;
+      out = { vel: l.vel, spin: l.spin };
+      quality.guardSafe = true;
+      break;
+    }
   }
   return {
     shotType,
