@@ -10,7 +10,7 @@ import {
   faceNormal, racketResponse, ballToLocal, toWorld, flightLanding,
 } from '../shared/physics.js';
 import {
-  NET, TABLE, SWING, TUNABLE, RENDER, SHOT_BUTTONS, SHOT_COMBOS, CONTROL_MODES, CONTROL_DEFAULT,
+  NET, TABLE, SWING, TUNABLE, RENDER, SHOT_BUTTONS, SHOT_COMBOS, CONTROL_MODES, CONTROL_DEFAULT, FEEL,
 } from '../shared/constants.js';
 import { createTouchTracker } from './touch.js';
 
@@ -244,6 +244,41 @@ export function gradeTiming(dt, params = TUNABLE) {
   if (a <= params.PERFECT_WINDOW) return { timing: 'PERFECT', accuracy: params.ACC_PERFECT };
   if (a <= params.GOOD_WINDOW) return { timing: 'GOOD', accuracy: params.ACC_GOOD };
   return { timing: 'OK', accuracy: params.ACC_OK };
+}
+
+// ── 빗나감 판정 (7단계 수정): 헛스윙이 빨랐나 느렸나 ──
+// samples: 공이 올 때부터 모은 내 샘플(오래된 것도 버리지 않은 사본), apexT: 예측 정점 시각(PERFECT 시각),
+// apex: 정점의 기준 좌표 { x, z }, scale: 드래그 속도 보정(dragScale).
+// 정점 MISS_EARLY 전 ~ MISS_LOOK 뒤에서 버튼을 누르고 가장 빠르게 휘두른 순간(PEAK_DT 구간의 가운데)을 스윙 시각으로 본다.
+// 반환 { kind: 'early'(빠름)|'late'(느림)|'pos'(타이밍은 맞았는데 자리가 빗나감), dt(스윙 − 정점, s), dx, dz(공 − 라켓, m) } | null
+export function judgeMiss(samples, apexT, apex, params = TUNABLE, scale = 1) {
+  if (apexT == null || !samples.length) return null;
+  const d = params.PEAK_DT;
+  let best = null;
+  for (const s of samples) {
+    if (!s.b || s.t < apexT - FEEL.MISS_EARLY || s.t > apexT + FEEL.MISS_LOOK + d) continue;
+    const a = racketPointAt(samples, s.t - d);
+    if (!a || !a.b) continue;
+    const v = (Math.hypot(s.x - a.x, s.y - a.y) / d) * scale;
+    if (v >= params.BLOCK_SPEED && (!best || v > best.v)) best = { v, t: s.t - d / 2 };
+  }
+  const t = best ? best.t : apexT;
+  const r = racketPointAt(samples, t);
+  const off = r && apex ? { dx: apex.x - r.x, dz: apex.z - r.y } : { dx: 0, dz: 0 };
+  if (!best) return r ? { kind: 'pos', dt: 0, ...off } : null; // 휘두르지 않았는데 못 맞힘 = 자리
+  const dt = best.t - apexT;
+  if (Math.abs(dt) <= params.GOOD_WINDOW) return { kind: 'pos', dt, ...off };
+  return { kind: dt < 0 ? 'early' : 'late', dt, ...off };
+}
+
+// 빗나감 표시 글자: 빠름/느림 + 몇 ms, 자리면 공이 있던 쪽
+export function missText(m) {
+  if (!m) return '';
+  if (m.kind === 'early') return `빠름 ${Math.round(-m.dt * 1000)} ms`;
+  if (m.kind === 'late') return `느림 ${Math.round(m.dt * 1000)} ms`;
+  const h = Math.abs(m.dx) >= Math.abs(m.dz);
+  const dir = h ? (m.dx > 0 ? '오른쪽' : '왼쪽') : (m.dz > 0 ? '위' : '아래');
+  return `빗나감 · 공은 라켓 ${dir}`;
 }
 
 // 방향 오차 (계획 4장): 정확도 a가 1이면 0

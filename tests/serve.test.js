@@ -80,14 +80,17 @@ test('쉬운 서브: 타이밍이 ±80 ms 어긋나거나 10 cm 빗맞아도 대
   assert.ok(ok / n >= 0.9, `서브 성공 ${ok}/${n}`);
 });
 
+// v7.11: 사용자 요청으로 기본값은 서브 범위 = 랠리 범위(10 cm). 서브 범위를 따로 넓히는 경로는 슬라이더용으로 남아 있어
+// 서브 범위를 넓힌 값(v7.10까지의 0.24 m)으로 같은 단언을 확인한다.
 test('서브 도달 범위: 랠리 범위 밖이지만 서브 범위 안이면 맞는다', () => {
+  assert.equal(TUNABLE.SERVE_HIT_RADIUS, TUNABLE.HIT_RADIUS, '기본값: 서브도 라켓 크기 그대로');
+  const params = { ...TUNABLE, SERVE_HIT_RADIUS: 0.24 };
   const player = { side: -1, yPlane: SERVE.TOSS_Y, samples: [{ t: 0, x: 0, y: 0.3, b: true }, { t: 0.1, x: 0, y: 0.3, b: true }] };
-  const off = (TUNABLE.HIT_RADIUS + TUNABLE.SERVE_HIT_RADIUS) / 2;
-  assert.ok(TUNABLE.SERVE_HIT_RADIUS > TUNABLE.HIT_RADIUS);
+  const off = (params.HIT_RADIUS + params.SERVE_HIT_RADIUS) / 2;
   // 버튼 누른 채 멈춘 라켓의 평면을 지나가는 공 (블록 판정 경로)
   const ball = createBall({ pos: vec(off, SERVE.TOSS_Y + 0.001, 0.3), vel: vec(0, -2, 0), t: 0.1 });
-  assert.equal(checkHit(player, ball, 0.1, PHYSICS.DT), null, '랠리 범위');
-  assert.equal(checkHit(player, ball, 0.1, PHYSICS.DT, TUNABLE, TUNABLE.SERVE_HIT_RADIUS), 'block', '서브 범위');
+  assert.equal(checkHit(player, ball, 0.1, PHYSICS.DT, params), null, '랠리 범위');
+  assert.equal(checkHit(player, ball, 0.1, PHYSICS.DT, params, params.SERVE_HIT_RADIUS), 'block', '서브 범위');
 });
 
 test('서브 속도 보조: 늦게 쳐서 타점이 낮아도 느린 스윙 서브가 들어간다', () => {

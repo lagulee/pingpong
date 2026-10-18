@@ -24,7 +24,7 @@ import {
 import { initDebug, launchParams, SCENARIO_LABELS } from './debug.js';
 import {
   createMouseInput, rayPlaneY, analyzeDrag, createRng, cameraFor, tunableCamera, zoomCamera, dragScaleFor, createShotKeys, shotKeysOf,
-  controlMode,
+  controlMode, judgeMiss, missText,
 } from './input.js';
 import {
   createAI, createPlayer, createRally, stepMatch, serveBall, placeBall, endFree, tossBall, queueScenario,
@@ -43,6 +43,7 @@ const keysHintEl = $('keys-hint'); // 상태 칩 아래 키 안내 (PC, 화풍 �
 const shotEl = $('shot');
 const shotSubEl = $('shot-sub');
 const comboEl = $('combo');
+const missEl = $('miss');
 const robotShotEl = $('robot-shot');
 const centerEl = $('center');
 const scoreEls = { me: $('score-me'), robot: $('score-robot') };
@@ -882,6 +883,43 @@ function updateComboHud(combo) {
   if (h) { comboEl.textContent = h.text; comboEl.style.color = h.color; }
 }
 
+// ── 빗나감 표시 (7단계 수정): 내가 받을 공을 못 맞히면 왼쪽 위에 느림/빠름 ──
+// 공이 올 때부터 내 샘플을 모아 두고(샘플 배열은 0.5 s만 남으므로), 공이 도달 범위 뒤로 지나가거나 점수가 나면
+// 정점 + MISS_LOOK(늦은 스윙까지 기다림)에 judgeMiss로 판정한다. 그 사이 내가 치면 취소.
+let missWatch = null;   // { key, apexT, apex, log, lastT, judgeAt }
+let missUntil = 0;
+let missDoneKey = '';   // 이미 판정한 공 (같은 공을 두 번 판정하지 않게)
+function updateMiss(t, live, rules) {
+  const me0 = me;
+  const ballLocal = toLocal(game.ball.pos, me0);
+  const waiting = live && rules.lastHitter === -me0 && canHit(rules, me0) && bouncedOn(rules, me0) && !isServeHit(rules);
+  const key = `${rules.rally}:${rules.lastHitter}`;
+  if (waiting && human.apexT != null && key !== missDoneKey && (!missWatch || missWatch.key !== key)) {
+    const a = toLocal(human.apexPos, me0);
+    missWatch = { key, apexT: human.apexT, apex: { x: a.x, z: a.z }, log: [], lastT: -Infinity, judgeAt: null };
+  }
+  const w = missWatch;
+  if (w) {
+    for (const q of human.samples) if (q.t > w.lastT) { w.log.push(q); w.lastT = q.t; }
+    if (rules.lastHitter === me0 || game.free) { missWatch = null; missDoneKey = w.key; } // 쳤음 (또는 발사기)
+    else if (w.judgeAt === null && (!live || ballLocal.y < human.yPlane - TUNABLE.REACH_Y - 0.02)) {
+      w.judgeAt = Math.max(t, w.apexT + FEEL.MISS_LOOK);
+    }
+    if (missWatch && w.judgeAt !== null && t >= w.judgeAt) {
+      const text = missText(judgeMiss(w.log, w.apexT, w.apex, TUNABLE, human.dragScale ?? 1));
+      missWatch = null;
+      missDoneKey = w.key;
+      if (text) {
+        missEl.textContent = text;
+        missEl.className = text.startsWith('빠름') ? 'miss-early' : text.startsWith('느림') ? 'miss-late' : 'miss-pos';
+        missEl.hidden = false;
+        missUntil = t + FEEL.MISS_SHOW;
+      }
+    }
+  }
+  if (!missEl.hidden && (t >= missUntil || mode === 'menu')) missEl.hidden = true;
+}
+
 // ── 그리기 ──
 function racketNormal(player, t, side) {
   const d = analyzeDrag(player.samples, t, TUNABLE, player.dragScale ?? 1);
@@ -1020,6 +1058,7 @@ function frame(now) {
   marker.update(ringPos, tossed || holdingServe ? TUNABLE.SERVE_HIT_RADIUS : TUNABLE.HIT_RADIUS, smashable);
   updateSpinBadge(mode !== 'menu' && waiting && !tossed ? human.apexPos : null, t);
   updateComboHud(mode !== 'menu' ? human.combo : 0);
+  updateMiss(t, live, rules);
   updateShotButtons();
   if (!settingsEl.hidden && volumeEl !== document.activeElement) syncSettings(); // 키(M·G·Space)로 바꾼 값도 보이게
   if (!introEl.hidden && performance.now() / 1000 > introUntil) hideIntro();

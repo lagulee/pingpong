@@ -73,6 +73,13 @@
     #shot-sub, #robot-shot { margin-top: 4px; font: 800 13px/1.4 var(--font); color: #fff; min-height: 18px; text-shadow: var(--stroke-thin); }
     #combo { margin-top: 4px; font: 400 17px/1.3 var(--display); text-shadow: var(--stroke); }
     #combo[hidden] { display: none; }
+    /* 빗나감 표시 (7단계 수정): 빠름 = 파랑, 느림 = 빨강, 자리 = 노랑 */
+    #miss { margin-top: 6px; display: inline-block; padding: 2px 10px; border: 3px solid var(--ink); border-radius: 3px;
+      font: 400 22px/1.2 var(--display); color: var(--ink); box-shadow: 3px 3px 0 var(--ink); }
+    #miss[hidden] { display: none; }
+    #miss.miss-early { background: #8fc4ff; }
+    #miss.miss-late { background: #ff9a8f; }
+    #miss.miss-pos { background: var(--yellow); }
 
     /* ── 점수판 (화면 위 가운데): 내 점수 빨강 칸, 상대 점수 파랑 칸 ── */
     #scoreboard {
@@ -491,6 +498,7 @@
     <div id="shot"></div>
     <div id="shot-sub"></div>
     <div id="combo" hidden></div>
+    <div id="miss" hidden></div>
     <div id="robot-shot"></div>
   </div>
   <div id="scoreboard" class="card">
