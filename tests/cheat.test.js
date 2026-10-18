@@ -66,7 +66,7 @@ test('헛스윙 보정: 범위 밖으로 살짝 빗나간 공을 넓힌 범위�
   assert.equal(checkHit(player, b, 1, dt, TUNABLE, TUNABLE.HIT_RADIUS + CHEAT.REACH_EXTRA), 'block');
 });
 
-// ── 치트 성능 (v7.14): 속도·회전 최대 2배, 스매시 높이 절반 ──
+// ── 치트 성능 (v7.15): 속도·회전 최대 2배, 스매시 높이 절반 ──
 import { smashMinHeight } from '../public/js/input.js';
 import { step } from '../public/shared/physics.js';
 import { NET, PHYSICS } from '../public/shared/constants.js';

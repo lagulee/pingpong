@@ -9,11 +9,11 @@ const json = (obj, status = 200) => new Response(JSON.stringify(obj), {
 });
 const rng = () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
 
-// 방 코드 → 방 Durable Object. 처음 만들 때만 위치 힌트가 적용된다(이미 있는 방은 옮겨지지 않음).
-// 런타임이 모르는 힌트는 get()이 오류를 내므로 다음 힌트, 마지막에는 힌트 없이.
-export function roomStub(env, code) {
+// 방 코드 → 방 Durable Object. 처음 만들 때만 위치가 정해진다(이미 있는 방은 옮겨지지 않음).
+// 힌트가 없으면 방장의 첫 접속이 들어온 접속 지점 근처. 런타임이 모르는 힌트는 get()이 오류를 내므로 다음 힌트, 마지막에는 힌트 없이.
+export function roomStub(env, code, hints = ONLINE.LOCATION_HINTS) {
   const id = env.ROOM.idFromName(code);
-  for (const locationHint of ONLINE.LOCATION_HINTS) {
+  for (const locationHint of hints) {
     try { return env.ROOM.get(id, { locationHint }); } catch { /* 다음 힌트 */ }
   }
   return env.ROOM.get(id);

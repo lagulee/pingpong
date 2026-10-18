@@ -1,4 +1,4 @@
-// v6.1 핑 개선: 방 서버(Durable Object) 위치 힌트와 경로 진단 (.claude/rules/network.md "방 서버 위치")
+// v6.1 핑 개선(v7.14 방장 근처로 변경): 방 서버(Durable Object) 위치 힌트와 경로 진단 (.claude/rules/network.md "방 서버 위치")
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import worker, { roomStub } from '../server/worker.js';
@@ -20,20 +20,25 @@ function fakeNamespace(reject = []) {
   };
 }
 
-test('방 서버는 동북아(apac-ne) 위치 힌트로 만든다', () => {
-  assert.deepEqual(ONLINE.LOCATION_HINTS, ['apac-ne', 'apac']);
+test('방 서버는 위치 힌트 없이 만든다 = 방장 접속 지점 근처 (v7.14)', () => {
+  // v6.1의 동북아 고정은 두 사람이 모두 미국 접속 지점(SEA·LAX)일 때 태평양을 4번 건너게 했다
+  assert.deepEqual(ONLINE.LOCATION_HINTS, []);
   const ns = fakeNamespace();
   const stub = roomStub({ ROOM: ns }, 'ABCD');
   assert.equal(stub.id, 'id:ABCD');
-  assert.equal(stub.hint, 'apac-ne');
+  assert.equal(stub.hint, null);
+  assert.deepEqual(ns.calls, [null]);
 });
 
-test('런타임이 모르는 힌트면 apac, 그것도 안 되면 힌트 없이 만든다 (방 입장이 막히지 않음)', () => {
-  let ns = fakeNamespace(['apac-ne']);
-  assert.equal(roomStub({ ROOM: ns }, 'ABCD').hint, 'apac');
+test('힌트를 넣으면 차례로 시도하고, 런타임이 모르는 힌트면 다음 것, 마지막엔 힌트 없이 (방 입장이 막히지 않음)', () => {
+  const hints = ['apac-ne', 'apac'];
+  let ns = fakeNamespace();
+  assert.equal(roomStub({ ROOM: ns }, 'ABCD', hints).hint, 'apac-ne');
+  ns = fakeNamespace(['apac-ne']);
+  assert.equal(roomStub({ ROOM: ns }, 'ABCD', hints).hint, 'apac');
   assert.deepEqual(ns.calls, ['apac-ne', 'apac']);
   ns = fakeNamespace(['apac-ne', 'apac']);
-  assert.equal(roomStub({ ROOM: ns }, 'ABCD').hint, null);
+  assert.equal(roomStub({ ROOM: ns }, 'ABCD', hints).hint, null);
   assert.deepEqual(ns.calls, ['apac-ne', 'apac', null]);
 });
 
