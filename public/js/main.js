@@ -219,7 +219,7 @@ if (mobile) {
 // ── 조작표 (7단계, 7단계 수정 조작 모드별): 일시정지 화면·첫 경기 안내판·첫 화면 안내 ──
 const COMMON_KEYS = mobile ? [] : [
   ['<kbd>Space</kbd>', '시점 · <kbd>N</kbd> 새 게임 · <kbd>P</kbd>/<kbd>Esc</kbd> 일시정지 · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 난이도'],
-  ['<kbd>G</kbd>', '서브 가이드 · <kbd>V</kbd> 화살표 · <kbd>M</kbd> 음소거 · ⚙ 설정'],
+  ['<kbd>G</kbd>', '서브 가이드 · <kbd>V</kbd> 화살표 · <kbd>M</kbd> 음소거 · <kbd>Tab</kbd> ⚙ 설정'],
 ];
 const CONTROLS = {
   // 기본: 스윙 방향·곡률·속도로 구질 (v6.3 방식)
@@ -260,7 +260,7 @@ const CONTROLS = {
 };
 const MENU_HINT = {
   basic: mobile ? '쓰는 방향으로 구질 · ⚙ 설정에서 고급(구질 버튼) · 가로 화면 권장 · ⛶ 전체 화면'
-    : '드래그 방향으로 구질 · ⚙ 설정에서 고급(Q/W/E/R) · Space 시점 바꾸기',
+    : '드래그 방향으로 구질 · ⚙ 설정(Tab)에서 고급(Q/W/E/R) · Space 시점 바꾸기',
   advanced: mobile ? '오른손으로 쓸어 치기 · 왼손으로 구질 버튼 · 가로 화면 권장 · ⛶ 전체 화면'
     : '드래그로 치기 · Q/W/E/R 구질 · M 음소거 · Space 시점 바꾸기',
 };
@@ -272,8 +272,8 @@ const SERVE_HINT = {
     : '내 서브\n① 클릭: 공 띄우기  ② 공이 고리에 올 때 휘두르기\n버튼 없이 = 무회전 · Q 탑 · W 백 · E 사이드',
 };
 const KEYS_HINT = {
-  practice: '<kbd>P</kbd> 일시정지·조작표 · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 난이도 · <kbd>N</kbd> 새 게임 · <kbd>Space</kbd> 시점',
-  online: '<kbd>Space</kbd> 시점 · <kbd>G</kbd> 서브 가이드 · <kbd>M</kbd> 음소거',
+  practice: '<kbd>P</kbd> 일시정지·조작표 · <kbd>Tab</kbd> 설정 · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 난이도 · <kbd>N</kbd> 새 게임 · <kbd>Space</kbd> 시점',
+  online: '<kbd>Tab</kbd> 설정 · <kbd>Space</kbd> 시점 · <kbd>G</kbd> 서브 가이드 · <kbd>M</kbd> 음소거',
 };
 const STATUS_SHOT = { basic: '기본 조작', advanced: '고급 조작' };
 const CONTROL_DESC = {
@@ -517,10 +517,18 @@ function setArrows(v) {
   debug.syncArrows?.(v);
 }
 
-const typing = (e) => e.target.tagName === 'INPUT' && e.target.type === 'text'; // 닉네임·코드 입력 중
+const typing = (e) => e.target.tagName === 'INPUT' && (e.target.type === 'text' || e.target.type === 'password'); // 닉네임·코드·설정 비밀번호 입력 중
 const modified = (e) => e.ctrlKey || e.metaKey || e.altKey; // Ctrl+R(새로고침)·Ctrl+W 등 브라우저 단축키는 건드리지 않는다
 window.addEventListener('keydown', (e) => {
   if (typing(e)) return;
+  // 설정 열기/닫기: Tab (왼손 새끼손가락, Q 바로 옆. 포커스 이동은 막는다. Alt+Tab 등 조합은 건드리지 않음)
+  if (e.code === 'Tab' && !modified(e) && !e.shiftKey) {
+    e.preventDefault();
+    if (!e.repeat) setSettingsOpen(settingsEl.hidden);
+    return;
+  }
+  // 설정이 열려 있으면 Esc는 설정만 닫는다 (대전 중에도)
+  if (e.code === 'Escape' && !settingsEl.hidden) { setSettingsOpen(false); return; }
   if (e.code === 'Space') {
     e.preventDefault(); // 페이지 스크롤·포커스된 버튼 누르기 막기
     if (!e.repeat) classicView = !classicView; // 새 시점 ↔ 기존 시점 (대전에서도 가능)
