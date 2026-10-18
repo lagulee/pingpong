@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v7.11';
+export const VERSION = 'v7.12';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -689,6 +689,12 @@ export const RENDER = Object.freeze({
   MARKER_OPACITY: 0.55,
   MARKER_INNER: 0.9,         // 고리 안쪽 반지름 비율
   FACE_TILT: 25,             // 화면용 라켓 면 기울기: 드래그가 위로 향할수록 덮고(−) 아래로 향할수록 연다(°)
+});
+
+// ── 숨은 치트 (7단계 수정): 설정 ⚙의 진솔쌤❤️ → 비밀번호. 코드에는 비밀번호 대신 해시(FNV-1a 32비트, SALT + 입력)만 둔다 ──
+export const CHEAT = Object.freeze({
+  SALT: 'pingpong:',
+  HASH: 0xff75f397,
 });
 
 // ── 4단계: 타격감 연출 (튜닝하지 않는 값. 세기·켜기/끄기는 TUNABLE의 '연출' 묶음) ──

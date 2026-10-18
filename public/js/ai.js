@@ -408,6 +408,7 @@ function hitPhase(game, t, dt, events, params) {
       ringZ: serveHit || p.robot ? undefined : p.apexPos?.z, // 사람: 화면 고리 높이로 스매시 판정 (로봇은 맞은 높이로 고른다)
       control: p.control, // 사람의 조작 모드 (설정 ⚙: 기본 = 드래그 방향, 고급 = 버튼). 로봇은 없음 = 버튼
       combo: p.robot ? 0 : p.combo, // 퍼펙트 콤보: 사람만 쌓는다
+      perfect: !p.robot && !!p.cheat, // 숨은 치트 (설정 ⚙의 진솔쌤❤️)
     });
     if (!p.robot) p.combo = shot.quality.combo;
     p.lastShot = shot;

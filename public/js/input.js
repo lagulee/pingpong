@@ -11,6 +11,7 @@ import {
 } from '../shared/physics.js';
 import {
   NET, TABLE, SWING, TUNABLE, RENDER, SHOT_BUTTONS, SHOT_COMBOS, CONTROL_MODES, CONTROL_DEFAULT, FEEL,
+  CHEAT,
 } from '../shared/constants.js';
 import { createTouchTracker } from './touch.js';
 
@@ -237,6 +238,17 @@ export function judgeBasic(drag, zLocal, params = TUNABLE, pressed = true, smash
 // 저장된 조작 모드 값을 고친다 (모르는 값이면 기본 모드)
 export const controlMode = (v) => (CONTROL_MODES.includes(v) ? v : CONTROL_DEFAULT);
 
+// 숨은 치트 비밀번호 확인 (7단계 수정): 비밀번호를 코드에 두지 않고 해시만 비교한다
+export function cheatHash(text) {
+  let h = 0x811c9dc5; // FNV-1a 32비트 시작값
+  for (const ch of CHEAT.SALT + text) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h;
+}
+export const cheatCodeOk = (text) => cheatHash(String(text ?? '').trim()) === CHEAT.HASH;
+
 // 타이밍: dt = 타격 시각 − 예측 정점 시각
 export function gradeTiming(dt, params = TUNABLE) {
   const a = Math.abs(dt);
@@ -381,7 +393,8 @@ export function aimTarget(type, drag, racketX, params = TUNABLE) {
 //        smashSpeed(스매시 기준 스윙 속도, 기본 SMASH_SPEED. 터치는 TOUCH_SMASH_SPEED),
 //        ringZ(화면 고리 = 예측 정점의 높이. 이 높이가 스매시 높이 이상(빨간 고리)이면 맞은 높이가 조금 낮아도 스매시),
 //        control('advanced' 구질 버튼(기본값, 로봇) | 'basic' 드래그 방향으로 구질, 설정 ⚙),
-//        combo(이 타격 전까지 이어진 퍼펙트 콤보 수, 기본 0. 로봇은 넘기지 않는다) }
+//        combo(이 타격 전까지 이어진 퍼펙트 콤보 수, 기본 0. 로봇은 넘기지 않는다),
+//        perfect(숨은 치트: 타이밍을 항상 PERFECT로, 기본 false) }
 // 반환: { shotType, vel, spin, quality: { timing, accuracy, strength, dtApex, weak, target, button, spinIn, stack, combo, comboLevel } }
 export function classifyShot(samples, ballState, ctx = {}) {
   const params = ctx.params ?? TUNABLE;
@@ -407,10 +420,12 @@ export function classifyShot(samples, ballState, ctx = {}) {
   if (serve && (shotType === 'smash' || shotType === 'mishit')) shotType = basic ? 'cut' : 'normal';
   const parts = spinParts(b);
   const dtApex = ctx.apexT == null ? Infinity : t - ctx.apexT;
-  const { timing, accuracy } = gradeTiming(dtApex, params);
+  // 숨은 치트(perfect): 언제 맞혀도 정점에서 친 것처럼 판정한다 (PERFECT·오차 없음·콤보). 화면의 dtApex는 실제 값
+  const gradeDt = ctx.perfect ? 0 : dtApex;
+  const { timing, accuracy } = gradeTiming(gradeDt, params);
   const cb = comboAfter(ctx.combo ?? 0, shotType, timing, { serve, pressed }, params);
   const strength = clamp((drag.speed - params.BLOCK_SPEED) / (params.SPEED_FULL - params.BLOCK_SPEED), 0, 1);
-  const err = aimErrors(accuracy, dtApex, rng, params);
+  const err = aimErrors(accuracy, gradeDt, rng, params);
   // 서브는 오차를 줄여 타이밍이 조금 어긋나도 들어가게 한다
   if (serve) for (const k of Object.keys(err)) err[k] *= params.SERVE_ERR_SCALE;
   // dragSpeed·dragSin: 판정에 쓴 스윙 최고 속도(m/s)와 방향(+ 위). 화면에 보여 줘서 사용자가 임계값을 맞출 수 있게 한다.

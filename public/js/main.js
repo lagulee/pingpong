@@ -24,7 +24,7 @@ import {
 import { initDebug, launchParams, SCENARIO_LABELS } from './debug.js';
 import {
   createMouseInput, rayPlaneY, analyzeDrag, createRng, cameraFor, tunableCamera, zoomCamera, dragScaleFor, createShotKeys, shotKeysOf,
-  controlMode, judgeMiss, missText,
+  controlMode, judgeMiss, missText, cheatCodeOk,
 } from './input.js';
 import {
   createAI, createPlayer, createRally, stepMatch, serveBall, placeBall, endFree, tossBall, queueScenario,
@@ -328,6 +328,31 @@ function setSettingsOpen(v) {
     if (mode === 'practice') setPaused(false);
   }
 }
+// 숨은 치트 (7단계 수정): 설정의 진솔쌤❤️ → 비밀번호 → 타이밍 항상 PERFECT. 내 클라이언트 판정만 바뀌고 이 브라우저에 기억한다.
+// 켜져 있을 때 다시 누르면 끈다. 화면에는 글자 밝기 말고 표시하지 않는다.
+let cheat = store.get('pp-cheat') === '1';
+const cheatBtn = $('set-cheat');
+const cheatBox = $('cheat-box');
+function setCheat(v, msg = '') {
+  cheat = v;
+  store.set('pp-cheat', v ? '1' : '0');
+  cheatBtn.classList.toggle('on', v);
+  cheatBtn.textContent = v ? '진솔쌤💖' : '진솔쌤❤️';
+  $('cheat-msg').textContent = msg;
+}
+setCheat(cheat);
+tap(cheatBtn, () => {
+  if (cheat) { setCheat(false, '꺼짐'); cheatBox.hidden = true; return; }
+  cheatBox.hidden = !cheatBox.hidden;
+  $('cheat-msg').textContent = '';
+  if (!cheatBox.hidden) { $('cheat-pw').value = ''; $('cheat-pw').focus(); }
+});
+cheatBox.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const ok = cheatCodeOk($('cheat-pw').value);
+  $('cheat-pw').value = '';
+  if (ok) { cheatBox.hidden = true; setCheat(true, '❤️'); } else $('cheat-msg').textContent = '틀렸어요';
+});
 if (mobile) $('set-adv-sub').textContent = '화면 구질 버튼';
 tap(settingsBtn, () => setSettingsOpen(settingsEl.hidden));
 tap($('settings-close'), () => setSettingsOpen(false));
@@ -966,6 +991,7 @@ function updateCamera() {
   }
   human.dragScale = mouse.touchActive ? dragScale * touchSpeedScale(canvas.clientHeight) : dragScale;
   human.control = control; // 조작 모드 (설정 ⚙)
+  human.cheat = cheat; // 숨은 치트 (진솔쌤❤️)
   // 터치 스매시 기준 (7단계 수정, 기본 모드는 7단계 수정 BASIC_TOUCH_SMASH_SPEED). 마우스는 classifyShot이 모드별 기본값을 쓴다
   human.smashSpeed = !mouse.touchActive ? undefined : control === 'basic' ? TUNABLE.BASIC_TOUCH_SMASH_SPEED : TUNABLE.TOUCH_SMASH_SPEED;
 }
