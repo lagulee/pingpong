@@ -24,7 +24,7 @@ import {
 import { initDebug, launchParams, SCENARIO_LABELS } from './debug.js';
 import {
   createMouseInput, rayPlaneY, analyzeDrag, createRng, cameraFor, tunableCamera, zoomCamera, dragScaleFor, createShotKeys, shotKeysOf,
-  controlMode, judgeMiss, missText, cheatCodeOk,
+  controlMode, judgeMiss, missText, cheatCodeOk, smashMinHeight,
 } from './input.js';
 import {
   createAI, createPlayer, createRally, stepMatch, serveBall, placeBall, endFree, tossBall, queueScenario,
@@ -1079,7 +1079,7 @@ function frame(now) {
   }
   guideView.update(guide);
   const waiting = live && canHit(rules, me);
-  const smashable = !tossed && !!human.apexPos && human.apexPos.z >= NET.HEIGHT + TUNABLE.SMASH_MIN_HEIGHT;
+  const smashable = !tossed && !!human.apexPos && human.apexPos.z >= NET.HEIGHT + smashMinHeight(TUNABLE, cheat); // 치트면 빨간 고리도 낮게
   const ringPos = waiting ? human.apexPos : holdingServe && guide ? guide.hit : null;
   marker.update(ringPos, tossed || holdingServe ? TUNABLE.SERVE_HIT_RADIUS : TUNABLE.HIT_RADIUS, smashable);
   updateSpinBadge(mode !== 'menu' && waiting && !tossed ? human.apexPos : null, t);

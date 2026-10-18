@@ -249,6 +249,9 @@ export function cheatHash(text) {
 }
 export const cheatCodeOk = (text) => cheatHash(String(text ?? '').trim()) === CHEAT.HASH;
 
+// 스매시 가능 높이 (네트 위, m). 숨은 치트면 CHEAT.SMASH_HEIGHT_SCALE배 (화면의 빨간 고리도 같은 값)
+export const smashMinHeight = (params = TUNABLE, cheat = false) => params.SMASH_MIN_HEIGHT * (cheat ? CHEAT.SMASH_HEIGHT_SCALE : 1);
+
 // 타이밍: dt = 타격 시각 − 예측 정점 시각
 export function gradeTiming(dt, params = TUNABLE) {
   const a = Math.abs(dt);
@@ -394,10 +397,14 @@ export function aimTarget(type, drag, racketX, params = TUNABLE) {
 //        ringZ(화면 고리 = 예측 정점의 높이. 이 높이가 스매시 높이 이상(빨간 고리)이면 맞은 높이가 조금 낮아도 스매시),
 //        control('advanced' 구질 버튼(기본값, 로봇) | 'basic' 드래그 방향으로 구질, 설정 ⚙),
 //        combo(이 타격 전까지 이어진 퍼펙트 콤보 수, 기본 0. 로봇은 넘기지 않는다),
-//        perfect(숨은 치트: 타이밍을 항상 PERFECT로, 기본 false) }
+//        perfect(숨은 치트: 타이밍을 항상 PERFECT로, 기본 false),
+//        cheat(숨은 치트 성능: 스매시 높이 낮춤 + 공격 스윙 속도·회전 최대 2배, 기본 false) }
 // 반환: { shotType, vel, spin, quality: { timing, accuracy, strength, dtApex, weak, target, button, spinIn, stack, combo, comboLevel } }
 export function classifyShot(samples, ballState, ctx = {}) {
-  const params = ctx.params ?? TUNABLE;
+  const cheat = !!ctx.cheat;
+  const params0 = ctx.params ?? TUNABLE;
+  // 숨은 치트: 스매시 가능 높이만 낮춘 값으로 판정한다
+  const params = cheat ? { ...params0, SMASH_MIN_HEIGHT: smashMinHeight(params0, true) } : params0;
   const side = ctx.side ?? -1;
   const t = ctx.t ?? ballState.t;
   const rng = ctx.rng ?? (() => 0.5); // 기본: 오차 없음
@@ -526,7 +533,28 @@ export function classifyShot(samples, ballState, ctx = {}) {
       launch = launchAt(speed, aim);
     }
     const face = faceNormal(params[`${P}_PITCH`], 0);
-    const fx = incomingEffect(shotType, b, face, params, scale(face, speed));
+    let fx = incomingEffect(shotType, b, face, params, scale(face, speed));
+    // 숨은 치트 성능: 속도·회전 배율을 큰 것부터 시험해, 오차와 들어온 회전 효과까지 더한 공이 상대 코트에 들어가는 첫 조합으로 바꾼다
+    if (cheat) {
+      search: for (const kw of CHEAT.SPIN_STEPS) {
+        for (const kv of CHEAT.SPEED_STEPS) {
+          if (kw === 1 && kv === 1) break search; // 원래 공 그대로
+          const ts = topspin * kw, ss = sidespin * kw, v = speed * kv;
+          const am = solveAim({ pos: b.pos, speed: v, topspin: ts, sidespin: ss, target, t }, params);
+          const l = makeLaunch({
+            pos: b.pos, t, speed: v * (1 + err.speed), elevation: am.elevation + err.pitch, azimuth: am.azimuth + err.yaw, topspin: ts, sidespin: ss,
+          });
+          const f = incomingEffect(shotType, b, face, params, scale(face, v));
+          const ball = createBall({ pos: b.pos, vel: add(l.vel, f.dv), spin: add(l.spin, f.dw), t });
+          if (!landsIn(flightLanding(ball, params, 0))) continue;
+          launch = l;
+          fx = f;
+          if (quality.stack) quality.stack = { ...quality.stack, spin: quality.stack.spin * kw };
+          quality.cheat = { speed: kv, spin: kw };
+          break search;
+        }
+      }
+    }
     out = { vel: add(launch.vel, fx.dv), spin: add(launch.spin, fx.dw) };
   }
   return {

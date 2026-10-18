@@ -411,6 +411,7 @@ function hitPhase(game, t, dt, events, params) {
       control: p.control, // 사람의 조작 모드 (설정 ⚙: 기본 = 드래그 방향, 고급 = 버튼). 로봇은 없음 = 버튼
       combo: p.robot ? 0 : p.combo, // 퍼펙트 콤보: 사람만 쌓는다
       perfect: !p.robot && !!p.cheat, // 숨은 치트 (설정 ⚙의 진솔쌤❤️)
+      cheat: !p.robot && !!p.cheat, // 숨은 치트 성능 (스매시 높이·속도·회전)
     });
     if (!p.robot) p.combo = shot.quality.combo;
     p.lastShot = shot;
