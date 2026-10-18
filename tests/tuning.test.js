@@ -69,7 +69,7 @@ test('시점: 마우스 감도 보정 — 새 시점에서도 같은 손놀림�
 
 // ── 느리지만 오래 나는 공 (AI 경기 측정) ──────────────────────────
 function measure() {
-  const games = [[1, 'NORMAL', 'NORMAL'], [2, 'NORMAL', 'NORMAL'], [3, 'HARD', 'EASY'], [4, 'HARD', 'NORMAL']];
+  const games = [[1, 'NORMAL', 'NORMAL'], [2, 'NORMAL', 'NORMAL'], [3, 'HARD', 'EASY'], [4, 'HARD', 'NORMAL'], [5, 'HARD', 'EASY'], [6, 'HARD', 'NORMAL']];
   const shots = {};
   let contacts = 0, eligible = 0;
   for (const [seed, dA, dB] of games) {

@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v7.9';
+export const VERSION = 'v7.10';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -96,7 +96,7 @@ const JUDGE_TUNABLE = {
   // 판정용 회전(v7.0): 받는 쪽은 상대가 쳐 보낸 회전에 공기 중 감쇠만 곱한 값 × SPIN_CARRY를 "들어온 회전"으로 읽는다.
   // 물리 바운드 마찰이 백스핀을 거의 지우기 때문(커트 28.5 → 2.9 rps). 공의 비행·바운드는 물리 회전 그대로.
   SPIN_CARRY: 1.0,
-  HIT_RADIUS: 0.18,          // 라켓 중심에서 공 중심까지 도달 범위(원 반지름, 화면의 라켓·고리 반지름) (m)
+  HIT_RADIUS: 0.10,          // 라켓 중심에서 공 중심까지 도달 범위(원 반지름, 화면의 라켓·고리 반지름) (m)
   SERVE_HIT_RADIUS: 0.24,    // 서브(토스한 공)를 칠 때의 도달 범위 (m). 랠리보다 넓게 해 헛스윙을 줄인다
   REACH_Y: 0.30,             // 라켓 평면에서 앞뒤 도달 범위 (m)
   PERFECT_WINDOW: 0.05,      // |타격 − 정점| 이내면 PERFECT (s)
@@ -179,7 +179,7 @@ const SHOT_TUNABLE = {
 // S_MIN·S_MAX 세기 범위, AIM_X 목표 x 범위 ±(m), JITTER 샘플 떨림(m), W_* 구질 선택 비율(맞는 버튼 안에서),
 // READ 들어온 회전을 바르게 읽는 정도 (v7.0): 틀릴 확률 = (1 − READ)·(0.5 + 0.5·회전/상한)
 const AI_TUNABLE = {
-  AI_EASY_DELAY: 0.35, AI_EASY_MOVE: 1.5, AI_EASY_TIMING: 0.09, AI_EASY_S_MIN: 0.2, AI_EASY_S_MAX: 0.4,
+  AI_EASY_DELAY: 0.35, AI_EASY_MOVE: 2.0, AI_EASY_TIMING: 0.09, AI_EASY_S_MIN: 0.2, AI_EASY_S_MAX: 0.4,
   AI_EASY_AIM_X: 0.15, AI_EASY_JITTER: 0.003,
   AI_EASY_W_DRIVE: 70, AI_EASY_W_BLOCK: 30, AI_EASY_W_CUT: 0, AI_EASY_W_SIDE: 0, AI_EASY_W_SMASH: 0, AI_EASY_W_NORMAL: 20,
   AI_EASY_READ: 0.6,

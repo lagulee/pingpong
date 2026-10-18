@@ -62,7 +62,7 @@ test('로봇이 만든 가상 샘플(구질 버튼 포함)이 의도한 구질�
   // 블록·스매시는 공 상황(빠른 공·높은 공)에서만 고르므로, 고른 경우만 판정을 확인한다
   for (const [type, shot] of [['BLOCK', 'block'], ['SMASH', 'smash']]) {
     let picked = 0, match = 0;
-    for (let seed = 1; seed <= (type === 'SMASH' ? 200 : 20); seed++) {
+    for (let seed = 1; seed <= (type === 'SMASH' ? 400 : 20); seed++) {
       // 블록·스매시는 맞는 대응으로만 고른다. 상대(쉬움)도 회전을 바르게 읽게 해 랠리가 이어져 높은 공이 나오게 한다
       const params = { ...only(type), AI_HARD_READ: 1, AI_EASY_READ: 1 };
       params.AI_HARD_W_DRIVE = 1e-6; // 고를 수 없을 때만 드라이브
