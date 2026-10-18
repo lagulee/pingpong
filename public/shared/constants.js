@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v7.12';
+export const VERSION = 'v7.13';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -695,6 +695,9 @@ export const RENDER = Object.freeze({
 export const CHEAT = Object.freeze({
   SALT: 'pingpong:',
   HASH: 0xff75f397,
+  // 헛스윙 보정(v7.13): 치트가 켜지면 도달 범위를 이만큼 넓힌다 (m). 화면의 라켓·고리는 그대로라 티가 나지 않고,
+  // 대전 서버의 허용 범위(HIT_RADIUS + ONLINE.RACKET_TOL 0.04)보다 작아 거부되지 않는다
+  REACH_EXTRA: 0.03,
 });
 
 // ── 4단계: 타격감 연출 (튜닝하지 않는 값. 세기·켜기/끄기는 TUNABLE의 '연출' 묶음) ──

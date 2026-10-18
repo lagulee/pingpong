@@ -44,3 +44,24 @@ test('치트로도 퍼펙트 콤보가 이어진다', () => {
   assert.equal(b.quality.combo, 2);
   assert.equal(b.quality.comboLevel, 1);
 });
+
+// ── 헛스윙 보정 (v7.13) ──
+import { checkHit } from '../public/js/input.js';
+import { CHEAT, ONLINE } from '../public/shared/constants.js';
+
+test('헛스윙 보정: 넓힌 범위는 대전 서버 허용 범위 안이다', () => {
+  assert.ok(CHEAT.REACH_EXTRA > 0);
+  // 서버는 x·z 각각 반지름 + RACKET_TOL(정사각형)로 검사하므로 원 반지름 + REACH_EXTRA는 항상 통과한다
+  assert.ok(CHEAT.REACH_EXTRA < ONLINE.RACKET_TOL);
+});
+
+test('헛스윙 보정: 범위 밖으로 살짝 빗나간 공을 넓힌 범위로는 맞힌다', () => {
+  const yPlane = -1.4, off = TUNABLE.HIT_RADIUS + CHEAT.REACH_EXTRA * 0.7;
+  // 라켓을 대고 멈춘 채(블록) 공이 라켓 평면을 지나간다
+  const samples = [0.9, 0.95, 1.0].map((t) => ({ t, x: 0, y: 0.25, b: true, k: null }));
+  const player = { side: -1, samples, yPlane, dragScale: 1 };
+  const b = createBall({ pos: { x: off, y: yPlane + 0.01, z: 0.25 }, vel: { x: 0, y: -5, z: 0 }, t: 1 });
+  const dt = 1 / 240;
+  assert.equal(checkHit(player, b, 1, dt, TUNABLE, TUNABLE.HIT_RADIUS), null);
+  assert.equal(checkHit(player, b, 1, dt, TUNABLE, TUNABLE.HIT_RADIUS + CHEAT.REACH_EXTRA), 'block');
+});

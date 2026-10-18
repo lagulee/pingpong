@@ -6,7 +6,7 @@ import {
   step, predictPath, positionAt, solveAim, ballToLocal, ballToWorld, toWorld, toLocal, createBall, vec,
   tossTimeAt, makeLaunch, serveLanding, simTime, carriedSpin,
 } from '../shared/physics.js';
-import { NET, TABLE, PHYSICS, SWING, PRACTICE, SERVE, RULES, SCENARIO, TUNABLE, SERVE_GUIDE } from '../shared/constants.js';
+import { NET, TABLE, PHYSICS, SWING, PRACTICE, SERVE, RULES, SCENARIO, TUNABLE, SERVE_GUIDE, CHEAT } from '../shared/constants.js';
 import { applyEvent, canHit, startRally, toServe } from '../shared/rules.js';
 import {
   createMatch, holdBall, startToss, applyHit, stepBall, stepGame, isServeHit, isEarly,
@@ -397,7 +397,9 @@ function hitPhase(game, t, dt, events, params) {
     if (!canHit(rules, side)) continue;
     const p = game.players[side];
     const serveHit = isServeHit(rules);
-    const kind = checkHit(p, ball, t, dt, params, serveHit ? params.SERVE_HIT_RADIUS : params.HIT_RADIUS);
+    // 숨은 치트(헛스윙 보정): 사람이면 보이지 않게 도달 범위를 조금 넓힌다
+    const extra = !p.robot && p.cheat ? CHEAT.REACH_EXTRA : 0;
+    const kind = checkHit(p, ball, t, dt, params, (serveHit ? params.SERVE_HIT_RADIUS : params.HIT_RADIUS) + extra);
     if (!kind) continue;
     // 자기 쪽에 바운드하기 전 공: 일부러 휘두르거나 막은 경우만 맞는다(발리 → 실점).
     // 버튼 없이 라켓이 놓여 있던 경우와 로봇은 치지 않는다.
