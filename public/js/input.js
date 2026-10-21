@@ -11,7 +11,7 @@ import {
 } from '../shared/physics.js';
 import {
   NET, TABLE, SWING, TUNABLE, RENDER, SHOT_BUTTONS, SHOT_COMBOS, CONTROL_MODES, CONTROL_DEFAULT, FEEL,
-  CHEAT,
+  CHEAT, FREE_VIEW,
 } from '../shared/constants.js';
 import { createTouchTracker } from './touch.js';
 
@@ -98,6 +98,34 @@ export function zoomCamera(cam, k) {
   const t = cam.target, p = cam.pos;
   return { pos: vec(t.x + (p.x - t.x) * k, t.y + (p.y - t.y) * k, t.z + (p.z - t.z) * k), target: t, fov: cam.fov };
 }
+
+// 관전 자유 시점 (8단계): 바라보는 점(FREE_VIEW.TARGET) 둘레를 도는 카메라. yaw 0 = 왼쪽 선수(−1) 뒤, pitch = 위아래 각(rad).
+// 제한(pitch·dist)을 넘으면 범위 안으로 되돌린다. 반환 모양은 다른 시점과 같다 { pos, target, fov }
+export function orbitCamera({ yaw = 0, pitch = FREE_VIEW.PITCH, dist = FREE_VIEW.DIST } = {}, free = FREE_VIEW) {
+  const p = Math.min(free.PITCH_MAX, Math.max(free.PITCH_MIN, pitch));
+  const d = Math.min(free.DIST_MAX, Math.max(free.DIST_MIN, dist));
+  const t = free.TARGET;
+  return {
+    pos: vec(t.x + d * Math.sin(yaw) * Math.cos(p), t.y - d * Math.cos(yaw) * Math.cos(p), t.z + d * Math.sin(p)),
+    target: vec(t.x, t.y, t.z),
+    fov: free.FOV,
+  };
+}
+
+// 드래그 (화면 dx, dy px) → 새 시점 값. 오른쪽으로 끌면 장면이 오른쪽으로 돌아간다(카메라는 왼쪽으로)
+export function dragOrbit(view, dx, dy, free = FREE_VIEW) {
+  return {
+    ...view,
+    yaw: view.yaw - dx * free.DRAG_GAIN,
+    pitch: Math.min(free.PITCH_MAX, Math.max(free.PITCH_MIN, view.pitch + dy * free.DRAG_GAIN)),
+  };
+}
+
+// 휠 (deltaY 부호): 위로 굴리면 가까이, 아래로 굴리면 멀리
+export const wheelOrbit = (view, deltaY, free = FREE_VIEW) => ({
+  ...view,
+  dist: Math.min(free.DIST_MAX, Math.max(free.DIST_MIN, view.dist + Math.sign(deltaY) * free.WHEEL_STEP)),
+});
 
 // TUNABLE의 새 시점 (CAM_*)
 export const tunableCamera = (params = TUNABLE) => ({

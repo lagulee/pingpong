@@ -24,13 +24,23 @@ paths:
 
 - 방 코드는 4자리. 혼동되는 문자(0/O, 1/I)는 제외한다 (`ONLINE.CODE_CHARS`).
 - 로그인 없음, 닉네임만 입력 (최대 `ONLINE.NICK_MAX` 12자)
-- 한 방에 플레이어 2명까지. 3번째 접속은 `full`로 거절한다. 방을 만든 사람이 −1 쪽, 들어온 사람이 +1 쪽(카메라 180° 회전).
+- 한 방에 플레이어 2명까지(관전자는 따로, 아래 "관전"). 3번째 접속은 `full`로 거절한다. 방을 만든 사람이 −1 쪽, 들어온 사람이 +1 쪽(카메라 180° 회전).
 - 클라이언트 `VERSION`이 서버와 다르면 `version`으로 거절한다(새로고침 안내).
 - 둘 다 시계를 맞추고 `ready`를 보내면 `START_DELAY`(3 s) 뒤 시작. 첫 서브권은 서버가 무작위로 정한다.
 - 상대가 끊기면 10초(`RECONNECT_WAIT`) 재접속 대기 → 넘으면 상대 승리(기권) 처리. 대기 중에는 토스를 받지 않는다(`reject: away`).
 - 끊긴 쪽은 `RECONNECT_RETRY`(1 s)마다 `token`으로 다시 `join`한다. 다시 들어오면 시계를 다시 맞추고 `ready` → `resume`(현재 경기 상태)을 받아 이어서 진행한다.
 - 경기 중 `leave` = 기권.
 - **모바일 백그라운드 복귀(v6.2)**: 다른 앱으로 가거나 화면이 꺼지면 JS가 멈추고 연결이 끊긴다. 화면으로 돌아오면(`visibilitychange`) 클라이언트가 `wake()`를 불러, 끊겼으면 재시도 간격(1 s)을 기다리지 않고 바로 다시 접속하고, 연결돼 있으면 시계를 바로 다시 잰다. 10초 기권 규칙(`RECONNECT_WAIT`)은 그대로 두고, 대기실에 "다른 앱으로 가면 10초 뒤 기권" 안내를 보여 준다. 휴대폰은 대전 중 화면 꺼짐 방지(Wake Lock)를 건다.
+
+## 관전 (8단계)
+
+- 입장: `join { spectate: true }`. 선수가 한 명이라도 있는 방(대기실 또는 경기 중)에만 들어갈 수 있다(없는 방·끝난 방 `noRoom`). 관전자는 최대 `ONLINE.SPECTATOR_MAX`(8)명, 넘으면 `specFull`. 선수 자리(2명)와 따로 센다(선수 3번째는 그대로 `full`). `VERSION`이 다르면 `version`. 첫 화면의 **관전** 버튼으로 사용자가 직접 고른다(방이 가득 찼다고 자동으로 관전자가 되지 않는다).
+- 응답 `joined { you: 0, spectator: true, token: null, resume, spectators }`. 시계 맞추기(ping/pong 8회)와 `ready`는 선수와 같다. 경기 중이면 `ready` 뒤에 `resume`(현재 경기 상태)을 받고, 대기실이면 `start`를 방송으로 받는다. 시계를 다 맞추기 전에 온 `start`는 무시하고 `resume`을 기다린다.
+- 서버는 선수가 받는 방송을 관전자에게도 보낸다: `lobby`(+ `spectators` 수), `start`, `toss`·`serve`·`hit`(친 쪽 `side` 포함. 선수에게는 상대 것만 가지만 관전자는 둘 다), `correct`, `point`, `end`, `opp`(+ `side`), `racket`(+ `side`, 두 선수 모두). 관전자가 보내는 `toss`·`serve`·`hit`은 `reject { reason: 'spectator' }`이고 `racket` 등은 무시한다. 관전자는 경기 상태에 아무 영향을 주지 못한다.
+- 관전자 목록(연결 id → 닉네임)은 `snapshot`/`restore`에 들어가 잠들었다 깨어나도 방송을 받는다. 입장·퇴장은 저장 1회. 선수가 모두 떠나 방이 정리되면(`cleanupIfEmpty`) 관전 연결도 닫는다(코드 4003), 대기실 시간 초과(`LOBBY_IDLE`)도 같다. 끊긴 관전자는 선수와 달리 자리가 유지되지 않고, 클라이언트가 `RECONNECT_RETRY`마다 새 관전자로 다시 접속한다(`RECONNECT_WAIT` 안에서).
+- 클라이언트(`net.js` `spectate: true`): 두 선수 모두 원격이라 타격을 판정하지 않는다(`local: []`, 로봇 없음). 받은 `toss`·`hit`의 `side`로 친 사람을 알고, `racket`은 `side`별로 쌓는다. 경기 진행 목표 시각을 `ONLINE.SPECTATOR_DELAY`(0.5 s) 늦춰 선수 → 서버 → 관전자 지연보다 길게 두므로 상대 타격이 제때 도착해 되감기·보정이 필요 없다(측정: 선수 편도 80 ms + 관전자 60 ms에서 되감기 0). 화면 지연(`createBallLag`)은 쓰지 않는다. 득점은 선수와 같이 내 화면의 잠정 판정 → 서버 `point`로 확정한다(관전자 잠정 판정 불일치 0).
+- 무료 한도: 관전자가 서버로 보내는 메시지는 시계 맞추기(5 s마다 ping)뿐이고 방송은 나가는 메시지라 과금되지 않는다. 선수 한 명의 `racket` 15 Hz는 상대와 관전자 모두에게 나간다.
+- 화면: 선수 화면 상태 칩과 대기실에 "관전 N명"이 보인다. 관전 화면은 자유 시점(feel.md).
 
 ## 방 서버 위치 (v6.1)
 
@@ -52,21 +62,21 @@ paths:
 
 | 종류 | 방향 | 내용 |
 |---|---|---|
-| `join` | C→S | `{ nickname, version, create, token? }` (`create`: 방 만들기, `token`: 재접속) |
-| `joined` | S→C | `{ you(−1/+1), token, code, players, resume, server }` (`server`: 방 서버 데이터센터 코드 또는 null, v6.1) |
-| `lobby` | S→C | `{ players: [{ side, nick, ready, online }] }` |
-| `error` | S→C | `{ code }`: `full` · `noRoom` · `inUse` · `version` (보낸 뒤 연결을 닫는다) |
+| `join` | C→S | `{ nickname, version, create, token?, spectate? }` (`create`: 방 만들기, `token`: 재접속, `spectate`: 관전자로 입장, 8단계) |
+| `joined` | S→C | `{ you(−1/+1, 관전자 0), token, code, players, resume, server, spectator?, spectators? }` (`server`: 방 서버 데이터센터 코드 또는 null, v6.1) |
+| `lobby` | S→C | `{ players: [{ side, nick, ready, online }], spectators }` (`spectators`: 관전자 수, 8단계) |
+| `error` | S→C | `{ code }`: `full` · `noRoom` · `inUse` · `version` · `specFull` (보낸 뒤 연결을 닫는다) |
 | `ready` | C→S | `{ rtt }` 시계를 맞춘 뒤 준비 완료 |
 | `start` | S→C | `{ startAt, firstServer, bestOf, players }` |
 | `resume` | S→C | `{ startAt, firstServer, players, game(경기 상태), opp? }` 재접속한 사람에게 |
 | `ping` / `pong` | C→S / S→C | `{ t0 }` / `{ t0, t1, t2 }` 시계 동기화 |
 | `toss` | C→S, S→C | `{ seq, t, x }` (+ 서버가 붙이는 `side`). `makeToss(x, t)`가 결정론적이라 이것으로 충분 |
 | `serve` / `hit` | C→S, S→C | `{ seq, t, pos, vel, spin, shotType, racket: { x, z } }` (+ `side`). `racket`은 타격 순간 라켓 위치(친 사람 기준 좌표). `shotType`은 `SHOT_TYPES`(`normal`·`drive`·`cut`·`side`·`smash`·`block`·`mishit`, 7단계) 중 하나 |
-| `reject` | S→C | `{ seq, t, reason }` 보낸 사람에게만. 사유: `time` `turn` `speed` `spin` `far` `pos` `away` `bad` |
+| `reject` | S→C | `{ seq, t, reason }` 보낸 사람에게만. 사유: `time` `turn` `speed` `spin` `far` `pos` `away` `bad` `spectator`(관전자가 보냄) |
 | `correct` | S→C | `{ side, seq, t, pos, vel, spin }` 바운드 직후 서버 기준 공 상태 (`side`·`seq` = 그 공을 친 타격) |
 | `point` | S→C | `{ kind, winner, loser, reason, score, games, rally, t, gameOver, matchOver, nextAt, rules }` (`rules` = 득점 직후 규칙 상태) |
-| `racket` | C→S, S→C | `{ t, x, z }` 상대 화면에 내 라켓을 보여 주기 위한 위치 (15 Hz). 숨은 치트(수)면 받을 공 쪽으로 옮긴 위치(v7.17, `guardRacket`) |
-| `opp` | S→C | `{ state: 'away', until }` / `{ state: 'back' }` 상대 끊김·복귀 |
+| `racket` | C→S, S→C | `{ t, x, z }` (관전자에게 가는 것은 `side` 포함) 상대 화면에 내 라켓을 보여 주기 위한 위치 (15 Hz). 숨은 치트(수)면 받을 공 쪽으로 옮긴 위치(v7.17, `guardRacket`) |
+| `opp` | S→C | `{ state: 'away', until }` / `{ state: 'back' }` 상대 끊김·복귀 (관전자에게는 `side` 포함) |
 | `end` | S→C | `{ winner, score, games, by: 'normal' \| 'forfeit' }` |
 | `leave` | C→S | 퇴장 (경기 중이면 기권) |
 
@@ -137,4 +147,5 @@ $$\text{offset} = \frac{(t_1 - t_0) + (t_2 - t_3)}{2}$$
 - [x] (v5.1) 흔들리는 네트워크(편도 100 ms + 지터 30 ms + 3% 확률 최대 300 ms 튐)에서 원격 AI 경기: 거부 0, 점수 일치.
 - [x] (v6.2) 모바일 데이터(편도 60 ms + 지터 40 ms + 5% 확률 최대 400 ms 튐): PC 30 ms ↔ 모바일은 거부 0·점수 일치. 양쪽 모두 모바일이면 튐이 겹쳐 타격이 0.6 s 넘게 늦는 일이 드물게 생겨(실측 한 판 1건, `time`) 거부 1% 이하·점수 일치만 확인한다. 서버 값은 바꾸지 않았다.
 - [x] (v6.2) 백그라운드 복귀 `wake()`: 끊긴 직후 부르면 100 ms 안에 다시 접속, 연결된 채로 부르면 바로 `ping`.
+- [x] (8단계, `tests/spectate.test.js`) 관전자 3명(대기실·경기 중 입장)이 선수와 같은 득점 순서·점수를 받고 잠정 판정 불일치 0, 관전자의 `toss`·`serve`·`hit` 거부와 상태 불변, 8명까지·9번째 `specFull`·없는 방 `noRoom`·선수 3번째는 그대로 `full`, 관전자 중도 퇴장·입장에도 경기 유지, 선수 끊김(`opp` + `side`)·기권 `end` 전달, 선수가 모두 떠나면 관전 연결 정리, 목록 저장·복원, 되감기 0·관전 지연 0.5 s, 자유 시점 계산(`orbitCamera` 등).
 - [x] (v5.1) 편도 80 ms 원격 경기에서 화면을 흉내 내: 보이는 공의 시간이 거꾸로 가지 않고, 내가 칠 때 화면 지연 ≤ 20 ms.

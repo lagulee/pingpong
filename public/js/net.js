@@ -81,6 +81,7 @@ export function createBallLag(p = ONLINE) {
 //   open() → 소켓 { send(str), close(), onopen, onmessage({data}), onclose, onerror } (브라우저 WebSocket 그대로)
 //   now() → 내 시각 (ms)
 //   nickname, code, create(방 만들기)
+//   spectate: true면 관전자 (8단계). 내 자리 없이(me = 0) 서버가 방송하는 두 선수의 타격을 받아 SPECTATOR_DELAY 늦게 그린다
 //   makePlayer(side) → { player, ai? }  내 자리가 정해지면 내 플레이어(사람: 마우스 샘플, 로봇: createAI)를 만든다
 //   seed: 판정 오차 난수 시드, params: TUNABLE (대전 중에는 바꾸지 않는다)
 //   hooks: onStatus(status), onLobby(players), onStart(), onStep(events, replay), onRewind(t),
@@ -95,6 +96,7 @@ export function createOnlineClient(opts) {
   const c = {
     status: 'connecting',    // connecting → syncing → waiting(준비 보냄) → playing → over | error
     me: 0, token: null, code: opts.code ?? '', players: [],
+    spectator: !!opts.spectate, spectators: 0, // 관전자 여부, 방의 관전자 수
     startAt: null, game: null, ai: null,
     serverRules: null,       // 서버가 마지막으로 확정한 규칙 상태 (점수판은 이것만 보여 준다)
     oppAway: null,           // 상대 재접속 마감 (내 시각 ms) 또는 null
@@ -133,7 +135,10 @@ export function createOnlineClient(opts) {
     socket.onopen = () => {
       c.connected = true;
       hooks.onConnection?.(true);
-      send({ type: 'join', nickname: opts.nickname, version: VERSION, create: !!opts.create && !c.token, token: c.token });
+      send({
+        type: 'join', nickname: opts.nickname, version: VERSION, create: !!opts.create && !c.token && !c.spectator,
+        token: c.token, spectate: c.spectator || undefined,
+      });
     };
     socket.onmessage = (ev) => {
       let msg;
@@ -150,7 +155,7 @@ export function createOnlineClient(opts) {
     socket = null;
     if (was) hooks.onConnection?.(false);
     if (left || c.status === 'error' || c.status === 'over') return;
-    if (c.status === 'playing' && c.token) {
+    if (c.status === 'playing' && (c.token || c.spectator)) {
       // 경기 중 끊김: RECONNECT_RETRY마다 다시 접속, RECONNECT_WAIT가 지나면 포기
       if (lostAt === null) lostAt = now();
       retryAt = now() + ONLINE.RECONNECT_RETRY * 1000;
@@ -202,12 +207,19 @@ export function createOnlineClient(opts) {
 
   // ── 경기 진행 ──
   function makeGame(firstServer) {
-    const made = opts.makePlayer(c.me);
-    c.ai = made.ai ?? null;
-    const players = { [c.me]: made.player, [-c.me]: createPlayer(-c.me) };
-    c.game = createRally({
-      players, ais: c.ai ? [c.ai] : [], rng: createRng(opts.seed ?? 1), firstServer, local: [c.me], retoss: false,
-    });
+    if (c.spectator) {
+      // 관전: 두 선수 모두 원격이다 (타격 판정 없음)
+      c.game = createRally({
+        players: { [-1]: createPlayer(-1), [1]: createPlayer(1) }, ais: [], rng: createRng(opts.seed ?? 1), firstServer, local: [], retoss: false,
+      });
+    } else {
+      const made = opts.makePlayer(c.me);
+      c.ai = made.ai ?? null;
+      const players = { [c.me]: made.player, [-c.me]: createPlayer(-c.me) };
+      c.game = createRally({
+        players, ais: c.ai ? [c.ai] : [], rng: createRng(opts.seed ?? 1), firstServer, local: [c.me], retoss: false,
+      });
+    }
     snaps = []; remoteQueue = []; pending = []; seen = 0; lastHit = null; sentToss = null;
     c.serverRules = c.game.rules;
   }
@@ -221,7 +233,7 @@ export function createOnlineClient(opts) {
 
   function afterStep(events, replay) {
     const g = c.game;
-    if (!replay) {
+    if (!replay && !c.spectator) {
       // 내 토스·타격을 서버로 보낸다
       if (g.lastToss && g.lastToss !== sentToss && g.lastToss.side === c.me) {
         sentToss = g.lastToss;
@@ -254,7 +266,7 @@ export function createOnlineClient(opts) {
   // 상대 토스·타격을 지금 상태(시각 = 그 타격 시각)에 적용
   function applyRemote(msg) {
     const g = c.game;
-    const opp = -c.me;
+    const opp = c.spectator ? msg.side : -c.me; // 관전자는 두 선수 모두 원격: 친 사람은 메시지가 알려 준다
     c.stats.remote++;
     if (msg.type === 'toss') {
       tossBall(g, opp, msg.x, g.ball.t, params);
@@ -267,7 +279,7 @@ export function createOnlineClient(opts) {
     g.players[opp].lastShot = shot;
     g.lastShot = { side: opp, ...shot };
     lastHit = { side: opp, seq: msg.seq };
-    incoming(g, c.me, g.ball.t, params);
+    incoming(g, -opp, g.ball.t, params);
     afterStep([e], true);
   }
 
@@ -369,6 +381,7 @@ export function createOnlineClient(opts) {
         c.me = msg.you;
         c.serverColo = msg.server ?? null; // 방 서버 위치 (Cloudflare 데이터센터 코드)
         c.token = msg.token;
+        c.spectators = msg.spectators ?? 0;
         c.code = msg.code;
         c.players = msg.players;
         resyncing = !!msg.resume;
@@ -380,6 +393,7 @@ export function createOnlineClient(opts) {
         break;
       case 'lobby':
         c.players = msg.players;
+        c.spectators = msg.spectators ?? c.spectators;
         hooks.onLobby?.(c.players);
         break;
       case 'pong':
@@ -392,6 +406,8 @@ export function createOnlineClient(opts) {
         }
         break;
       case 'start':
+        // 관전자는 시계를 다 맞춘 뒤에만 시작을 받는다 (아직이면 ready 뒤에 오는 resume이 대신한다)
+        if (c.spectator && c.status !== 'waiting') break;
         c.startAt = msg.startAt;
         c.players = msg.players;
         makeGame(msg.firstServer);
@@ -416,23 +432,23 @@ export function createOnlineClient(opts) {
         if (c.game) applyCorrections();
         break;
       case 'reject':
-        onReject(msg);
+        if (!c.spectator) onReject(msg);
         break;
       case 'point':
         onPoint(msg);
         break;
       case 'racket': {
-        const p = c.game?.players[-c.me];
+        const p = c.game?.players[c.spectator ? msg.side : -c.me];
         if (!p) break;
         const last = p.samples[p.samples.length - 1];
         if (last && msg.t <= last.t) break;
         p.samples.push({ t: msg.t, x: msg.x, y: msg.z, b: false });
-        pruneSamples(p.samples, msg.t);
+        pruneSamples(p.samples, c.spectator ? msg.t - ONLINE.SPECTATOR_DELAY : msg.t); // 관전 화면은 늦게 그리므로 더 오래 남긴다
         break;
       }
       case 'opp':
         c.oppAway = msg.state === 'away' ? c.serverToLocal(msg.until) : null;
-        hooks.onOpp?.(msg.state, c.oppAway);
+        hooks.onOpp?.(msg.state, c.oppAway, msg.side);
         break;
       case 'end':
         c.endMsg = msg;
@@ -459,9 +475,9 @@ export function createOnlineClient(opts) {
     if (c.connected && c.status === 'playing' && !resyncing && ms - lastPingAt > ONLINE.SYNC_INTERVAL * 1000) sendPing();
     const g = c.game;
     if (!g || (c.status !== 'playing' && c.status !== 'over') || resyncing) return;
-    const target = c.matchTime(ms);
+    const target = c.matchTime(ms) - (c.spectator ? ONLINE.SPECTATOR_DELAY : 0);
     for (let n = 0; g.ball.t < target - DT / 2 && n < ONLINE.MAX_CATCHUP_STEPS; n++) liveStep();
-    if (c.status === 'playing' && g.ball.t - lastRacketT >= 1 / ONLINE.RACKET_HZ) {
+    if (c.status === 'playing' && !c.spectator && g.ball.t - lastRacketT >= 1 / ONLINE.RACKET_HZ) {
       const p = g.players[c.me];
       const last = p.samples[p.samples.length - 1];
       if (last) {
@@ -488,7 +504,7 @@ export function createOnlineClient(opts) {
   // 내 서브 토스 (사람: 클릭)
   c.toss = (x) => {
     const g = c.game;
-    if (!g || c.status !== 'playing' || c.oppAway !== null) return false;
+    if (!g || c.spectator || c.status !== 'playing' || c.oppAway !== null) return false;
     return tossBall(g, c.me, x, g.ball.t, params);
   };
 

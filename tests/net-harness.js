@@ -107,6 +107,29 @@ export function createWorld({ seed = 1, start = 1_000_000 } = {}) {
     return rec;
   };
 
+  // 관전자 클라이언트 하나 (8단계): 선수와 같은 서버·같은 net.js, 입력 없음
+  w.addSpectator = ({ lat, clockOffset = 0, nickname = '관전' } = {}) => {
+    const rec = { points: [], rejects: [], sockets: [], errors: [] };
+    const client = createOnlineClient({
+      open: () => {
+        const s = w.open(lat);
+        rec.sockets.push(s);
+        return s;
+      },
+      now: () => w.time + clockOffset,
+      nickname, code: w.code, spectate: true, seed: 5,
+      hooks: {
+        onServerResult: (r, matched) => rec.points.push({ ...r, matched }),
+        onError: (code) => rec.errors.push(code),
+        onOpp: (state, until, side) => { rec.opp = { state, side }; },
+      },
+    });
+    rec.client = client;
+    w.clients.push(rec);
+    client.connect();
+    return rec;
+  };
+
   // 가상 시간을 frameMs 간격으로 진행: 메시지 배달 → 알람 → 클라이언트 프레임
   w.run = (untilFn, { maxMs = 30 * 60 * 1000, frameMs = 1000 / 60 } = {}) => {
     const end = w.time + maxMs;

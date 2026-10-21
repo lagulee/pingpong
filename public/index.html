@@ -36,17 +36,17 @@
       background: var(--cream); border: 3px solid var(--ink); border-radius: 3px; color: var(--ink);
       box-shadow: 6px 6px 0 var(--ink);
     }
-    .btn, .overlay button, #again, #pause-menu, #leave-btn, #pause .go {
+    .btn, .overlay button, #again, #pause-menu, #leave-btn, #view-btn, #pause .go {
       display: inline-flex; align-items: center; justify-content: center; gap: 6px;
       padding: 11px 20px; border: 3px solid var(--ink); border-radius: 2px; background: var(--lime); color: var(--ink);
       font: 400 17px/1 var(--display); cursor: pointer; box-shadow: 4px 4px 0 var(--ink); transition: transform 0.06s, box-shadow 0.06s, filter 0.1s;
     }
-    .btn:hover, .overlay button:hover, #again:hover, #pause-menu:hover, #leave-btn:hover, #pause:hover .go { background: var(--ink); color: var(--cream); filter: none; }
-    .btn:active, .overlay button:active, #again:active, #pause-menu:active, #leave-btn:active {
+    .btn:hover, .overlay button:hover, #again:hover, #pause-menu:hover, #leave-btn:hover, #view-btn:hover, #pause:hover .go { background: var(--ink); color: var(--cream); filter: none; }
+    .btn:active, .overlay button:active, #again:active, #pause-menu:active, #leave-btn:active, #view-btn:active {
       transform: translateY(3px); box-shadow: 1px 1px 0 var(--ink);
     }
     .overlay button { white-space: nowrap; }
-    .overlay button.sub, #pause-menu, #leave-btn { background: var(--cream); }
+    .overlay button.sub, #pause-menu, #leave-btn, #view-btn { background: var(--cream); }
     .overlay button.hot { background: var(--green); color: #fff; }
     kbd {
       display: inline-block; min-width: 1.3em; padding: 0 5px; border: 2px solid var(--ink); border-radius: 3px; background: #fff;
@@ -238,8 +238,10 @@
     #net-msg[hidden] { display: none; }
     #leave-btn { position: fixed; top: 52px; right: 12px; z-index: 10; padding: 7px 14px; font-size: 13px; }
     #leave-btn[hidden] { display: none; }
+    #view-btn { position: fixed; top: 96px; right: 12px; z-index: 10; padding: 7px 14px; font-size: 13px; }
+    #view-btn[hidden] { display: none; }
     body:has(#debug:not(.collapsed)) #ping { right: 356px; }
-    body:has(#debug:not(.collapsed)) #leave-btn, body:has(#debug:not(.collapsed)) #settings-btn,
+    body:has(#debug:not(.collapsed)) #leave-btn, body:has(#debug:not(.collapsed)) #view-btn, body:has(#debug:not(.collapsed)) #settings-btn,
     body:has(#debug:not(.collapsed)) #settings { right: 316px; }
     body:not(.mobile) #debug.collapsed { top: 50px; } /* 접힌 디버그 버튼이 설정 ⚙과 겹치지 않게 */
 
@@ -457,6 +459,7 @@
     body.mobile #settings .set-row input[type=checkbox] { width: 20px; height: 20px; }
     body.mobile #ping { top: calc(56px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right)); font-size: 10px; padding: 2px 6px; }
     body.mobile #leave-btn { top: calc(84px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right)); min-height: 40px; }
+    body.mobile #view-btn { top: calc(130px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right)); min-height: 40px; }
     body.mobile #net-msg { font-size: 14px; top: 30%; }
     body.mobile #version { left: calc(10px + env(safe-area-inset-left)); bottom: calc(6px + env(safe-area-inset-bottom)); }
     body.mobile .overlay .box { padding: 12px 18px; max-height: 92vh; overflow-y: auto; box-sizing: border-box; }
@@ -608,6 +611,7 @@
   <div id="ping" hidden></div>
   <div id="net-msg" hidden></div>
   <button id="leave-btn" type="button" hidden title="나가기 (기권)">나가기</button>
+  <button id="view-btn" type="button" hidden title="시점 바꾸기 (Space)">시점 바꾸기</button>
   <div id="menu" class="overlay">
     <div class="m-wrap">
       <div class="m-head">
@@ -628,6 +632,7 @@
           <div class="m-join">
             <input id="menu-code" type="text" maxlength="4" placeholder="코드" autocomplete="off">
             <button id="menu-join" type="button" class="m-btn m-ghost" title="코드로 입장">입장</button>
+            <button id="menu-watch" type="button" class="m-btn m-ghost" title="코드로 들어가 구경만 하기 (최대 8명)">관전</button>
           </div>
         </div>
       </div>

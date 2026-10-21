@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v7.19';
+export const VERSION = 'v8.0';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -878,6 +878,9 @@ export const ONLINE = Object.freeze({
   RECONNECT_WAIT: 10,        // 끊긴 상대를 기다리는 시간. 넘으면 상대 승리 (s)
   RECONNECT_RETRY: 1,        // 내가 끊겼을 때 다시 접속을 시도하는 간격 (s)
   LOBBY_IDLE: 600,           // 대기실에서 이 시간 동안 시작하지 않으면 방을 닫는다 (s)
+  // 관전 (8단계): 방 코드로 들어와 경기를 보기만 한다. 참가자 2명과 따로 센다.
+  SPECTATOR_MAX: 8,          // 방 하나의 관전자 최대 수 (무료 한도: 나가는 메시지는 과금하지 않음)
+  SPECTATOR_DELAY: 0.5,      // 관전 화면은 이만큼 늦게 그린다 (s). 참가자 → 서버 → 관전자 지연보다 길면 되감기 없이 매끈하다
   PING_GOOD: 60,             // 핑 표시 색: 이 값 미만 초록 (ms)
   PING_OK: 120,              //            이 값 미만 노랑, 이상 빨강 (ms)
   // 방 서버(Durable Object) 위치 힌트. 비어 있으면(v7.14 기본) 방을 처음 연 요청(방장)의 Cloudflare 접속 지점 근처에 생긴다.
@@ -889,6 +892,28 @@ export const ONLINE = Object.freeze({
   WHERE_TIMEOUT: 1000,       // 위치 확인 최대 대기 (ms). 실패하면 위치 표시만 빠진다
 });
 
+// 관전 자유 시점 (8단계): 탁구대 가운데를 보며 도는 카메라. 드래그 = 회전, 휠 = 확대·축소, Space = 프리셋 순환.
+// 화면 전용 값이라 판정·서버와 무관하다.
+export const FREE_VIEW = Object.freeze({
+  TARGET: Object.freeze({ x: 0, y: 0, z: 0.2 }), // 바라보는 점 (네트 위쪽 가운데)
+  FOV: 50,
+  DIST: 4.4,                 // 기본 거리 (m)
+  DIST_MIN: 1.8,
+  DIST_MAX: 9,
+  PITCH: 0.5,                // 기본 위아래 각 (rad, 0 = 수평)
+  PITCH_MIN: 0.06,           // 바닥 아래로 못 내려가게
+  PITCH_MAX: 1.45,           // 거의 바로 위
+  DRAG_GAIN: 0.006,          // 화면 1 px 드래그 = 회전 (rad)
+  WHEEL_STEP: 0.25,          // 휠 한 칸의 거리 변화 (m)
+  // Space로 돌아가며 바꾸는 프리셋. yaw 0 = 왼쪽 선수(−1) 뒤, π = 오른쪽 선수(+1) 뒤, π/2 = 옆에서
+  PRESETS: Object.freeze([
+    Object.freeze({ name: '왼쪽 선수 뒤', yaw: 0, pitch: 0.5, dist: 4.4 }),
+    Object.freeze({ name: '오른쪽 선수 뒤', yaw: Math.PI, pitch: 0.5, dist: 4.4 }),
+    Object.freeze({ name: '옆에서', yaw: Math.PI / 2, pitch: 0.28, dist: 4.8 }),
+    Object.freeze({ name: '위에서', yaw: 0, pitch: 1.4, dist: 4.6 }),
+  ]),
+});
+
 // 대전 오류 코드 → 화면 문구
 export const ONLINE_ERRORS = Object.freeze({
   full: '방이 가득 찼습니다.',
@@ -897,6 +922,7 @@ export const ONLINE_ERRORS = Object.freeze({
   version: '새 버전이 있습니다. 새로고침(Ctrl+F5)해 주세요.',
   limit: '사용자가 많아요. 잠시 후 다시 시도해 주세요.',
   lost: '서버와 연결이 끊겼습니다.',
+  specFull: '관전 자리가 가득 찼습니다.',
 });
 
 // 서버가 hit을 거부한 사유 → 화면 문구
@@ -909,4 +935,5 @@ export const REJECT_LABELS = Object.freeze({
   pos: '공 위치 불일치',
   away: '상대 대기 중',
   bad: '잘못된 메시지',
+  spectator: '관전자는 칠 수 없음',
 });

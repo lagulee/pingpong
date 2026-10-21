@@ -123,20 +123,21 @@ export class Host {
     this.endT = null;                // 예정 결말 시각 (경기 시각 s)
     this.lobbySince = this.io.now();
     this.lastRacket = { [-1]: -Infinity, [1]: -Infinity };
+    this.specs = {};                 // 관전자 (8단계): 연결 id → 닉네임. 입력은 받지 않고 방송만 받는다
   }
 
   // ── 저장·복원 (Durable Object가 잠들었다 깨어날 때) ──
   snapshot() {
     return {
       code: this.code, phase: this.phase, slots: this.slots, startAt: this.startAt, firstServer: this.firstServer,
-      sent: this.sent, endT: this.endT, lobbySince: this.lobbySince,
+      sent: this.sent, endT: this.endT, lobbySince: this.lobbySince, specs: this.specs,
       game: this.game && matchSnapshot(this.game),
     };
   }
   restore(s) {
     Object.assign(this, {
       code: s.code ?? this.code, phase: s.phase, slots: s.slots, startAt: s.startAt, firstServer: s.firstServer,
-      sent: s.sent, endT: s.endT, lobbySince: s.lobbySince,
+      sent: s.sent, endT: s.endT, lobbySince: s.lobbySince, specs: s.specs ?? {},
     });
     if (s.game) {
       this.game = restoreMatch(createMatch({ firstServer: this.firstServer, retoss: false }), s.game);
@@ -155,14 +156,21 @@ export class Host {
     const c = this.slots[side]?.conn;
     if (c) this.io.send(c, msg);
   }
-  broadcast(msg) { for (const s of SIDES) this.send(s, msg); }
+  // 관전자에게만 (8단계). 참가자에게 가는 메시지는 관전자에게도 같이 보낸다
+  castSpec(msg) { for (const id of Object.keys(this.specs)) this.io.send(id, msg); }
+  broadcast(msg) {
+    for (const s of SIDES) this.send(s, msg);
+    this.castSpec(msg);
+  }
+  isSpec(id) { return Object.hasOwn(this.specs, id); }
+  specCount() { return Object.keys(this.specs).length; }
   players() {
     return SIDES.filter((s) => this.slots[s]).map((s) => {
       const p = this.slots[s];
       return { side: s, nick: p.nick, ready: p.ready, online: !!p.conn };
     });
   }
-  lobby() { this.broadcast({ type: 'lobby', players: this.players() }); }
+  lobby() { this.broadcast({ type: 'lobby', players: this.players(), spectators: this.specCount() }); }
   fail(id, code) {
     this.io.send(id, { type: 'error', code });
     this.io.close(id, 4000, code);
@@ -181,6 +189,7 @@ export class Host {
     const now = this.io.now();
     if (msg.type === 'ping') { this.io.send(id, { type: 'pong', t0: msg.t0, t1: now, t2: this.io.now() }); return; }
     if (msg.type === 'join') { this.join(id, msg); return; }
+    if (this.isSpec(id)) { this.specMessage(id, msg); return; }
     const side = this.sideOf(id);
     if (!side) return;
     switch (msg.type) {
@@ -193,9 +202,39 @@ export class Host {
     }
   }
 
+  // 관전자: 입력은 받지 않는다. 시계를 맞춘 뒤 ready를 보내면 지금 경기 상태(resume)를 받는다
+  specMessage(id, msg) {
+    switch (msg.type) {
+      case 'leave': this.disconnect(id); this.io.close(id, 1000, 'leave'); break;
+      case 'ready':
+        if (this.phase === 'playing') {
+          this.io.send(id, {
+            type: 'resume', startAt: this.startAt, firstServer: this.firstServer, players: this.players(),
+            game: matchSnapshot(this.game), opp: null,
+          });
+        }
+        break;
+      case 'toss': case 'serve': case 'hit': this.io.send(id, { type: 'reject', seq: msg.seq, t: msg.t, reason: 'spectator' }); break;
+      default: break;
+    }
+  }
+
+  joinSpectator(id, msg) {
+    if (!SIDES.some((s) => this.slots[s]) || this.phase === 'over') { this.fail(id, 'noRoom'); return; }
+    if (this.specCount() >= ONLINE.SPECTATOR_MAX) { this.fail(id, 'specFull'); return; }
+    this.specs[id] = cleanNick(msg.nickname);
+    this.io.send(id, {
+      type: 'joined', you: 0, spectator: true, token: null, code: this.code, players: this.players(),
+      resume: this.phase === 'playing', server: this.serverColo ?? null, spectators: this.specCount(),
+    });
+    this.lobby();
+    this.save();
+  }
+
   join(id, msg) {
-    if (this.sideOf(id)) return;
+    if (this.sideOf(id) || this.isSpec(id)) return;
     if (msg.version !== VERSION) { this.fail(id, 'version'); return; }
+    if (msg.spectate) { this.joinSpectator(id, msg); return; }
     // 재접속: 토큰이 맞는 자리로 돌아온다
     if (typeof msg.token === 'string' && msg.token) {
       for (const s of SIDES) {
@@ -207,7 +246,10 @@ export class Host {
           p.away = null;
           p.ready = this.phase === 'playing' ? false : p.ready;
           this.io.send(id, { type: 'joined', you: s, token: p.token, code: this.code, players: this.players(), resume: this.phase === 'playing', server: this.serverColo ?? null });
-          if (back) this.send(-s, { type: 'opp', state: 'back' });
+          if (back) {
+            this.send(-s, { type: 'opp', state: 'back' });
+            this.castSpec({ type: 'opp', state: 'back', side: s });
+          }
           this.lobby();
           this.save();
           this.schedule();
@@ -298,7 +340,9 @@ export class Host {
     if (sim.results.length !== this.game.results.length || !startToss(sim, side, x, sim.ball.t)) { this.reject(side, msg, 'turn'); return; }
     this.commit(msg.t);
     startToss(this.game, side, x, this.game.ball.t);
-    this.send(-side, { type: 'toss', seq: msg.seq, t: this.game.ball.t, x, side });
+    const tossMsg = { type: 'toss', seq: msg.seq, t: this.game.ball.t, x, side };
+    this.send(-side, tossMsg);
+    this.castSpec(tossMsg);
     this.endT = predictEnd(this.game, this.params).endT;
     this.schedule();
   }
@@ -313,10 +357,12 @@ export class Host {
     this.commit(msg.t);
     const shotType = msg.shotType ?? 'normal';
     const e = applyHit(this.game, side, { vel: msg.vel, spin: msg.spin, shot: { shotType } }, this.params);
-    this.send(-side, {
+    const hitMsg = {
       type: msg.type, seq: msg.seq, t: e.t, pos: vec3(msg.pos), vel: vec3(msg.vel), spin: vec3(msg.spin), shotType,
       racket: { x: msg.racket.x, z: msg.racket.z }, side,
-    });
+    };
+    this.send(-side, hitMsg);
+    this.castSpec(hitMsg);
     // 타격으로 바로 득점이 난 경우(발리·연속 타격 등)
     if (this.sent < this.game.results.length) {
       for (let i = this.sent; i < this.game.results.length; i++) this.onResult(this.game.results[i], this.game);
@@ -334,6 +380,7 @@ export class Host {
     if (msg.t - this.lastRacket[side] < 0.5 / ONLINE.RACKET_HZ) return; // 너무 잦은 전송은 버린다
     this.lastRacket[side] = msg.t;
     this.send(-side, { type: 'racket', t: msg.t, x: msg.x, z: msg.z });
+    this.castSpec({ type: 'racket', t: msg.t, x: msg.x, z: msg.z, side });
   }
 
   finish(winner, by) {
@@ -358,6 +405,12 @@ export class Host {
   }
 
   disconnect(id) {
+    if (this.isSpec(id)) {
+      delete this.specs[id];
+      this.lobby();
+      if (!this.cleanupIfEmpty()) this.save();
+      return;
+    }
     const side = this.sideOf(id);
     if (!side) return;
     const p = this.slots[side];
@@ -368,6 +421,7 @@ export class Host {
     } else if (this.phase === 'playing') {
       p.away = this.io.now() + ONLINE.RECONNECT_WAIT * 1000;
       this.send(-side, { type: 'opp', state: 'away', until: p.away });
+      this.castSpec({ type: 'opp', state: 'away', until: p.away, side });
     }
     if (!this.cleanupIfEmpty()) {
       this.save();
@@ -379,6 +433,7 @@ export class Host {
   cleanupIfEmpty() {
     const anyone = SIDES.some((s) => this.slots[s]?.conn);
     if (anyone || this.phase === 'playing') return false;
+    for (const id of Object.keys(this.specs)) this.io.close(id, 4003, 'closed'); // 선수가 없으면 관전도 끝
     this.io.setTimer(null);
     this.io.clear();
     this.reset();
@@ -419,6 +474,8 @@ export class Host {
       }
     } else if (now >= this.lobbySince + ONLINE.LOBBY_IDLE * 1000) {
       for (const s of SIDES) if (this.slots[s]?.conn) this.io.close(this.slots[s].conn, 4002, 'idle');
+      for (const id of Object.keys(this.specs)) this.io.close(id, 4002, 'idle');
+      this.specs = {};
       for (const s of SIDES) if (this.slots[s]) this.slots[s].conn = null;
     }
     if (!this.cleanupIfEmpty()) this.schedule();

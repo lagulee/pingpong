@@ -104,11 +104,11 @@ test('[5] wrangler dev 실제 연결: 방 코드 발급 → 입장 → 핑 → 3
     const { code: code2 } = await (await fetch(`${BASE}/api/new`)).json();
     const now = () => performance.timeOrigin + performance.now();
     const recs = [];
-    const mk = (nick, create, seed) => {
+    const mk = (nick, create, seed, spectate = false) => {
       const rec = { points: [], rejects: [] };
       rec.client = createOnlineClient({
         open: () => new WebSocket(`ws://127.0.0.1:${PORT}/ws/${code2}`),
-        now, nickname: nick, code: code2, create, seed,
+        now, nickname: nick, code: code2, create, seed, spectate,
         makePlayer(side) { const ai = createAI(side, 'NORMAL', createRng(seed)); return { ai, player: ai.player }; },
         hooks: { onServerResult: (r, m) => rec.points.push({ ...r, matched: m }), onReject: (m) => rec.rejects.push(m) },
       });
@@ -129,6 +129,10 @@ test('[5] wrangler dev 실제 연결: 방 코드 발급 → 입장 → 핑 → 3
       await waitFor(() => A.client.status === 'waiting', 10_000);
       const B = mk('나', false, 4);
       await waitFor(() => A.client.status === 'playing' && B.client.status === 'playing', 10_000);
+      // 8단계: 실제 Durable Object(Hibernation API)에 관전자 입장 — 선수와 같은 득점을 받는다
+      const S = mk('구경', false, 5, true);
+      await waitFor(() => S.client.status === 'playing', 10_000);
+      assert.equal(S.client.me, 0);
       assert.ok(A.client.ping !== null && A.client.ping < 200, `핑 ${A.client.ping} ms`);
       await waitFor(() => A.points.length >= 1 && B.points.length >= 1, 90_000);
       const [pa, pb] = [A.points[0], B.points[0]];
@@ -137,6 +141,12 @@ test('[5] wrangler dev 실제 연결: 방 코드 발급 → 입장 → 핑 → 3
       assert.deepEqual(pa.score, pb.score);
       assert.deepEqual(A.client.game.rules.score, B.client.game.rules.score);
       assert.equal(A.rejects.length + B.rejects.length, 0, JSON.stringify([...A.rejects, ...B.rejects]));
+      await waitFor(() => S.points.length >= 1, 5_000);
+      assert.equal(S.points[0].winner, pa.winner);
+      assert.equal(S.points[0].reason, pa.reason);
+      assert.deepEqual(S.points[0].score, pa.score);
+      assert.equal(S.client.stats.corrected, 0, '관전자의 잠정 판정도 서버와 일치');
+      assert.equal(A.client.spectators, 1, '선수 화면에 관전 1명');
       console.log(`# wrangler dev 실제 대전: 첫 득점 ${pa.reason} (${pa.score.join(':')}), 핑 ${A.client.ping?.toFixed(1)} ms, 잠정 판정 일치 ${pa.matched}/${pb.matched}`);
       for (const r of recs) r.client.leave();
     } finally {
