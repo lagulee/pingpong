@@ -79,7 +79,7 @@ export function createWorld({ seed = 1, start = 1_000_000 } = {}) {
 
   // AI 대전 클라이언트 하나: 편도 지연 lat, 내 시계 = 서버 시계 + clockOffset
   // hooks: net.js 훅을 더 붙일 때 (화면 흉내 등), rec.afterTick: 매 프레임 tick 뒤에 부른다
-  w.addAI = ({ lat, clockOffset = 0, difficulty = 'NORMAL', nickname = 'AI', create = false, aiSeed = 1, hooks = {} }) => {
+  w.addAI = ({ lat, clockOffset = 0, difficulty = 'NORMAL', nickname = 'AI', create = false, aiSeed = 1, hooks = {}, mode }) => {
     const rec = { points: [], rejects: [], sockets: [] };
     const client = createOnlineClient({
       // rec.blocked: 네트워크가 끊긴 것처럼 새 연결이 열리지 않는다
@@ -89,16 +89,16 @@ export function createWorld({ seed = 1, start = 1_000_000 } = {}) {
         return s;
       },
       now: () => w.time + clockOffset,
-      nickname, code: w.code, create, seed: aiSeed,
-      makePlayer(side) {
-        const ai = createAI(side, difficulty, createRng(aiSeed * 7 + 3));
+      nickname, code: w.code, create, seed: aiSeed, mode,
+      makePlayer(side, seat = 0) {
+        const ai = createAI(side, difficulty, createRng(aiSeed * 7 + 3), seat);
         return { ai, player: ai.player };
       },
       hooks: {
         ...hooks,
         onServerResult: (r, matched) => rec.points.push({ ...r, matched }),
         onReject: (m) => rec.rejects.push(m),
-        onOpp: (state) => { rec.opp = state; },
+        onOpp: (state, until, side, seat) => { rec.opp = state; rec.oppWho = { side, seat }; },
       },
     });
     rec.client = client;

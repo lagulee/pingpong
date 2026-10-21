@@ -15,7 +15,7 @@ import {
   DIFFICULTIES, DIFFICULTY_LABELS, DEMO, REASON_LABELS, RULES, SERVE, SERVE_GUIDE, PAUSE, ONLINE, ONLINE_ERRORS,
   REJECT_LABELS, MOBILE, FEEL, SHOT_KEYS, SHOT_BUTTONS, FREE_VIEW,
 } from '../shared/constants.js';
-import { canHit, bouncedOn, matchPointSide, idx } from '../shared/rules.js';
+import { canHit, canHitSeat, expectedHitter, bouncedOn, matchPointSide, idx } from '../shared/rules.js';
 import { isServeHit } from '../shared/match.js';
 import { createAudio, initSoundTest } from './audio.js';
 import {
@@ -80,6 +80,9 @@ if (mobile) {
 const ballView = createBallView(view.scene);
 const myRacket = createRacketView(view.scene, RENDER.COLOR_RACKET_ME, RENDER.RACKET_OPACITY_ME);
 const robotRacket = createRacketView(view.scene, RENDER.COLOR_RACKET_AI);
+// 복식(9단계): 동료의 라켓(내 색)과 상대 둘째 라켓(상대 색)은 옅게
+const mateRacket = createRacketView(view.scene, RENDER.COLOR_RACKET_ME, RENDER.RACKET_OPACITY_MATE);
+const robotRacket2 = createRacketView(view.scene, RENDER.COLOR_RACKET_AI, RENDER.RACKET_OPACITY_MATE);
 const marker = createMarkerView(view.scene);
 const trail = createTrailView(view.scene);
 const guideView = createGuideView(view.scene);
@@ -129,6 +132,11 @@ let me = -1;              // 내 자리 (연습: −1, 대전: 서버가 정함)
 let client = null;        // 대전 클라이언트 (net.js)
 const online = () => mode === 'online';
 const spectating = () => mode === 'online' && !!client?.spectator; // 관전자 (8단계): 입력 없이 두 선수를 본다. me = −1(왼쪽 선수)
+const doubles = () => mode === 'online' && client?.mode === 'doubles'; // 복식 방 (9단계)
+const mySeat = () => (mode === 'online' && !client.spectator ? client.seat : 0); // 내 좌석 (팀 안의 0/1)
+const nickAt = (side, seat) => client?.players.find((p) => p.side === side && p.seat === seat)?.nick ?? null;
+// 한 팀의 이름: 복식이면 두 사람을 ·로 잇는다
+const teamName = (side) => client.players.filter((p) => p.side === side).sort((a, b) => a.seat - b.seat).map((p) => p.nick).join(' · ');
 
 // ── 일시정지: 물리 스텝·화면 시계·오디오를 모두 멈춘다 (P·Esc·⏸ 버튼, 탭을 옮기면 자동). 연습 전용 ──
 const pauseBtn = $('pause-btn');
@@ -590,7 +598,9 @@ $('menu-practice').addEventListener('click', () => {
   newGame();
   showIntro();
 });
-$('menu-create').addEventListener('click', async () => {
+$('menu-create').addEventListener('click', () => createRoom('singles'));
+$('menu-create-doubles').addEventListener('click', () => createRoom('doubles'));
+async function createRoom(roomMode) {
   audio.unlock();
   menuErr.textContent = '';
   for (let tries = 0; tries < 3; tries++) {
@@ -603,10 +613,10 @@ $('menu-create').addEventListener('click', async () => {
       menuErr.textContent = ONLINE_ERRORS.limit;
       return;
     }
-    const r = await startOnline(code, true);
+    const r = await startOnline(code, true, false, roomMode);
     if (r !== 'inUse') return;
   }
-});
+}
 $('menu-join').addEventListener('click', () => {
   audio.unlock();
   const code = codeEl.value.trim().toUpperCase();
@@ -632,13 +642,14 @@ $('lobby-copy').addEventListener('click', async () => {
   }
 });
 $('lobby-leave').addEventListener('click', () => toMenu());
+$('lobby-team').addEventListener('click', () => { if (client) client.setTeam(-client.me); }); // 복식: 반대 팀으로
 $('neterror-back').addEventListener('click', () => toMenu());
 const viewBtn = $('view-btn'); // 관전 전용: 시점 프리셋 바꾸기 (키보드가 없는 휴대폰용)
 tap(viewBtn, cycleFreeView);
 viewBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
 leaveBtn.addEventListener('click', () => {
   if (spectating()) { toMenu(); return; } // 관전은 그냥 나간다 (기권 아님)
-  if (window.confirm('나가면 기권패가 됩니다. 나갈까요?')) toMenu();
+  if (window.confirm(doubles() ? '나가면 우리 팀이 기권패가 됩니다. 나갈까요?' : '나가면 기권패가 됩니다. 나갈까요?')) toMenu();
 });
 
 function toMenu() {
@@ -664,6 +675,31 @@ function toMenu() {
 // ── 대전 ──
 function lobbyText(players, status) {
   const watching = !!client?.spectator;
+  const dbl = client?.mode === 'doubles';
+  $('lobby-team').hidden = !dbl || watching || status !== 'waiting';
+  if (dbl) {
+    // 복식 대기실: 팀별 목록 (좌석 순서). 4명이 모두 준비하면 시작한다
+    const box = $('lobby-players');
+    box.textContent = '';
+    for (const side of [-1, 1]) {
+      const team = players.filter((p) => p.side === side).sort((a, b) => a.seat - b.seat);
+      const el = Object.assign(document.createElement('div'), { className: 'team' });
+      el.append(Object.assign(document.createElement('b'), { textContent: watching ? (side < 0 ? '왼쪽 팀' : '오른쪽 팀') : side === me ? '우리 팀' : '상대 팀' }));
+      for (let i = 0; i < 2; i++) {
+        const p = team[i];
+        el.append(Object.assign(document.createElement('div'), {
+          textContent: p ? `${!watching && p.side === me && p.seat === client.seat ? '▶ ' : '　'}${p.nick}${!watching && p.side === me && p.seat === client.seat ? ' (나)' : ''} · ${p.ready ? '준비 완료' : '준비 중'}` : '　(빈 자리)',
+        }));
+      }
+      box.append(el);
+    }
+    $('lobby-status').textContent = status === 'connecting' ? '연결 중…'
+      : status === 'syncing' ? '시계 맞추는 중…'
+        : watching ? '관전 중 — 경기가 시작되면 보입니다'
+          : players.length < 4 ? `복식 ${players.length}/4명 — 코드나 링크를 친구에게 보내세요 (팀 옮기기로 짝을 고르세요)`
+            : '곧 시작합니다';
+    return;
+  }
   const lines = players.map((p) => `${!watching && p.side === me ? '▶ ' : '　'}${p.nick}${!watching && p.side === me ? ' (나)' : ''} · ${p.ready ? '준비 완료' : '준비 중'}`);
   if (watching) {
     $('lobby-players').textContent = '';
@@ -695,7 +731,7 @@ function fetchWhere() {
   fetch('/api/where').then((r) => r.json()).then((w) => { myColo = w.colo ?? null; }).catch(() => {});
 }
 
-function startOnline(code, create, spectate = false) {
+function startOnline(code, create, spectate = false, roomMode = 'singles') {
   fetchWhere();
   return new Promise((resolve) => {
     menuEl.hidden = true;
@@ -709,9 +745,9 @@ function startOnline(code, create, spectate = false) {
     client = createOnlineClient({
       open: () => new WebSocket(`${proto}//${location.host}/ws/${code}`),
       now: nowMs,
-      nickname: nickname(), code, create, spectate, seed: seed++,
-      makePlayer(side) {
-        human = createPlayer(side);
+      nickname: nickname(), code, create, spectate, mode: roomMode, seed: seed++,
+      makePlayer(side, seat) {
+        human = createPlayer(side, seat);
         mouse.samples.length = 0; // 경기 시각으로 새로 기록한다
         human.samples = mouse.samples;
         return { player: human };
@@ -766,8 +802,8 @@ function beginOnline() {
   viewBtn.hidden = !watching;
   pauseBtn.hidden = true;
   const oppP = client.players.find((p) => p.side === -me);
-  nameEls.me.textContent = client.players.find((p) => p.side === me)?.nick ?? (watching ? '왼쪽' : '나');
-  nameEls.robot.textContent = oppP?.nick ?? (watching ? '오른쪽' : '상대');
+  nameEls.me.textContent = doubles() ? teamName(me) : client.players.find((p) => p.side === me)?.nick ?? (watching ? '왼쪽' : '나');
+  nameEls.robot.textContent = doubles() ? teamName(-me) : oppP?.nick ?? (watching ? '오른쪽' : '상대');
   againBtn.textContent = '첫 화면으로';
   if (watching) showFreeView(); else showIntro();
 }
@@ -817,7 +853,7 @@ function showShot(e) {
     (left ? shotEl : robotShotEl).className = '';
     return;
   }
-  if (e.side === me) {
+  if (e.side === me && (e.seat ?? mySeat()) === mySeat()) {
     shotEl.textContent = `${label} · ${s.quality.timing}`;
     shotEl.className = `shot-${s.quality.timing.toLowerCase()}`;
     const q = s.quality;
@@ -831,7 +867,7 @@ function showShot(e) {
     const str = debugEnabled ? ` · 세기 ${q.strength.toFixed(2)}` : '';
     shotSubEl.textContent = `스윙 ${q.dragSpeed.toFixed(2)} m/s · 공 ${e.speed.toFixed(1)} m/s · 정점 ${dt}${str}${st}${cb}${note}`;
   } else {
-    const who = online() ? nameEls.robot.textContent : '로봇';
+    const who = online() ? (doubles() ? nickAt(e.side, e.seat ?? 0) : null) ?? nameEls.robot.textContent : '로봇';
     robotShotEl.textContent = `${who}: ${label}${s.quality?.timing ? ` · ${s.quality.timing}` : ''}`;
   }
   if (s.quality) debug.onShot?.(e);
@@ -895,7 +931,7 @@ function updateScoreboard() {
   serveEls.me.style.visibility = !over && st.server === me ? 'visible' : 'hidden';
   serveEls.robot.style.visibility = !over && st.server === -me ? 'visible' : 'hidden';
   const deuce = Math.min(...st.score) >= RULES.DEUCE_AT;
-  const who = st.server === me ? (spectating() ? nameEls.me.textContent : '나') : nameEls.robot.textContent;
+  const who = doubles() ? nickAt(st.server, st.serverSeat) ?? '' : st.server === me ? (spectating() ? nameEls.me.textContent : '나') : nameEls.robot.textContent;
   serveInfoEl.textContent = over ? '게임 끝'
     : deuce ? `듀스 · ${who} 서브 (1점마다 교대)`
       : `${who} 서브 ${st.serveCount + 1}/${RULES.SERVE_TURN}`;
@@ -943,12 +979,13 @@ let guideSig = '';
 function guideFor(x) {
   // 지금 누른 구질 버튼의 서브 (스매시는 일반 서브). 기본 모드는 버튼 없이 위로 휘두른 드라이브 서브
   const btn = control !== 'advanced' || shotKeys.current === 'smash' ? null : shotKeys.current;
-  const sig = JSON.stringify(TUNABLE) + me + btn + control; // 디버그 패널에서 값이 바뀌거나 자리·버튼·조작 모드가 바뀌면 다시 계산
+  const diag = !!game.rules.doubles;
+  const sig = JSON.stringify(TUNABLE) + me + btn + control + diag; // 디버그 패널에서 값이 바뀌거나 자리·버튼·조작 모드가 바뀌면 다시 계산
   if (sig !== guideSig) { guideCache.clear(); guideSig = sig; }
   const cx = Math.min(SERVE.TOSS_X_MAX, Math.max(-SERVE.TOSS_X_MAX, x));
   const q = Math.round(cx / SERVE_GUIDE.QUANT_X) * SERVE_GUIDE.QUANT_X;
   const key = q.toFixed(3);
-  if (!guideCache.has(key)) guideCache.set(key, serveGuide(me, q, TUNABLE, btn, control));
+  if (!guideCache.has(key)) guideCache.set(key, serveGuide(me, q, TUNABLE, btn, control, diag));
   return guideCache.get(key);
 }
 
@@ -989,7 +1026,7 @@ let missDoneKey = '';   // 이미 판정한 공 (같은 공을 두 번 판정하
 function updateMiss(t, live, rules) {
   const me0 = me;
   const ballLocal = toLocal(game.ball.pos, me0);
-  const waiting = live && rules.lastHitter === -me0 && canHit(rules, me0) && bouncedOn(rules, me0) && !isServeHit(rules);
+  const waiting = live && rules.lastHitter === -me0 && canHitSeat(rules, me0, human.seat ?? 0) && bouncedOn(rules, me0) && !isServeHit(rules);
   const key = `${rules.rally}:${rules.lastHitter}`;
   if (waiting && human.apexT != null && key !== missDoneKey && (!missWatch || missWatch.key !== key)) {
     const a = toLocal(human.apexPos, me0);
@@ -1165,22 +1202,33 @@ function frame(now) {
   const t = simT();
   const rules = game.rules;
   const live = !game.free && (rules.phase === 'serving' || rules.phase === 'rally');
-  const follow = (side) => (live && canHit(rules, side) && bouncedOn(rules, side) ? ball : null);
+  const follow = (side, seat = 0) => (live && canHitSeat(rules, side, seat) && bouncedOn(rules, side) ? ball : null);
   // 라켓 크기 = 고리 크기 = 칠 수 있는 범위 (서브 차례·토스 뒤에는 넓은 서브 범위)
-  const reach = (side) => (rules.server === side && (rules.phase === 'waitingServe' || isServeHit(rules))
+  const reach = (side, seat = 0) => (rules.server === side && (!rules.doubles || rules.serverSeat === seat) && (rules.phase === 'waitingServe' || isServeHit(rules))
     ? TUNABLE.SERVE_HIT_RADIUS : TUNABLE.HIT_RADIUS);
   const watching = spectating();
   const myT = watching ? viewT : t; // 관전은 두 선수 모두 방송 위치를 보이는 시각에 맞춰 그린다
-  myRacket.update(racketWorld(human, myT, follow(me)), racketNormal(human, myT, me), reach(me));
+  const seatNow = mySeat();
+  myRacket.update(racketWorld(human, myT, follow(me, seatNow)), racketNormal(human, myT, me), reach(me, seatNow));
   const op = opp();
   // 상대 라켓은 상대 쪽 공과 같은 지연으로 그린다 (라켓 위치도 같은 경로로 늦게 오므로 공과 맞아떨어진다)
   const opT = online() && !watching ? viewT - ballLag.expected : viewT;
   const rp = racketWorld(op, opT, follow(-me) && shown) ?? toWorld({ x: SWING.HOME.x, y: SWING.HOME_Y, z: SWING.HOME.z }, -me);
-  robotRacket.update(rp, racketNormal(op, opT, -me), reach(-me));
+  robotRacket.update(rp, racketNormal(op, opT, -me), reach(-me, 0));
+  // 복식: 동료와 상대 둘째 라켓
+  if (rules.doubles && game.roster) {
+    const home = (side) => toWorld({ x: SWING.HOME.x, y: SWING.HOME_Y, z: SWING.HOME.z }, side);
+    const mate = game.roster[`${me}:${1 - seatNow}`], op2 = game.roster[`${-me}:1`];
+    mateRacket.update(racketWorld(mate, opT, follow(me, 1 - seatNow) && shown) ?? home(me), racketNormal(mate, opT, me), reach(me, 1 - seatNow));
+    robotRacket2.update(racketWorld(op2, opT, follow(-me, 1) && shown) ?? home(-me), racketNormal(op2, opT, -me), reach(-me, 1));
+  } else {
+    mateRacket.update(null);
+    robotRacket2.update(null);
+  }
 
   // 내가 칠 공의 예측 정점 (상대가 친 공이 나에게 오는 중) 또는 내 서브 타점
   // 내 서브 (공을 들고 있거나, 토스했지만 아직 치지 않음): 가이드라인과 넓은 서브 도달 범위 고리
-  const mine = mode !== 'menu' && !watching && !game.free && !game.scenario && !game.practice && rules.server === me;
+  const mine = mode !== 'menu' && !watching && !game.free && !game.scenario && !game.practice && rules.server === me && (!rules.doubles || rules.serverSeat === seatNow);
   const holdingServe = mine && rules.phase === 'waitingServe';
   const tossed = mine && rules.phase === 'serving' && rules.lastHitter === 0;
   let guide = null;
@@ -1189,7 +1237,7 @@ function frame(now) {
     guide = guideFor(tossed ? toLocal(ball.pos, me).x : (last ? last.x : 0));
   }
   guideView.update(guide);
-  const waiting = !watching && live && canHit(rules, me);
+  const waiting = !watching && live && canHitSeat(rules, me, seatNow);
   const smashable = !tossed && !!human.apexPos && human.apexPos.z >= NET.HEIGHT + smashMinHeight(TUNABLE, cheat === 'attack'); // 치트(공)면 빨간 고리도 낮게
   const ringPos = waiting ? human.apexPos : holdingServe && guide ? guide.hit : null;
   marker.update(ringPos, tossed || holdingServe ? TUNABLE.SERVE_HIT_RADIUS : TUNABLE.HIT_RADIUS, smashable);
@@ -1226,16 +1274,21 @@ function frame(now) {
     centerEl.textContent = mode === 'menu' ? ''
       : tossed ? '공이 고리까지 내려올 때 휘두르기!'
         : !waitServe ? ''
-          : watching ? `${sideName(rules.server)} 서브`
-            : rules.server === me ? SERVE_HINT[control]
-              : `${oppName} 서브`;
+          : watching ? `${(doubles() ? nickAt(rules.server, rules.serverSeat) : null) ?? sideName(rules.server)} 서브`
+            : doubles() && !(rules.server === me && rules.serverSeat === seatNow) ? `${nickAt(rules.server, rules.serverSeat) ?? '상대'} 서브`
+              : rules.server === me ? SERVE_HINT[control]
+                : `${oppName} 서브`;
   }
   // 화풍 정리: 한 줄에 몰려 점수판과 겹치던 안내를 "상태 칩"과 그 아래 짧은 키 안내로 나눴다 (조작 전체는 P 일시정지의 조작표)
-  const status = watching ? `관전 · 방 ${client.code} · 관전자 ${client.spectators}명 · ${FREE_VIEW.PRESETS[freePreset].name}`
+  // 복식: 다음에 칠 사람(차례)을 상태 칩에 보여 준다
+  const turn = doubles() && client.status === 'playing' ? expectedHitter(rules) : null;
+  const turnText = turn ? ` · 차례 ${turn.side === me && turn.seat === seatNow && !watching ? '나' : nickAt(turn.side, turn.seat) ?? ''}` : '';
+  const tag = doubles() ? '복식' : '대전';
+  const status = watching ? `관전 · 방 ${client.code}${doubles() ? ' · 복식' : ''} · 관전자 ${client.spectators}명 · ${FREE_VIEW.PRESETS[freePreset].name}${turnText}`
     : mobile
-      ? (online() ? `대전 · 방 ${client.code}${client.spectators ? ` · 관전 ${client.spectators}` : ''}` : `연습 · ${DIFFICULTY_LABELS[difficulty]}`)
+      ? (online() ? `${tag} · 방 ${client.code}${client.spectators ? ` · 관전 ${client.spectators}` : ''}${turnText}` : `연습 · ${DIFFICULTY_LABELS[difficulty]}`)
       : online()
-      ? `대전 · 방 ${client.code} · ${RULES.POINTS_TO_WIN}점 · ${STATUS_SHOT[control]}${client.spectators ? ` · 관전 ${client.spectators}명` : ''}`
+      ? `${tag} · 방 ${client.code} · ${RULES.POINTS_TO_WIN}점 · ${STATUS_SHOT[control]}${client.spectators ? ` · 관전 ${client.spectators}명` : ''}${turnText}`
       : `연습 · ${DIFFICULTY_LABELS[difficulty]} · ${RULES.POINTS_TO_WIN}점 · ${STATUS_SHOT[control]}`;
   if (statusEl.textContent !== status) statusEl.textContent = status;
   const keys = mobile || mode === 'menu' ? ''

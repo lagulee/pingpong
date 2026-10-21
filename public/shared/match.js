@@ -9,10 +9,11 @@ import { createRules, applyEvent, bouncedOn } from './rules.js';
 
 // 경기 상태. practice·free는 연습 모드(ai.js)의 연습 공·디버그 떨어뜨리기 표시이고, 대전에서는 쓰지 않는다.
 // retoss: false면 토스한 공을 못 쳤을 때 서브 실점 (대전)
-export function createMatch({ firstServer = -1, bestOf = RULES.BEST_OF, retoss = true } = {}) {
+// doubles: 복식 (9단계). firstSeats: 첫 서버·첫 리시버의 좌석 { server, receiver }
+export function createMatch({ firstServer = -1, bestOf = RULES.BEST_OF, retoss = true, doubles = false, firstSeats } = {}) {
   return {
     ball: createBall({ pos: vec(0, 0, 1) }),
-    rules: createRules({ firstServer, bestOf, retoss }),
+    rules: createRules({ firstServer, bestOf, retoss, doubles, ...(firstSeats ? { firstSeats } : {}) }),
     results: [],             // 득점·렛 결과 기록 (rules.js의 result + t)
     lastHitT: 0,             // 마지막 타격(토스) 시각: 시간 초과 판정용
     holding: false,          // 서브 대기 중 서브권자가 공을 들고 있음 (물리 정지)
@@ -50,7 +51,7 @@ export function startToss(game, side, x, t) {
   game.ball = ballToWorld(makeToss(x, t), side);
   game.holding = false;
   game.lastHitT = t;
-  game.lastToss = { side, x, t };
+  game.lastToss = { side, x, t, ...(game.rules.doubles ? { seat: game.rules.serverSeat } : {}) }; // 복식: 서브한 좌석
   game.inSpin = null;
   return true;
 }
@@ -60,7 +61,7 @@ export const isServeHit = (rules) => rules.phase === 'serving' && rules.lastHitt
 // side가 지금 치면 "바운드 전 공"인가 (서브 제외)
 export const isEarly = (rules, side) => !isServeHit(rules) && !bouncedOn(rules, side);
 
-// side의 타격을 지금 공(game.ball, 시각 ball.t)에 적용한다. hit: { vel, spin, shot }
+// side의 타격을 지금 공(game.ball, 시각 ball.t)에 적용한다. hit: { vel, spin, shot, seat(복식) }
 // 바운드 전에 코트 밖으로 나가던 공이면 outside 플래그를 붙인다(rules.js가 발리 대신 상대 아웃으로 판정).
 // 반환: racket 이벤트
 export function applyHit(game, side, hit, params = TUNABLE) {
@@ -73,6 +74,7 @@ export function applyHit(game, side, hit, params = TUNABLE) {
   const speed = Math.hypot(ball.vel.x, ball.vel.y, ball.vel.z);
   const e = { type: 'racket', t, pos: { ...ball.pos }, speed, side, racket: side, shot: hit.shot ?? null };
   if (outside) e.outside = true;
+  if (game.rules.doubles) e.seat = hit.seat ?? 0; // 복식: 친 사람의 좌석 (rules.js가 순서를 검사)
   game.lastHitT = t;
   ruleEvent(game, e, t);
   return e;

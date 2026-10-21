@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v8.0';
+export const VERSION = 'v9.0';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -501,6 +501,7 @@ export const RULES = Object.freeze({
   SERVE_TURN: 2,             // 서브권이 몇 점마다 바뀌는지
   DEUCE_AT: 10,              // 둘 다 이 점수 이상이면 1점마다 서브 교대
   BEST_OF: 1,                // 기본 단판. 3이면 3게임 2선승제
+  CENTER_TOL: 0.003,         // 복식 서브: 가운데 선에 닿은 공도 맞는 쪽으로 본다 (m, 선 너비 약 3 mm)
 });
 
 // 득점 사유 코드 → 화면 문구
@@ -517,6 +518,8 @@ export const REASON_LABELS = Object.freeze({
   let: '렛',
   retoss: '토스 다시',
   tossMiss: '토스 실패',
+  serveHalf: '서브 코트 틀림 (대각선으로)',
+  wrongPlayer: '순서 틀림',
 });
 
 // 서브 (토스 위치는 서버 기준 좌표: 자기 쪽 y < 0)
@@ -531,6 +534,14 @@ export const SERVE = Object.freeze({
   PITCH_STEP: 1.5,           // 서브 발사각을 훑는 간격 (°)
   NEAR: 0.15,                // 목표 깊이에서 이만큼 안이면 가장 낮은 발사각을 고른다 (m)
   CLEAR_STEPS: Object.freeze([1, 0.5, 0]), // 네트 위 여유 = NET_CLEAR × 이 값으로 차례로 시도
+  // 복식 서브(9단계): 서버 기준 좌표로 자기 코트 오른쪽(x ≥ 0)에 먼저 튀고 상대 코트 왼쪽(x ≤ 0, 대각선)에 떨어져야 한다.
+  DIAG_X_MIN: 0.1,           // 착지 x는 가운데에서 이만큼 이상 왼쪽 (m, 가운데 선 여유)
+  DIAG_X_MAX: 0.6,           // 착지 x의 왼쪽 한계 (m)
+  DIAG_SPIN_SCALES: Object.freeze([1, 0.6, 0.35, 0.15]), // 횡회전 서브가 대각선에 안 들어가면 횡회전을 이만큼으로 줄여 다시 시도
+  DIAG_STEP: 0.07,           // 자기 코트 바운드가 왼쪽 반이면 착지 x를 이만큼씩 가운데로 옮겨 다시 조준한다 (m)
+  DIAG_OWN_MIN: 0.03,        // 자기 코트 첫 바운드 x가 이 값 이상이면 오른쪽 반으로 본다 (m)
+  DIAG_TOSS_MIN: 0.3,        // 로봇이 복식에서 토스하는 x 범위 (m, 오른쪽 반)
+  DIAG_TOSS_MAX: 0.55,
 });
 
 // 서브 가이드라인 (v4.1): "보통 세기로 위로 휘두른 드라이브 서브를 정점(타점 고리)에서 쳤을 때"의 예상 궤적
@@ -683,6 +694,7 @@ export const RENDER = Object.freeze({
   COLOR_RACKET_AI: 0x2d5fa8, // 로봇 라켓 고무 (파랑)
   COLOR_HANDLE: 0x9a6a3a,
   RACKET_SEGMENTS: 32,
+  RACKET_OPACITY_MATE: 0.55, // 복식(9단계): 동료·상대 둘째 라켓은 더 옅게 (내 라켓·첫 상대 라켓과 구분)
   RACKET_OPACITY_ME: 0.8,    // 내 라켓은 살짝 비쳐서 공을 가리지 않게
   COLOR_MARKER: 0xffe066,    // 예측 정점 고리
   COLOR_MARKER_SMASH: 0xff4a3a, // 정점이 스매시 가능 높이일 때 고리 색

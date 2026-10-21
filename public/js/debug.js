@@ -357,6 +357,7 @@ export function initDebug(enabled, hooks) {
     setPing(ms) { pingEl.textContent = ms === null ? '' : `핑 ${Math.round(ms)} ms`; },
     onShot(e) {
       const q = e.shot.quality;
+      if (!q || q.remote) return; // 상대·동료의 타격은 판정 값이 없다 (대전)
       const who = e.side === (hooks.me?.() ?? -1) ? '나' : '상대';
       const dt = Number.isFinite(q.dtApex) ? `${Math.round(q.dtApex * 1000)}ms` : '-';
       shots.unshift(`${fmt(e.t)}s ${who} ${SHOT_LABELS[e.shot.shotType]}${q.weak ? '(약)' : ''} ${q.timing} Δt=${dt} 스윙=${fmt(q.dragSpeed)} 세기=${fmt(q.strength)} 공=${fmt(e.speed)}m/s`);

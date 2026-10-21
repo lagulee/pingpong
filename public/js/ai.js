@@ -7,7 +7,7 @@ import {
   tossTimeAt, makeLaunch, serveLanding, simTime, carriedSpin,
 } from '../shared/physics.js';
 import { NET, TABLE, PHYSICS, SWING, PRACTICE, SERVE, RULES, SCENARIO, TUNABLE, SERVE_GUIDE, CHEAT } from '../shared/constants.js';
-import { applyEvent, canHit, startRally, toServe } from '../shared/rules.js';
+import { applyEvent, canHit, canHitSeat, expectedHitter, startRally, toServe } from '../shared/rules.js';
 import {
   createMatch, holdBall, startToss, applyHit, stepBall, stepGame, isServeHit, isEarly,
 } from '../shared/match.js';
@@ -28,9 +28,10 @@ const CORRECT = {
 };
 
 // ── 플레이어 (사람·로봇 공통 상태) ────────────────────────────
-export function createPlayer(side) {
+export function createPlayer(side, seat = 0) {
   return {
     side,
+    seat,                    // 팀 안의 좌석 (복식 9단계, 단식은 0)
     samples: [],             // 마우스 샘플 (사람: DOM, 로봇: 가상)
     yPlane: SWING.HOME_Y,    // 라켓 평면 y (기준 좌표)
     apexT: null,             // 예측 정점 시각
@@ -57,9 +58,9 @@ export function predictFor(player, ball, params = TUNABLE) {
 
 // ── 로봇 ──────────────────────────────────────────────────
 // difficulty: 'EASY' | 'NORMAL' | 'HARD', rng: 시드 있는 난수
-export function createAI(side, difficulty, rng) {
+export function createAI(side, difficulty, rng, seat = 0) {
   return {
-    player: createPlayer(side),
+    player: createPlayer(side, seat),
     difficulty,
     rng,
     pos: { x: SWING.HOME.x, z: SWING.HOME.z }, // 라켓 평면 위치 (기준 좌표 x, 높이 z)
@@ -281,16 +282,24 @@ export function aiUpdate(ai, ball, t, dt, params = TUNABLE) {
 // 여기서는 그 위에 로봇·사람 플레이어(타격 판정), 연습 공, 디버그 규칙 시험을 얹는다.
 // players: { [-1]: player, [1]: player }, ais: 로봇 목록, rng: 판정 오차·연습 공 난수
 // local: 이 컴퓨터에서 타격을 판정하는 쪽 (연습: 양쪽, 대전: 내 쪽만), retoss: false면 토스 실패 = 서브 실점(대전)
-export function createRally({ players, ais = [], rng, firstServer = -1, bestOf = RULES.BEST_OF, local = [-1, 1], retoss = true }) {
+// roster: 복식(9단계)의 네 선수 { '−1:0': p, … }. 단식·연습은 없다(players[side]가 그 쪽의 유일한 선수)
+export function createRally({ players, ais = [], rng, firstServer = -1, bestOf = RULES.BEST_OF, local = [-1, 1], retoss = true, doubles = false, roster = null }) {
   for (const ai of ais) ai.player.robot = true;
   return {
-    ...createMatch({ firstServer, bestOf, retoss }),
-    players, ais, rng, local,
+    ...createMatch({ firstServer, bestOf, retoss, doubles }),
+    players, ais, rng, local, roster,
     lastShot: null,
     tossAt: null,            // 로봇이 토스할 시각
     scenario: null,          // 디버그 규칙 시험 대기 { kind, at }
   };
 }
+
+// 그 쪽·좌석의 선수 (복식이면 roster, 아니면 쪽의 유일한 선수)
+export const seatPlayer = (game, side, seat = 0) => game.roster?.[`${side}:${seat}`] ?? game.players[side];
+// 이 경기의 모든 선수 (복식은 4명, 아니면 양쪽 1명씩)
+const allPlayers = (game) => (game.roster ? Object.values(game.roster) : [-1, 1].map((s) => game.players[s]));
+// 로봇 ai가 지금 서브할 차례의 서버인가 (복식은 좌석까지)
+const isServerAI = (game, ai) => ai.player.side === game.rules.server && (!game.rules.doubles || ai.player.seat === game.rules.serverSeat);
 
 // 서브 대기를 새로 시작할 때: 플레이어 라켓 평면을 서브 자리로, 로봇 서브권자는 토스 시각을 잡는다
 function onHold(game, t) {
@@ -298,21 +307,20 @@ function onHold(game, t) {
   // 퍼펙트 콤보는 실점하면 끊긴다 (득점·렛이면 이어진다)
   for (let i = game.comboSeen ?? 0; i < game.results.length; i++) {
     const r = game.results[i];
-    if (r.loser && game.players[r.loser]) game.players[r.loser].combo = 0;
+    if (r.loser) for (const p of allPlayers(game)) if (p.side === r.loser) p.combo = 0;
   }
   game.comboSeen = game.results.length;
   game.scenario = null;
   game.tossAt = null;
-  for (const side of [-1, 1]) {
-    const p = game.players[side];
+  for (const p of allPlayers(game)) {
     p.apexT = null;
     p.apexPos = null;
-    p.yPlane = side === server ? SERVE.TOSS_Y : SWING.HOME_Y;
+    p.yPlane = p.side === server && (!game.rules.doubles || p.seat === game.rules.serverSeat) ? SERVE.TOSS_Y : SWING.HOME_Y;
   }
   for (const ai of game.ais) {
     ai.plan = null;
     ai.thinkAt = null;
-    if (ai.player.side === server) game.tossAt = t + PRACTICE.SERVE_DELAY;
+    if (isServerAI(game, ai)) game.tossAt = t + PRACTICE.SERVE_DELAY;
   }
 }
 
@@ -326,11 +334,11 @@ export function holdServe(game, t, params = TUNABLE) {
 export function tossBall(game, side, x, t, params = TUNABLE) {
   if (game.scenario || !startToss(game, side, x, t)) return false;
   game.tossAt = null;
-  const p = game.players[side];
+  const p = seatPlayer(game, side, game.rules.serverSeat);
   p.yPlane = SERVE.TOSS_Y;
   p.apexT = tossTimeAt(game.ball, SERVE.HIT_Z, params); // 이 높이에서 치면 PERFECT
   p.apexPos = toWorld(vec(toLocal(game.ball.pos, side).x, SERVE.TOSS_Y, SERVE.HIT_Z), side); // 타점 고리
-  for (const ai of game.ais) if (ai.player.side === side) aiPlanServe(ai, game.ball, t, params);
+  for (const ai of game.ais) if (ai.player.side === side && ai.player.seat === (game.rules.serverSeat ?? 0)) aiPlanServe(ai, game.ball, t, params);
   return true;
 }
 
@@ -382,8 +390,10 @@ export function endFree(game, t, params = TUNABLE) {
 // 상대가 친(보낸) 직후: 받는 쪽 정점 예측, 로봇 반응. 지금 공의 회전을 판정용 회전의 출발점으로 기록한다(7단계)
 export function incoming(game, side, t, params = TUNABLE) {
   game.inSpin = { t: game.ball.t, spin: vec(game.ball.spin.x, game.ball.spin.y, game.ball.spin.z) };
-  predictFor(game.players[side], game.ball, params);
-  for (const ai of game.ais) if (ai.player.side === side) aiOnIncoming(ai, t, params, game.inSpin);
+  // 복식: 다음에 칠 차례인 사람(좌석)에게만 예측·반응시킨다
+  const seat = expectedHitter(game.rules)?.seat ?? 0;
+  predictFor(seatPlayer(game, side, seat), game.ball, params);
+  for (const ai of game.ais) if (ai.player.side === side && ai.player.seat === seat) aiOnIncoming(ai, t, params, game.inSpin);
 }
 
 // 로봇 갱신 → 타격 판정(이 컴퓨터가 맡은 쪽만) → applyHit. 만든 racket 이벤트에는 shot 판정 결과가 붙는다.
@@ -396,6 +406,7 @@ function hitPhase(game, t, dt, events, params) {
   for (const side of live ? game.local : []) {
     if (!canHit(rules, side)) continue;
     const p = game.players[side];
+    if (rules.doubles && !canHitSeat(rules, side, p.seat)) continue; // 복식: 내 차례일 때만 친다
     const serveHit = isServeHit(rules);
     // 숨은 치트: 공(attack)은 보이지 않게 도달 범위를 조금 넓히고, 수(defense)는 탁구대 전체로 넓혀 헛스윙이 없다
     const cheat = p.robot ? null : p.cheat;
@@ -413,7 +424,7 @@ function hitPhase(game, t, dt, events, params) {
     // 치트(수)는 바운드 전 공을 건드리지 않는다 (넓은 범위로 발리 실점을 하지 않게. 나가는 공은 그대로 상대 아웃)
     if (isEarly(rules, side) && (kind === 'weak' || p.robot || guard)) continue;
     const shot = classifyShot(p.samples, ball, {
-      t, side, apexT: p.apexT, rng: game.rng, params, pressed: guard || kind !== 'weak', serve: serveHit, dragScale: p.dragScale ?? 1, // 치트(수): 손을 떼도 조준 블록
+      t, side, apexT: p.apexT, rng: game.rng, params, pressed: guard || kind !== 'weak', serve: serveHit, diag: serveHit && !!rules.doubles, dragScale: p.dragScale ?? 1, // 치트(수): 손을 떼도 조준 블록
       spinIn: carriedSpin(game.inSpin, t, params) ?? undefined, smashSpeed: p.smashSpeed,
       ringZ: serveHit || p.robot ? undefined : p.apexPos?.z, // 사람: 화면 고리 높이로 스매시 판정 (로봇은 맞은 높이로 고른다)
       control: p.control, // 사람의 조작 모드 (설정 ⚙: 기본 = 드래그 방향, 고급 = 버튼). 로봇은 없음 = 버튼
@@ -427,7 +438,7 @@ function hitPhase(game, t, dt, events, params) {
     p.lastShot = shot;
     game.lastShot = { side, ...shot };
     // 바운드 전 공이 코트 밖으로 나가던 공이면 applyHit가 outside를 붙인다 (쳐도 발리가 아니라 상대의 아웃)
-    events.push(applyHit(game, side, { vel: shot.vel, spin: shot.spin, shot }, params));
+    events.push(applyHit(game, side, { vel: shot.vel, spin: shot.spin, shot, seat: p.seat }, params));
     incoming(game, -side, t, params);
     break;
   }
@@ -442,8 +453,10 @@ function practiceHooks(params) {
     },
     afterIdle(game, t) {
       if (game.tossAt !== null && t >= game.tossAt) {
-        const ai = game.ais.find((a) => a.player.side === game.rules.server);
-        tossBall(game, ai.player.side, uniform(game.rng, -PRACTICE.FEED_X_RANGE, PRACTICE.FEED_X_RANGE), game.ball.t, params);
+        const ai = game.ais.find((a) => isServerAI(game, a));
+        // 복식: 대각선 서브는 오른쪽 반에서 (서버 기준 x ≥ 0)
+        const x = game.rules.doubles ? uniform(game.rng, SERVE.DIAG_TOSS_MIN, SERVE.DIAG_TOSS_MAX) : uniform(game.rng, -PRACTICE.FEED_X_RANGE, PRACTICE.FEED_X_RANGE);
+        tossBall(game, ai.player.side, x, game.ball.t, params);
       }
     },
     nextServe(game) {
@@ -572,7 +585,8 @@ function runScenario(game, kind, t, params) {
 // control: 조작 모드(7단계 수정). 기본 모드는 버튼을 보지 않으므로 위로 휘두른 드라이브 서브
 // 실제 서브와 같은 classifyShot 경로를 쓴다.
 // 반환: { hit, points, bounces } (모두 세계 좌표. bounces = [내 코트 첫 바운드, 상대 코트 착지]) 또는 null
-export function serveGuide(side, x, params = TUNABLE, button = null, control = undefined) {
+// diag: 복식 대각선 서브 (9단계)
+export function serveGuide(side, x, params = TUNABLE, button = null, control = undefined, diag = false) {
   const cx = clamp(x, -SERVE.TOSS_X_MAX, SERVE.TOSS_X_MAX);
   const hit = vec(cx, SERVE.TOSS_Y, SERVE.HIT_Z);
   const speed = params.BLOCK_SPEED + SERVE_GUIDE.STRENGTH * (params.SPEED_FULL - params.BLOCK_SPEED);
@@ -583,7 +597,7 @@ export function serveGuide(side, x, params = TUNABLE, button = null, control = u
     samples.push({ t: tau - T, x: cx, y: hit.z - speed * (T - tau), b: true }); // 아래 → 위 일정 속도
   }
   const ball = ballToWorld(createBall({ pos: hit, vel: vec(0, 0, -1), t: 0 }), side);
-  const shot = classifyShot(samples, ball, { t: 0, side, apexT: 0, params, serve: true, rng: () => 0.5, button, control });
+  const shot = classifyShot(samples, ball, { t: 0, side, apexT: 0, params, serve: true, diag, rng: () => 0.5, button, control });
   const b = createBall({ pos: ball.pos, vel: shot.vel, spin: shot.spin, t: 0 });
   const points = [{ ...b.pos }], bounces = [];
   const n = Math.round(SERVE_GUIDE.MAX_T / PHYSICS.DT);

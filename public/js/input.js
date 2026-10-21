@@ -10,7 +10,7 @@ import {
   faceNormal, racketResponse, ballToLocal, toWorld, flightLanding,
 } from '../shared/physics.js';
 import {
-  NET, TABLE, SWING, TUNABLE, RENDER, SHOT_BUTTONS, SHOT_COMBOS, CONTROL_MODES, CONTROL_DEFAULT, FEEL,
+  NET, TABLE, SWING, SERVE, TUNABLE, RENDER, SHOT_BUTTONS, SHOT_COMBOS, CONTROL_MODES, CONTROL_DEFAULT, FEEL,
   CHEAT, FREE_VIEW,
 } from '../shared/constants.js';
 import { createTouchTracker } from './touch.js';
@@ -432,7 +432,7 @@ export function aimTarget(type, drag, racketX, params = TUNABLE) {
 // samples: 마우스 샘플, ballState: 접촉 순간 공(세계 좌표)
 // ctx: { t(접촉 시각, 기본 ballState.t), side(−1/+1, 기본 −1), apexT(예측 정점 시각), rng, params,
 //        racketX(라켓 x, 기준 좌표, 기본 마지막 샘플 x), pressed(버튼, 기본 true),
-//        serve(서브: 자기 코트 → 상대 코트로 조준, 기본 false), dragScale(사람 시점 보정, 기본 1),
+//        serve(서브: 자기 코트 → 상대 코트로 조준, 기본 false), diag(복식 서브: 대각선 코트로 조준, 기본 false), dragScale(사람 시점 보정, 기본 1),
 //        button(구질 버튼, 기본 샘플의 k로 buttonAt), spinIn(판정용 들어온 회전, 세계 좌표 rad/s. 기본 공의 물리 회전),
 //        smashSpeed(스매시 기준 스윙 속도, 기본 SMASH_SPEED. 터치는 TOUCH_SMASH_SPEED),
 //        ringZ(화면 고리 = 예측 정점의 높이. 이 높이가 스매시 높이 이상(빨간 고리)이면 맞은 높이가 조금 낮아도 스매시),
@@ -487,7 +487,7 @@ export function classifyShot(samples, ballState, ctx = {}) {
 
   let out; // 기준 좌표의 { vel, spin }
   if (serve && shotType !== 'block') {
-    out = serveShot(shotType, drag, b, t, racketX, strength, err, params);
+    out = serveShot(shotType, drag, b, t, racketX, strength, err, params, !!ctx.diag);
     quality.target = out.target;
   } else if (shotType === 'mishit') {
     // 낮은 공 내려치기: 네트 아랫부분을 향해 곧게 꽂힌다
@@ -621,34 +621,64 @@ export function classifyShot(samples, ballState, ctx = {}) {
 
 // 서브: 버튼 구질로 회전을 정하고(일반 = 무회전, 드라이브 = 탑, 커트 = 백, 사이드 = 횡, 조합 = 횡 + 탑·백. 스매시 버튼은 일반 서브),
 // 자기 코트 → 상대 코트 SERVE_DEPTH에 떨어지게 조준한다. 속도는 세기로 SERVE_V_MIN~MAX.
-function serveShot(type, drag, b, t, racketX, strength, err, params) {
+function serveShot(type, drag, b, t, racketX, strength, err, params, diag = false) {
   const P = PREFIX[type];
   const k = params.SERVE_SPIN_SCALE;
   const spin = type === 'normal' ? 0 : k * lerpP(params, P, 'SPIN', strength);
-  const dirX = Math.abs(drag.u.x) > 0.05 * drag.speed ? Math.sign(drag.u.x) : (racketX > 0 ? 1 : -1);
-  let topspin = 0, sidespin = 0;
-  if (type === 'drive') topspin = spin;
-  else if (type === 'cut') topspin = -spin;
-  else if (type === 'side') {
-    sidespin = dirX * spin;
-    topspin = k * lerpP(params, P, 'TOP', strength);
-  } else if (SHOT_COMBOS[type]) {
-    // 조합 서브 (사이드 커트·사이드 드라이브)
-    topspin = (SHOT_COMBOS[type] === 'cut' ? -1 : 1) * params.COMBO_MIX * spin;
-    sidespin = dirX * params.COMBO_MIX * k * lerpP(params, 'SIDE', 'SPIN', strength);
-  }
+  const dirX0 = Math.abs(drag.u.x) > 0.05 * drag.speed ? Math.sign(drag.u.x) : (racketX > 0 ? 1 : -1);
+  // 사이드 회전의 방향(dirX)만 정하면 회전이 정해진다 (복식 대각선에서는 두 방향을 모두 시험한다)
+  const spinsFor = (dirX, scale = 1) => {
+    let topspin = 0, sidespin = 0;
+    if (type === 'drive') topspin = spin;
+    else if (type === 'cut') topspin = -spin;
+    else if (type === 'side') {
+      sidespin = dirX * spin;
+      topspin = k * lerpP(params, P, 'TOP', strength);
+    } else if (SHOT_COMBOS[type]) {
+      // 조합 서브 (사이드 커트·사이드 드라이브)
+      topspin = (SHOT_COMBOS[type] === 'cut' ? -1 : 1) * params.COMBO_MIX * spin;
+      sidespin = dirX * params.COMBO_MIX * k * lerpP(params, 'SIDE', 'SPIN', strength);
+    }
+    return { topspin, sidespin: sidespin * scale };
+  };
+  let { topspin, sidespin } = spinsFor(dirX0);
   const speed = params.SERVE_V_MIN + strength * (params.SERVE_V_MAX - params.SERVE_V_MIN);
-  const target = { x: aimTarget(type, drag, racketX, params).x, y: params.SERVE_DEPTH };
+  let target = { x: aimTarget(type, drag, racketX, params).x, y: params.SERVE_DEPTH };
   // 속도 보조: 이 속도로 들어가는 서브가 없으면(낮은 타점 등) SERVE_ASSIST_V까지 조금씩 빠르게 해 본다
-  let v = speed;
-  let aim = solveServe({ pos: b.pos, speed: v, topspin, sidespin, target, t }, params);
-  while (!aim.valid && v + SWING.SERVE_ASSIST_STEP <= params.SERVE_ASSIST_V + 1e-9) {
-    v += SWING.SERVE_ASSIST_STEP;
-    aim = solveServe({ pos: b.pos, speed: v, topspin, sidespin, target, t }, params);
-  }
-  if (!aim.valid) {
-    v = speed;
-    aim = solveServe({ pos: b.pos, speed: v, topspin, sidespin, target, t }, params);
+  const solveAssisted = (tg, sp = { topspin, sidespin }) => {
+    let v = speed;
+    let aim = solveServe({ pos: b.pos, speed: v, topspin: sp.topspin, sidespin: sp.sidespin, target: tg, t }, params);
+    while (!aim.valid && v + SWING.SERVE_ASSIST_STEP <= params.SERVE_ASSIST_V + 1e-9) {
+      v += SWING.SERVE_ASSIST_STEP;
+      aim = solveServe({ pos: b.pos, speed: v, topspin: sp.topspin, sidespin: sp.sidespin, target: tg, t }, params);
+    }
+    if (!aim.valid) {
+      v = speed;
+      aim = solveServe({ pos: b.pos, speed: v, topspin: sp.topspin, sidespin: sp.sidespin, target: tg, t }, params);
+    }
+    return { v, aim };
+  };
+  let { v, aim } = solveAssisted(target);
+  if (diag) {
+    // 복식 대각선: 착지는 왼쪽 반(x < 0). 자기 코트 첫 바운드가 왼쪽 반이면 착지점을 가운데 쪽으로 옮겨 오른쪽 반에 튀게 한다
+    // 사이드 회전은 방향마다 휘는 길이 달라 첫 바운드 위치가 다르다: 드래그 방향 → 반대 방향 순으로 시험
+    // 센 횡회전은 크게 휘어 첫 바운드가 왼쪽 반으로 가므로, 안 되면 횡회전을 줄여 본다 (DIAG_SPIN_SCALES)
+    const hasSide = spinsFor(dirX0).sidespin !== 0;
+    const tries = [];
+    for (const sc of hasSide ? SERVE.DIAG_SPIN_SCALES : [1]) for (const dx of hasSide ? [dirX0, -dirX0] : [dirX0]) tries.push(spinsFor(dx, sc));
+    let best = null;
+    search: for (const sp of tries) {
+      for (let tx = clamp(target.x, -SERVE.DIAG_X_MAX, -SERVE.DIAG_X_MIN); tx <= -SERVE.DIAG_X_MIN + 1e-9; tx += SERVE.DIAG_STEP) {
+        const cand = { x: Math.min(tx, -SERVE.DIAG_X_MIN), y: params.SERVE_DEPTH };
+        const r = solveAssisted(cand, sp);
+        const ownX = r.aim.landing?.own?.pos.x ?? -Infinity;
+        const better = r.aim.valid && (!best || !best.aim.valid || ownX > best.ownX);
+        if (!best || better) best = { ...r, target: cand, ownX, sp };
+        if (r.aim.valid && ownX >= SERVE.DIAG_OWN_MIN) { best = { ...r, target: cand, ownX, sp }; break search; }
+      }
+    }
+    ({ v, aim, target } = { v: best.v, aim: best.aim, target: best.target });
+    ({ topspin, sidespin } = best.sp);
   }
   const launch = makeLaunch({
     pos: b.pos, t,
