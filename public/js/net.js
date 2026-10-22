@@ -10,6 +10,7 @@ import { toServe, canHit, canHitSeat } from '../shared/rules.js';
 import { matchSnapshot, restoreMatch } from '../shared/host.js';
 import { createRally, stepMatch, replayStep, tossBall, holdServe, incoming, createPlayer, seatPlayer } from './ai.js';
 import { racketPointAt, pruneSamples, createRng, guardRacket } from './input.js';
+import { createStats, addHit, removeHit, addPoint, hitFromEvent, playerKey } from '../shared/stats.js';
 
 const DT = PHYSICS.DT;
 const vec3 = (v) => ({ x: v.x, y: v.y, z: v.z });
@@ -103,6 +104,7 @@ export function createOnlineClient(opts) {
     oppAway: null,           // 상대 재접속 마감 (내 시각 ms) 또는 null
     // 끊김 일시정지 (10단계): null | { state: 'wait'|'countdown', who: [{ side, seat, nick, until(내 시각 ms|null) }], at(재개, 내 시각 ms) }
     pause: null,
+    matchStats: null,        // 경기 요약 기록 (11단계, shared/stats.js). 결과 화면이 summary()로 표를 만든다
     connected: false, errorCode: null, endMsg: null,
     serverColo: null,        // 방 서버(Durable Object)가 있는 데이터센터 코드 (예: NRT). 모르면 null
     stats: { rejects: 0, corrected: 0, confirmed: 0, corrections: 0, rewinds: 0, remote: 0 },
@@ -289,11 +291,17 @@ export function createOnlineClient(opts) {
         const r = e.shot.quality?.guard ? { x: loc.x, y: loc.z } : racketPointAt(p.samples, e.t) ?? { x: loc.x, y: loc.z };
         if (e.shot.quality?.guard) guardHold = { t: e.t, x: loc.x, z: loc.z };
         lastHit = { side: c.me, seq: ++seq };
+        e.seq = seq; // 경기 요약: 같은 타격을 한 번만 센다 (서버가 거부하면 이 순번으로 뺀다)
         send({
           type: e.shot.quality?.serve ? 'serve' : 'hit', seq, t: e.t, pos: vec3(e.pos),
           vel: vec3(e.shot.vel), spin: vec3(e.shot.spin), shotType: e.shot.shotType, racket: { x: r.x, z: r.y },
         });
       }
+    }
+    // 경기 요약 (11단계): 적용된 타격 (내 것 + 상대·동료 것. 되감기로 다시 적용해도 key가 같아 한 번만 센다)
+    if (c.matchStats) {
+      const mineKey = c.spectator ? null : playerKey(c.me, c.seat);
+      for (const e of events) if (e.type === 'racket' && e.shot) addHit(c.matchStats, hitFromEvent(e, { mineKey, dt: DT }));
     }
     applyCorrections();
     for (; seen < g.results.length; seen++) {
@@ -314,8 +322,9 @@ export function createOnlineClient(opts) {
       afterStep([], true);
       return;
     }
-    const shot = { shotType: msg.shotType, quality: { remote: true } };
+    const shot = { shotType: msg.shotType, quality: { remote: true, serve: msg.type === 'serve' }, spin: msg.spin };
     const e = applyHit(g, opp, { vel: msg.vel, spin: msg.spin, shot, seat: msg.seat ?? 0 }, params);
+    e.seq = msg.seq; // 경기 요약: 친 사람의 순번으로 같은 타격을 한 번만 센다
     seatPlayer(g, opp, msg.seat ?? 0).lastShot = shot;
     g.lastShot = { side: opp, ...shot };
     lastHit = { side: opp, seq: msg.seq };
@@ -389,6 +398,7 @@ export function createOnlineClient(opts) {
       if (local) { local.overruled = true; r.corrected = true; c.stats.corrected++; }
       g.results.push(r);
     }
+    if (c.matchStats) addPoint(c.matchStats, r); // 경기 요약은 서버가 확정한 포인트만
     g.rules = msg.rules;
     g.nextAt = msg.nextAt;
     c.serverRules = msg.rules;
@@ -399,6 +409,7 @@ export function createOnlineClient(opts) {
 
   function onReject(msg) {
     c.stats.rejects++;
+    if (c.matchStats && !c.spectator) removeHit(c.matchStats, `${playerKey(c.me, c.seat)}#${msg.seq}`); // 거부된 내 타격은 세지 않는다
     const g = c.game;
     if (g && msg.seq === tossSeq && g.rules.phase === 'serving' && g.rules.lastHitter === 0) {
       // 토스 거부(상대 대기 중 등): 다시 공을 들고 기다린다
@@ -461,6 +472,7 @@ export function createOnlineClient(opts) {
         c.mode = msg.mode ?? c.mode;
         makeGame(msg.firstServer);
         setPause(null);
+        c.matchStats = createStats({ doubles: c.mode === 'doubles', mine: c.spectator ? null : playerKey(c.me, c.seat) });
         setStatus('playing');
         hooks.onStart?.();
         break;
@@ -474,6 +486,9 @@ export function createOnlineClient(opts) {
         c.serverRules = c.game.rules;
         c.oppAway = msg.opp ? c.serverToLocal(msg.opp.until) : null;
         setPause(msg.pause ?? null);
+        // 경기 중 입장(관전)·재접속: 그 전 기록이 비거나 끊긴 동안이 빠지므로 "입장 이후 기록"으로 표시한다
+        if (c.matchStats) c.matchStats.partial = true;
+        else c.matchStats = createStats({ doubles: c.mode === 'doubles', mine: c.spectator ? null : playerKey(c.me, c.seat), partial: true });
         setStatus('playing');
         hooks.onStart?.();
         break;

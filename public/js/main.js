@@ -31,6 +31,7 @@ import {
   scoreState, racketWorld, serveGuide,
 } from './ai.js';
 import { createOnlineClient, createBallLag, courtShare } from './net.js';
+import { createStats, addHit, addPoint, hitFromEvent, playerKey, summary, summaryTable } from '../shared/stats.js';
 import { touchSpeedScale, mobileCamera } from './touch.js';
 import {
   detectMobile, createQualityGovernor, createWakeLock, canFullscreen, toggleFullscreen, applyAudioSession, vibrate,
@@ -53,6 +54,7 @@ const serveInfoEl = $('serve-info');
 const resultEl = $('result');
 const resultTitleEl = $('result-title');
 const resultScoreEl = $('result-score');
+const resultStatsEl = $('result-stats');
 const againBtn = $('again');
 const pingEl = $('ping');
 const netMsgEl = $('net-msg');
@@ -431,6 +433,8 @@ let realAtFrame = 0;      // 마지막 프레임의 실제 시각 (s)
 let seed = 1;             // 판마다 다른 시드 (판정 오차·로봇 선택)
 let freeStart = 0;        // 디버그 떨어뜨리기 시작 시각
 let shownResults = 0;     // 화면에 보여 준 득점 결과 수
+let practiceStats = null; // 연습 경기 요약 기록 (11단계)
+let statsResults = 0;     // 요약에 넣은 연습 득점 결과 수
 let messageUntil = 0;     // 득점 사유 표시가 끝나는 시각
 let practiceTunables = null; // 대전에 들어가기 전 TUNABLE (돌아오면 되살린다)
 
@@ -465,6 +469,8 @@ function newGame() {
   }
   robot = createAI(1, difficulty, createRng(seed * 31 + 7));
   game = createRally({ players: { [-1]: human, [1]: robot.player }, ais: [robot], rng: createRng(seed), firstServer: -1 });
+  practiceStats = createStats({ mine: playerKey(-1, 0) });
+  statsResults = 0;
   game.ball.t = clock;
   resetView(clock);
   nameEls.me.textContent = '나';
@@ -825,6 +831,7 @@ function showOnlineEnd(msg) {
     resultTitleEl.className = 'result-win';
     resultScoreEl.textContent = `${nameEls.me.textContent} ${l} : ${r} ${nameEls.robot.textContent}`
       + (msg.by === 'forfeit' ? ' · 기권(연결 끊김)' : '');
+    renderStats(client.matchStats, { names: onlineName, first: -1 });
     resultEl.hidden = false;
     netMsgEl.hidden = true;
     leaveBtn.hidden = true;
@@ -836,9 +843,42 @@ function showOnlineEnd(msg) {
   resultTitleEl.className = win ? 'result-win' : 'result-lose';
   resultScoreEl.textContent = `${nameEls.me.textContent} ${a} : ${b} ${nameEls.robot.textContent}`
     + (msg.by === 'forfeit' ? (win ? ' · 상대 연결 끊김(기권)' : ' · 기권') : '');
+  renderStats(client.matchStats, { names: onlineName, first: me });
   resultEl.hidden = false;
   netMsgEl.hidden = true;
   leaveBtn.hidden = true;
+}
+
+// ── 경기 요약 (11단계): 결과 카드 안의 표. 집계·표 내용은 shared/stats.js, 여기서는 DOM만 만든다 ──
+const onlineName = (side, seat) => (!spectating() && side === me && seat === client.seat ? '나' : nickAt(side, seat) ?? (side === me ? '나' : '상대'));
+function renderStats(stats, { names, first }) {
+  resultStatsEl.replaceChildren();
+  if (!stats) { resultStatsEl.hidden = true; return; }
+  const tb = summaryTable(summary(stats), { names, first, mine: stats.mine });
+  const cap = document.createElement('div');
+  cap.className = 'stats-cap';
+  cap.textContent = `경기 요약 · 최장 랠리 ${tb.longest}회` + (tb.partial ? ' · 입장 이후 기록' : '');
+  const table = document.createElement('table');
+  const tr0 = table.insertRow();
+  tr0.appendChild(document.createElement('th'));
+  for (const h of tb.head) {
+    const th = document.createElement('th');
+    th.textContent = h.text;
+    if (h.mine) th.className = 'mine';
+    else if (h.team) th.className = 'team';
+    tr0.appendChild(th);
+  }
+  for (const row of tb.rows) {
+    const tr = table.insertRow();
+    row.forEach((v, i) => {
+      const td = tr.insertCell();
+      td.textContent = v;
+      if (i > 0 && tb.head[i - 1].mine) td.className = 'mine';
+      else if (i > 0 && tb.head[i - 1].team) td.className = 'team';
+    });
+  }
+  resultStatsEl.append(cap, table);
+  resultStatsEl.hidden = false;
 }
 
 // ── 판정 표시 ──
@@ -915,6 +955,7 @@ function finalizeResult(r) {
     resultTitleEl.textContent = r.winner === -1 ? '승리!' : '패배';
     resultTitleEl.className = r.winner === -1 ? 'result-win' : 'result-lose';
     resultScoreEl.textContent = `나 ${mine} : ${rb} 로봇 · 마지막 점수: ${REASON_LABELS[r.reason] ?? r.reason}`;
+    renderStats(practiceStats, { names: (side) => (side === -1 ? '나' : '로봇'), first: -1 });
     resultEl.hidden = false;
   }
 }
@@ -941,9 +982,15 @@ function updateScoreboard() {
 function fixedStep() {
   const dt = PHYSICS.DT;
   if (!history.length) history.push(clock, game.ball);
+  const counted = !game.practice && !game.free && !game.scenario; // 연습 공·시연·규칙 시험은 요약에 넣지 않는다
   for (const e of stepMatch(game, dt)) {
     queue.push({ t: e.t, event: structuredClone(e) }); // 연출에는 복사본만 넘긴다
     debug.onEvents([e]);
+    if (counted && e.type === 'racket' && e.shot) addHit(practiceStats, hitFromEvent(e, { mineKey: playerKey(-1, 0) }));
+  }
+  for (; statsResults < game.results.length; statsResults++) {
+    const r = game.results[statsResults];
+    if (!r.practice) addPoint(practiceStats, r);
   }
   if (game.free && clock - freeStart > DEMO.RESET_AFTER) endFree(game, clock);
   clock += dt;

@@ -2,7 +2,7 @@
 
 // 게임 버전: "v단계.수정번호". 푸시할 때마다 올리고, 화면 왼쪽 아래에 표시한다 (CLAUDE.md 8장).
 // 사용자는 배포 주소에서 이 글자를 보고 새 버전이 반영됐는지 확인한다.
-export const VERSION = 'v10.0';
+export const VERSION = 'v11.0';
 // 좌표계(물리): x = 탁구대 너비, y = 길이(네트 기준 양쪽), z = 높이(위가 +). 단위 m·s·kg.
 // 원점: 탁구대 윗면 중앙(네트 바로 아래).
 
@@ -451,6 +451,15 @@ export const CONTROL_LABELS = Object.freeze({ basic: '기본', advanced: '고급
 export const SHOT_LABELS = Object.freeze({
   normal: 'NORMAL', drive: 'DRIVE', smash: 'SMASH', cut: 'CUT', side: 'SIDESPIN', block: 'BLOCK', mishit: 'MISHIT',
   sidecut: 'SIDE CUT', sidedrive: 'SIDE DRIVE',
+});
+// 경기 요약 (11단계): 결과 화면의 표. 구질 행 순서·이름, 속도 단위 변환
+export const STATS = Object.freeze({
+  KMH_PER_MS: 3.6,           // m/s → km/h
+  SHOT_ORDER: Object.freeze(['normal', 'drive', 'cut', 'side', 'smash', 'sidecut', 'sidedrive', 'block', 'mishit']),
+  SHOT_NAMES: Object.freeze({
+    normal: '일반', drive: '드라이브', cut: '커트', side: '사이드', smash: '스매시',
+    sidecut: '사이드 커트', sidedrive: '사이드 드라이브', block: '블록', mishit: '실타',
+  }),
 });
 export const DIFFICULTIES = Object.freeze(['EASY', 'NORMAL', 'HARD']);
 export const DIFFICULTY_LABELS = Object.freeze({ EASY: '쉬움', NORMAL: '보통', HARD: '어려움' });
