@@ -118,7 +118,7 @@ export class Host {
     this.phase = 'lobby';            // lobby → playing → over
     this.mode = 'singles';           // 'singles'(2명) | 'doubles'(4명, 9단계). 방을 만든 사람이 정한다
     // 자리: 단식은 slots[side]뿐. 복식은 팀(side)마다 두 좌석 seat 0 = slots[side], seat 1 = mates[side]
-    // 각 사람 { side, seat, nick, token, conn(id|null), ready, rtt, away(ms|null) }
+    // 각 사람 { side, seat, nick, token, conn(id|null), ready, rtt, awayAt(끊긴 서버 시각 ms|null), awaySpent(이 경기에서 끊겨 있던 누적 ms) }
     this.slots = { [-1]: null, [1]: null };
     this.mates = { [-1]: null, [1]: null };
     this.startAt = null;             // 경기 시각 0 = 서버 시각 startAt (ms)
@@ -129,6 +129,10 @@ export class Host {
     this.lobbySince = this.io.now();
     this.lastRacket = {};            // `${side}:${seat}` → 마지막 라켓 위치를 받은 경기 시각
     this.specs = {};                 // 관전자 (8단계): 연결 id → 닉네임. 입력은 받지 않고 방송만 받는다
+    // 끊김 일시정지 (10단계): null | 'wait'(돌아오기를 기다림) | 'countdown'(모두 돌아옴, resumeAt에 재개)
+    this.pause = null;
+    this.resumeAt = null;            // 재개 시각 (서버 시각 ms)
+    this.endMsg = null;              // 마지막 end 메시지 (끝난 경기에 재접속한 사람에게 다시 보낸다)
   }
 
   // ── 저장·복원 (Durable Object가 잠들었다 깨어날 때) ──
@@ -136,6 +140,7 @@ export class Host {
     return {
       code: this.code, phase: this.phase, mode: this.mode, slots: this.slots, mates: this.mates, startAt: this.startAt, firstServer: this.firstServer,
       sent: this.sent, endT: this.endT, lobbySince: this.lobbySince, specs: this.specs,
+      pause: this.pause, resumeAt: this.resumeAt, endMsg: this.endMsg,
       game: this.game && matchSnapshot(this.game),
     };
   }
@@ -144,7 +149,9 @@ export class Host {
       code: s.code ?? this.code, phase: s.phase, mode: s.mode ?? 'singles', slots: s.slots, mates: s.mates ?? { [-1]: null, [1]: null },
       startAt: s.startAt, firstServer: s.firstServer,
       sent: s.sent, endT: s.endT, lobbySince: s.lobbySince, specs: s.specs ?? {},
+      pause: s.pause ?? null, resumeAt: s.resumeAt ?? null, endMsg: s.endMsg ?? null,
     });
+    for (const p of this.all()) { p.awayAt ??= null; p.awaySpent ??= 0; }
     if (s.game) {
       this.game = restoreMatch(createMatch({ firstServer: this.firstServer, retoss: false, doubles: this.doubles }), s.game);
       this.game.results.length = 0;
@@ -207,6 +214,50 @@ export class Host {
     };
   }
 
+  // ── 끊김 일시정지 (10단계) ──
+  // 끊긴 선수의 기권 마감 (서버 시각 ms): 한 번에 RECONNECT_WAIT, 경기 누적 AWAY_BUDGET 중 먼저 닿는 것
+  deadlineOf(p) {
+    if (p.awayAt === null) return null;
+    return p.awayAt + Math.min(ONLINE.RECONNECT_WAIT * 1000, ONLINE.AWAY_BUDGET * 1000 - p.awaySpent);
+  }
+  // 경기를 이어 갈 수 없는 선수: 끊겼거나, 다시 들어와 아직 시계를 맞추는 중(ready 전)
+  missing() { return this.all().filter((q) => !q.conn || !q.ready); }
+  pauseWho() { return this.missing().map((q) => ({ side: q.side, seat: q.seat, nick: q.nick, until: this.deadlineOf(q) })); }
+  inPoint() { const ph = this.game.rules.phase; return ph === 'serving' || ph === 'rally'; }
+  pauseMsg() {
+    if (this.pause === 'wait') return { state: 'wait', who: this.pauseWho() };
+    if (this.pause === 'countdown') return { state: 'resume', at: this.resumeAt };
+    return null;
+  }
+  // 카운트다운이 끝났으면 일시정지를 푼다 (알람이 늦어도 같은 결과)
+  settlePause(now = this.io.now()) {
+    if (this.pause === 'countdown' && now >= this.resumeAt) { this.pause = null; this.resumeAt = null; }
+  }
+  // 끊긴 사람이 있고 포인트가 끝났으면 일시정지(대기). 이미 대기 중이면 목록만 다시 알린다.
+  // commit: 확정 상태를 지금까지 진행해 둔다(재개 뒤 첫 토스 검증에서 긴 공백을 다시 계산하지 않도록). 득점 처리 중에는 false
+  enterPause(commit = true) {
+    if (this.phase !== 'playing' || !this.missing().length || this.inPoint()) return;
+    if (commit) {
+      this.commit(this.matchT() - ONLINE.GRACE);
+      if (this.phase !== 'playing' || this.inPoint()) return;
+    }
+    this.pause = 'wait';
+    this.resumeAt = null;
+    this.broadcast({ type: 'pause', ...this.pauseMsg() });
+  }
+  // 모두 돌아와 준비했으면 카운트다운 시작. 아직 남은 사람이 있으면(복식에서 둘 이상 끊김) 기다리는 목록만 다시 알린다
+  maybeCountdown() {
+    if (this.pause !== 'wait') return;
+    if (this.missing().length) { this.broadcast({ type: 'pause', ...this.pauseMsg() }); return; }
+    this.commit(this.matchT() - ONLINE.GRACE);
+    if (this.phase !== 'playing') return;
+    this.pause = 'countdown';
+    this.resumeAt = this.io.now() + ONLINE.RESUME_COUNTDOWN * 1000;
+    this.broadcast({ type: 'pause', state: 'resume', at: this.resumeAt });
+    this.save();
+    this.schedule();
+  }
+
   // ── 입력 ──
   connect(id) { /* join 메시지를 기다린다 */ }
 
@@ -241,7 +292,7 @@ export class Host {
         if (this.phase === 'playing') {
           this.io.send(id, {
             type: 'resume', startAt: this.startAt, firstServer: this.firstServer, players: this.players(), mode: this.mode,
-            game: matchSnapshot(this.game), opp: null,
+            game: matchSnapshot(this.game), opp: null, pause: this.pauseMsg(),
           });
         }
         break;
@@ -270,10 +321,19 @@ export class Host {
     if (typeof msg.token === 'string' && msg.token) {
       for (const p of this.all()) {
         if (p.token === msg.token) {
+          if (this.phase === 'over') {
+            // 끊긴 사이 경기가 끝남(누적 한도 기권 등): 결과를 알려 주고 닫는다
+            if (this.endMsg) this.io.send(id, this.endMsg);
+            this.io.close(id, 1000, 'over');
+            return;
+          }
           if (p.conn) this.io.close(p.conn, 4001, 'replaced');
           p.conn = id;
-          const back = p.away !== null;
-          p.away = null;
+          const back = p.awayAt !== null;
+          if (back) {
+            p.awaySpent += this.io.now() - p.awayAt;
+            p.awayAt = null;
+          }
           p.ready = this.phase === 'playing' ? false : p.ready;
           this.io.send(id, this.joinedMsg(p, this.phase === 'playing'));
           if (back) this.others(p, { type: 'opp', state: 'back', side: p.side, seat: p.seat });
@@ -294,7 +354,7 @@ export class Host {
     const count = (s) => this.teamOf(s).length;
     const side = this.doubles ? (count(-1) <= count(1) ? -1 : 1) : (this.slots[-1] ? 1 : -1);
     if (!taken.length) this.lobbySince = this.io.now();
-    const p = { side, seat: this.slots[side] ? 1 : 0, nick: cleanNick(msg.nickname), token: makeToken(this.io.rng), conn: id, ready: false, rtt: null, away: null };
+    const p = { side, seat: this.slots[side] ? 1 : 0, nick: cleanNick(msg.nickname), token: makeToken(this.io.rng), conn: id, ready: false, rtt: null, awayAt: null, awaySpent: 0 };
     if (p.seat) this.mates[side] = p; else this.slots[side] = p;
     this.io.send(id, this.joinedMsg(p, false));
     this.lobby();
@@ -323,11 +383,15 @@ export class Host {
     p.rtt = finite(msg.rtt) ? msg.rtt : null;
     if (this.phase === 'playing') {
       // 재접속한 사람: 지금 경기 상태를 받아 이어서 진행
-      const away = this.all().find((q) => q !== p && q.away !== null);
+      // 일시정지 중이면 모두 돌아왔는지 보고 카운트다운을 시작한다 (10단계)
+      this.settlePause();
+      const away = this.all().find((q) => q !== p && q.awayAt !== null);
       this.sendTo(p, {
         type: 'resume', startAt: this.startAt, firstServer: this.firstServer, players: this.players(), mode: this.mode,
-        game: matchSnapshot(this.game), opp: away ? { state: 'away', until: away.away, side: away.side, seat: away.seat } : null,
+        game: matchSnapshot(this.game), opp: away ? { state: 'away', until: this.deadlineOf(away), side: away.side, seat: away.seat } : null,
+        pause: this.pauseMsg(),
       });
+      this.maybeCountdown();
       return;
     }
     if (this.phase !== 'lobby') return;
@@ -369,7 +433,10 @@ export class Host {
       nextAt: g.nextAt, rules: g.rules,
     });
     if (r.matchOver) this.finish(r.winner, 'normal');
-    else this.save();
+    else {
+      this.enterPause(false); // 랠리 중에 끊긴 사람이 있으면 이 포인트가 끝난 지금부터 일시정지 (10단계)
+      this.save();
+    }
   }
 
   // 확정 상태를 t까지 진행 (결과는 바로 알림)
@@ -382,7 +449,10 @@ export class Host {
     if (this.phase !== 'playing') return;
     const side = p.side;
     if (!this.timeOk(msg.t) || !finite(msg.x)) { this.reject(p, msg, finite(msg.x) ? 'time' : 'bad'); return; }
-    if (this.all().some((q) => q !== p && q.away !== null)) { this.reject(p, msg, 'away'); return; }
+    // 일시정지 (10단계): 카운트다운은 토스 시각(경기 시각)으로 본다. 시계 오차로 몇 ms 일찍 도착해도 재개 뒤 토스면 받는다
+    this.settlePause(Math.max(this.io.now(), this.startAt + msg.t * 1000));
+    if (this.pause === 'wait' || this.missing().length) { this.reject(p, msg, 'away'); return; }  // 끊긴 선수를 기다리는 중
+    if (this.pause === 'countdown') { this.reject(p, msg, 'countdown'); return; }               // 재개 카운트다운 중
     if (this.doubles && p.seat !== this.game.rules.serverSeat) { this.reject(p, msg, 'turn'); return; } // 서브는 그 차례의 서버 좌석만
     const sim = cloneMatch(this.game);
     advanceMatch(sim, msg.t, this.params);
@@ -435,7 +505,10 @@ export class Host {
     this.phase = 'over';
     this.endT = null;
     this.lobbySince = this.io.now(); // 경기 끝난 방은 LOBBY_IDLE 뒤에 닫는다
-    this.broadcast({ type: 'end', winner, score: this.game.rules.score, games: this.game.rules.games, by });
+    this.pause = null;
+    this.resumeAt = null;
+    this.endMsg = { type: 'end', winner, score: this.game.rules.score, games: this.game.rules.games, by };
+    this.broadcast(this.endMsg);
     this.save();
     this.schedule();
   }
@@ -445,7 +518,7 @@ export class Host {
     if (!p) return;
     if (this.phase === 'playing') {
       p.conn = null;
-      p.away = this.io.now();
+      p.awayAt = this.io.now();
       this.finish(-p.side, 'forfeit'); // 경기 중 나가기 = 그 팀의 기권
     } else this.disconnect(id);
     this.io.close(id, 1000, 'leave');
@@ -470,8 +543,16 @@ export class Host {
       this.notifySeats(before);
       this.lobby();
     } else if (this.phase === 'playing') {
-      p.away = this.io.now() + ONLINE.RECONNECT_WAIT * 1000;
-      this.others(p, { type: 'opp', state: 'away', until: p.away, side: p.side, seat: p.seat });
+      // 10단계: 기권 대신 일시정지. 진행 중인 랠리는 끝까지 판정하고, 포인트가 끝나면(이미 끝났으면 바로) 기다린다
+      const now = this.io.now();
+      p.awayAt = now;
+      this.others(p, { type: 'opp', state: 'away', until: this.deadlineOf(p), side: p.side, seat: p.seat });
+      this.settlePause(now);
+      if (this.pause === 'countdown') {
+        this.pause = 'wait'; // 카운트다운 중 다시 끊김: 대기로 돌아간다
+        this.resumeAt = null;
+        this.broadcast({ type: 'pause', state: 'cancel', who: this.pauseWho() });
+      } else this.enterPause();
     }
     if (!this.cleanupIfEmpty()) {
       this.save();
@@ -498,7 +579,8 @@ export class Host {
       if (this.endT !== null && (ph === 'serving' || ph === 'rally')) {
         out.push(this.startAt + (this.endT + ONLINE.GRACE + 2 * DT) * 1000);
       }
-      for (const p of this.all()) if (p.away) out.push(p.away);
+      for (const p of this.all()) if (p.awayAt !== null) out.push(this.deadlineOf(p));
+      if (this.pause === 'countdown') out.push(this.resumeAt);
     } else out.push(this.lobbySince + ONLINE.LOBBY_IDLE * 1000); // 대기실·경기 끝: 오래 두면 닫는다
     return out;
   }
@@ -510,11 +592,13 @@ export class Host {
   timer() {
     const now = this.io.now();
     if (this.phase === 'playing') {
+      this.settlePause(now);
       this.commit(this.matchT(now) - ONLINE.GRACE);
       if (this.phase === 'playing') {
         if (this.game.rules.phase !== 'serving' && this.game.rules.phase !== 'rally') this.endT = null;
         for (const p of this.all()) {
-          if (p.away && now >= p.away) {
+          const dl = this.deadlineOf(p);
+          if (dl !== null && now >= dl) {
             if (this.teamOf(-p.side).some((q) => q.conn)) { this.finish(-p.side, 'forfeit'); break; }
             // 상대 팀이 모두 끊김: 방을 닫는다
             this.phase = 'over';

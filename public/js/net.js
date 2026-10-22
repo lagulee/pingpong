@@ -3,7 +3,7 @@
 // 상대 타격(toss·serve·hit)은 받은 시각으로 되감아 적용한 뒤 지금까지 다시 계산한다(물리가 결정론적).
 // 득점은 서버 point가 기준이다: 내 화면의 판정은 잠정(tentative)이고, 서버 결과가 다르면 정정한다.
 // 이 파일은 'three'·DOM을 쓰지 않는다. 소켓·시계·플레이어는 인자로 받아 Node 테스트에서도 그대로 돌린다.
-import { PHYSICS, TUNABLE, ONLINE, VERSION, FEEL } from '../shared/constants.js';
+import { PHYSICS, TUNABLE, ONLINE, VERSION, FEEL, PRACTICE } from '../shared/constants.js';
 import { toLocal } from '../shared/physics.js';
 import { applyHit } from '../shared/match.js';
 import { toServe, canHit, canHitSeat } from '../shared/rules.js';
@@ -101,6 +101,8 @@ export function createOnlineClient(opts) {
     startAt: null, game: null, ai: null,
     serverRules: null,       // 서버가 마지막으로 확정한 규칙 상태 (점수판은 이것만 보여 준다)
     oppAway: null,           // 상대 재접속 마감 (내 시각 ms) 또는 null
+    // 끊김 일시정지 (10단계): null | { state: 'wait'|'countdown', who: [{ side, seat, nick, until(내 시각 ms|null) }], at(재개, 내 시각 ms) }
+    pause: null,
     connected: false, errorCode: null, endMsg: null,
     serverColo: null,        // 방 서버(Durable Object)가 있는 데이터센터 코드 (예: NRT). 모르면 null
     stats: { rejects: 0, corrected: 0, confirmed: 0, corrections: 0, rewinds: 0, remote: 0 },
@@ -121,6 +123,7 @@ export function createOnlineClient(opts) {
   let lastPingAt = -Infinity, lastRacketT = -Infinity;
   let guardHold = null; // 치트(수)로 마지막에 친 자리 { t, x, z } (라켓 강제 이동이 실제 위치로 돌아오는 출발점)
   let lostAt = null, retryAt = null, resyncing = false;
+  let tossHoldT = null;        // 이 경기 시각 전에는 토스하지 않는다 (일시정지: Infinity, 카운트다운: 재개 시각)
 
   const setStatus = (s) => { c.status = s; hooks.onStatus?.(s); };
   const send = (msg) => {
@@ -196,11 +199,32 @@ export function createOnlineClient(opts) {
     c.stats.rewinds++;
     hooks.onRewind?.(entry.t);
   }
+  // 일시정지 중에는 로봇(대전 AI)의 토스 시각을 재개 뒤로 미룬다 (서버가 거부할 토스를 보내지 않도록)
+  function holdToss(g) {
+    if (tossHoldT === null || g.tossAt == null) return;
+    // 대기 중 미뤄 둔 토스(Infinity)는 재개 시각이 정해지면 그 뒤로 다시 잡는다
+    if (g.tossAt < tossHoldT + PRACTICE.SERVE_DELAY || (g.tossAt === Infinity && tossHoldT !== Infinity)) g.tossAt = tossHoldT + PRACTICE.SERVE_DELAY;
+  }
+  // 서버의 pause 메시지 → c.pause
+  function setPause(p) {
+    if (!p) { c.pause = null; tossHoldT = null; return; }
+    if (p.state === 'resume') {
+      c.pause = { state: 'countdown', who: [], at: c.serverToLocal(p.at) };
+      tossHoldT = c.startAt === null ? null : (p.at - c.startAt) / 1000;
+    } else {
+      // wait·cancel(카운트다운 중 다시 끊김 → 대기)
+      const who = (p.who ?? []).map((q) => ({ side: q.side, seat: q.seat, nick: q.nick, until: q.until == null ? null : c.serverToLocal(q.until) }));
+      c.pause = { state: 'wait', who, at: null };
+      tossHoldT = Infinity;
+    }
+    if (c.game) holdToss(c.game);
+  }
   function replayTo(target) {
     const was = replaying;
     replaying = true;
     while (c.game.ball.t < target - DT / 2) {
       remember();
+      holdToss(c.game);
       afterStep(replayStep(c.game, DT, params), true);
     }
     replaying = was;
@@ -243,6 +267,7 @@ export function createOnlineClient(opts) {
     const g = c.game;
     while (remoteQueue.length && remoteQueue[0].t <= g.ball.t + DT / 2) applyRemote(remoteQueue.shift());
     remember();
+    holdToss(g);
     afterStep(stepMatch(g, DT, params), false);
   }
 
@@ -435,6 +460,7 @@ export function createOnlineClient(opts) {
         c.players = msg.players;
         c.mode = msg.mode ?? c.mode;
         makeGame(msg.firstServer);
+        setPause(null);
         setStatus('playing');
         hooks.onStart?.();
         break;
@@ -444,8 +470,10 @@ export function createOnlineClient(opts) {
         c.players = msg.players;
         makeGame(msg.firstServer);
         restoreMatch(c.game, msg.game);
+        sentToss = c.game.lastToss; // 서버가 이미 받은 마지막 토스를 다시 보내지 않는다 (재접속 때 옛 토스가 time으로 거부되던 문제)
         c.serverRules = c.game.rules;
         c.oppAway = msg.opp ? c.serverToLocal(msg.opp.until) : null;
+        setPause(msg.pause ?? null);
         setStatus('playing');
         hooks.onStart?.();
         break;
@@ -475,7 +503,12 @@ export function createOnlineClient(opts) {
         c.oppAway = msg.state === 'away' ? c.serverToLocal(msg.until) : null;
         hooks.onOpp?.(msg.state, c.oppAway, msg.side, msg.seat);
         break;
+      case 'pause':
+        setPause(msg);
+        hooks.onPause?.(c.pause, msg.state);
+        break;
       case 'end':
+        setPause(null);
         c.endMsg = msg;
         setStatus('over');
         hooks.onEnd?.(msg);
@@ -502,7 +535,10 @@ export function createOnlineClient(opts) {
     if (!g || (c.status !== 'playing' && c.status !== 'over') || resyncing) return;
     const target = c.matchTime(ms) - (c.spectator ? ONLINE.SPECTATOR_DELAY : 0);
     for (let n = 0; g.ball.t < target - DT / 2 && n < ONLINE.MAX_CATCHUP_STEPS; n++) liveStep();
-    if (c.status === 'playing' && !c.spectator && g.ball.t - lastRacketT >= 1 / ONLINE.RACKET_HZ) {
+    // 카운트다운이 끝나면 일시정지 표시를 지운다
+    if (c.pause?.state === 'countdown' && ms >= c.pause.at) { c.pause = null; hooks.onPause?.(null, 'go'); }
+    // 일시정지 대기 중에는 라켓 위치를 보내지 않는다 (무료 한도 절약, 10단계)
+    if (c.status === 'playing' && !c.spectator && c.pause?.state !== 'wait' && g.ball.t - lastRacketT >= 1 / ONLINE.RACKET_HZ) {
       const p = g.players[c.me];
       const last = p.samples[p.samples.length - 1];
       if (last) {
@@ -530,6 +566,7 @@ export function createOnlineClient(opts) {
   c.toss = (x) => {
     const g = c.game;
     if (!g || c.spectator || c.status !== 'playing' || c.oppAway !== null) return false;
+    if (tossHoldT !== null && g.ball.t < tossHoldT) return false; // 일시정지·재개 카운트다운 중 (10단계)
     if (g.rules.doubles && g.rules.serverSeat !== c.seat) return false; // 복식: 그 차례의 서버 좌석만 서브
     return tossBall(g, c.me, x, g.ball.t, params);
   };

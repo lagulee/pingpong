@@ -26,6 +26,13 @@ export function createFakeCtx(store = new Map()) {
   return ctx;
 }
 
+// 열리지 않는 연결: 잠시 뒤 onclose만 온다 (drop은 아무 일도 하지 않음)
+function blockedSocket(w) {
+  const s = { closed: false, send() {}, close() { this.closed = true; }, drop() {} };
+  w.at(w.time + 200, () => { if (!s.closed) { s.closed = true; s.onclose?.({}); } });
+  return s;
+}
+
 // latency: 클라이언트별 편도 지연 (ms) 또는 함수 (rng) → ms
 export function createWorld({ seed = 1, start = 1_000_000 } = {}) {
   const w = {
@@ -84,7 +91,8 @@ export function createWorld({ seed = 1, start = 1_000_000 } = {}) {
     const client = createOnlineClient({
       // rec.blocked: 네트워크가 끊긴 것처럼 새 연결이 열리지 않는다
       open: () => {
-        const s = rec.blocked ? { send() {}, close() {} } : w.open(lat);
+        // 막힌 연결은 열리지 않고 곧 닫힌다 (실제 WebSocket처럼 onclose → 클라이언트가 다음 재시도)
+        const s = rec.blocked ? blockedSocket(w) : w.open(lat);
         rec.sockets.push(s);
         return s;
       },

@@ -143,8 +143,8 @@ test('[8] 선수가 모두 떠나면 관전도 끝나고, 선수 연결이 끊�
   bSock.drop();
   w.run(() => S.opp?.state === 'away', { maxMs: 3000 });
   assert.equal(S.opp.side, B.client.me);
-  // 10초 안에 돌아오지 않으면 기권 → 관전자도 end를 받는다
-  w.run(() => S.client.status === 'over', { maxMs: 20_000 });
+  // 재접속 대기(RECONNECT_WAIT) 안에 돌아오지 않으면 기권 → 관전자도 end를 받는다 (10단계: 10 → 30 s라 상수로 기다린다)
+  w.run(() => S.client.status === 'over', { maxMs: (ONLINE.RECONNECT_WAIT + 10) * 1000 });
   assert.equal(S.client.endMsg.by, 'forfeit');
   assert.equal(S.client.endMsg.winner, A.client.me);
   // 남은 선수가 나가면 관전 연결도 닫혀 방이 정리된다

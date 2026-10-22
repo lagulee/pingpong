@@ -29,10 +29,10 @@ paths:
 - 한 방에 플레이어 2명까지(관전자는 따로, 아래 "관전"). 3번째 접속은 `full`로 거절한다. 방을 만든 사람이 −1 쪽, 들어온 사람이 +1 쪽(카메라 180° 회전).
 - 클라이언트 `VERSION`이 서버와 다르면 `version`으로 거절한다(새로고침 안내).
 - 둘 다 시계를 맞추고 `ready`를 보내면 `START_DELAY`(3 s) 뒤 시작. 첫 서브권은 서버가 무작위로 정한다.
-- (10단계에서 아래 "끊김 일시정지"로 바뀐다. 지금 동작:) 상대가 끊기면 10초(`RECONNECT_WAIT`) 재접속 대기 → 넘으면 상대 승리(기권) 처리. 대기 중에는 토스를 받지 않는다(`reject: away`).
+- 경기 중 선수가 끊기면 아래 "끊김 일시정지"(10단계)대로 기다린다: 한 번에 `RECONNECT_WAIT` 30 s, 경기 누적 `AWAY_BUDGET` 90 s를 넘기면 그 팀의 기권패. 대기 중에는 토스를 받지 않는다(`reject: away`). (9단계까지는 10 s 뒤 바로 기권.)
 - 끊긴 쪽은 `RECONNECT_RETRY`(1 s)마다 `token`으로 다시 `join`한다. 다시 들어오면 시계를 다시 맞추고 `ready` → `resume`(현재 경기 상태)을 받아 이어서 진행한다.
 - 경기 중 `leave` = 기권.
-- **모바일 백그라운드 복귀(v6.2)**: 다른 앱으로 가거나 화면이 꺼지면 JS가 멈추고 연결이 끊긴다. 화면으로 돌아오면(`visibilitychange`) 클라이언트가 `wake()`를 불러, 끊겼으면 재시도 간격(1 s)을 기다리지 않고 바로 다시 접속하고, 연결돼 있으면 시계를 바로 다시 잰다. 10초 기권 규칙(`RECONNECT_WAIT`)은 그대로 두고, 대기실에 "다른 앱으로 가면 10초 뒤 기권" 안내를 보여 준다. 휴대폰은 대전 중 화면 꺼짐 방지(Wake Lock)를 건다.
+- **모바일 백그라운드 복귀(v6.2)**: 다른 앱으로 가거나 화면이 꺼지면 JS가 멈추고 연결이 끊긴다. 화면으로 돌아오면(`visibilitychange`) 클라이언트가 `wake()`를 불러, 끊겼으면 재시도 간격(1 s)을 기다리지 않고 바로 다시 접속하고, 연결돼 있으면 시계를 바로 다시 잰다. 대기실에 "30초 안에 돌아오면 이어서 합니다 (한 경기 누적 90초까지)" 안내를 보여 준다(10단계, 이전 "10초 뒤 기권"). 휴대폰은 대전 중 화면 꺼짐 방지(Wake Lock)를 건다.
 
 ## 복식 (9단계)
 
@@ -82,7 +82,7 @@ paths:
 | `error` | S→C | `{ code }`: `full` · `noRoom` · `inUse` · `version` · `specFull` (보낸 뒤 연결을 닫는다) |
 | `ready` | C→S | `{ rtt }` 시계를 맞춘 뒤 준비 완료 |
 | `start` | S→C | `{ startAt, firstServer, bestOf, players }` |
-| `resume` | S→C | `{ startAt, firstServer, players, game(경기 상태), opp? }` 재접속한 사람에게 |
+| `resume` | S→C | `{ startAt, firstServer, players, game(경기 상태), opp?, pause }` 재접속한 사람·중간 입장 관전자에게 (`pause`: 10단계, 아래 `pause` 메시지와 같은 내용 또는 null) |
 | `ping` / `pong` | C→S / S→C | `{ t0 }` / `{ t0, t1, t2 }` 시계 동기화 |
 | `toss` | C→S, S→C | `{ seq, t, x }` (+ 서버가 붙이는 `side`). `makeToss(x, t)`가 결정론적이라 이것으로 충분 |
 | `serve` / `hit` | C→S, S→C | `{ seq, t, pos, vel, spin, shotType, racket: { x, z } }` (+ `side`). `racket`은 타격 순간 라켓 위치(친 사람 기준 좌표). `shotType`은 `SHOT_TYPES`(`normal`·`drive`·`cut`·`side`·`smash`·`block`·`mishit`, 7단계) 중 하나 |
@@ -91,9 +91,9 @@ paths:
 | `point` | S→C | `{ kind, winner, loser, reason, score, games, rally, t, gameOver, matchOver, nextAt, rules }` (`rules` = 득점 직후 규칙 상태) |
 | `racket` | C→S, S→C | `{ t, x, z }` (관전자에게 가는 것은 `side` 포함) 상대 화면에 내 라켓을 보여 주기 위한 위치 (15 Hz). 숨은 치트(수)면 받을 공 쪽으로 옮긴 위치(v7.17, `guardRacket`) |
 | `opp` | S→C | `{ state: 'away', until }` / `{ state: 'back' }` 상대 끊김·복귀 (관전자에게는 `side` 포함) |
-| `end` | S→C | `{ winner, score, games, by: 'normal' \| 'forfeit' }` |
+| `end` | S→C | `{ winner, score, games, by: 'normal' \| 'forfeit' }`. 끝난 경기에 토큰으로 재접속하면 이 메시지를 다시 보내고 연결을 닫는다(10단계) |
 | `leave` | C→S | 퇴장 (경기 중이면 기권) |
-| `pause` | S→C | (10단계) `{ state: 'wait', who: [{ side, seat, nick, until }] }` 일시정지 시작·갱신 / `{ state: 'resume', at }` 재개 시각(서버 시각 ms, 지금 + `RESUME_COUNTDOWN`) / `{ state: 'cancel' }` 카운트다운 중 다시 끊겨 대기로 복귀 |
+| `pause` | S→C | (10단계) `{ state: 'wait', who: [{ side, seat, nick, until }] }` 일시정지 시작·갱신(`until` = 기권 마감 서버 시각, 다시 들어와 준비 중이면 null) / `{ state: 'resume', at }` 재개 시각(서버 시각 ms, 지금 + `RESUME_COUNTDOWN`) / `{ state: 'cancel', who }` 카운트다운 중 다시 끊겨 대기로 복귀 |
 | `emote` | C→S, S→C | (12단계) 보낼 때 `{ id }`, 받을 때 `{ id, side, seat }` |
 
 ## 타격 이벤트 동기화
@@ -159,7 +159,8 @@ $$\text{offset} = \frac{(t_1 - t_0) + (t_2 - t_3)}{2}$$
 - [x] 3번째 접속이 거절된다 (없는 방·쓰는 중인 방·버전 불일치 포함).
 - [x] (`tests/net-wrangler.test.js`) `npx wrangler@4.139.0 dev`로 실제 WebSocket 연결 테스트(입장·핑·3번째 거절·AI 둘이 첫 득점까지). 실행할 수 없는 환경이면 이유를 남기고 건너뛴다.
 - [x] (`tests/net-match.test.js`) 인위적 지연(편도 30·80 ms, 비대칭 30/80 ms)에서 AI 대 AI 원격 경기 한 판의 점수·득점 순서가 서버·두 클라이언트에서 일치한다.
-- [x] 재접속(10초 안: 이어서 진행 / 넘으면 기권승·방 정리), 잠들었다 깨어남(저장 상태 복원), 화면 지연 함수, 대전 토스 실패 규칙.
+- [x] 재접속(`RECONNECT_WAIT` 안: 일시정지 뒤 이어서 진행 / 넘으면 기권승·방 정리), 잠들었다 깨어남(저장 상태 복원), 화면 지연 함수, 대전 토스 실패 규칙.
+- [x] (10단계, `tests/pause.test.js`) 아래 "끊김 일시정지"의 테스트 목록 전부 + 대기 중 라켓 전송 중단, 대전 AI가 일시정지 중 토스하지 않음, 긴 공백 뒤 첫 토스 거부 0.
 - [x] (v5.1) 흔들리는 네트워크(편도 100 ms + 지터 30 ms + 3% 확률 최대 300 ms 튐)에서 원격 AI 경기: 거부 0, 점수 일치.
 - [x] (v6.2) 모바일 데이터(편도 60 ms + 지터 40 ms + 5% 확률 최대 400 ms 튐): PC 30 ms ↔ 모바일은 거부 0·점수 일치. 양쪽 모두 모바일이면 튐이 겹쳐 타격이 0.6 s 넘게 늦는 일이 드물게 생겨(실측 한 판 1건, `time`) 거부 1% 이하·점수 일치만 확인한다. 서버 값은 바꾸지 않았다.
 - [x] (v6.2) 백그라운드 복귀 `wake()`: 끊긴 직후 부르면 100 ms 안에 다시 접속, 연결된 채로 부르면 바로 `ping`.
@@ -169,7 +170,7 @@ $$\text{offset} = \frac{(t_1 - t_0) + (t_2 - t_3)}{2}$$
 
 ## 끊김 일시정지 (10단계)
 
-기권패 대신 기다렸다가 이어서 한다. 단식·복식·관전 공통이다. 구현 전 사양이며, 시작 버전은 v10.0.
+기권패 대신 기다렸다가 이어서 한다. 단식·복식·관전 공통이다. v10.0에서 구현했다.
 
 - **상태**: `Host`에 선수별 `awayAt`(끊긴 서버 시각, 없으면 null)·`awaySpent`(이 경기에서 이미 끊겨 있던 시간 누적, ms), 전체 `pause`(`null | 'wait' | 'countdown'`)와 `resumeAt`을 둔다. 값은 `snapshot`/`restore`에 넣어 잠들었다 깨어나도 유지한다. 지금의 `p.away`(마감 시각)는 이 둘로 바꾼다.
 - **끊김**: 연결이 끊기면 `awayAt`을 기록하고 `opp { state:'away' }`(마감 시각 포함)를 방송한다. **진행 중인 랠리는 평소대로 끝까지 판정한다**(끊긴 쪽이 칠 차례면 보통 실점. 끊어서 실점을 피하는 악용 방지). 다른 선수의 `hit`은 그대로 받는다. 서브 대기(`waitingServe`)에서 끊기면 바로 일시정지다.
@@ -182,6 +183,13 @@ $$\text{offset} = \frac{(t_1 - t_0) + (t_2 - t_3)}{2}$$
 - **관전자**: `pause`·`opp`를 받아 같은 안내를 보인다. 관전자가 끊기는 것은 일시정지와 무관하다.
 - **경기 중 나가기**(`leave`)는 지금처럼 즉시 기권. 대기실 안내(모바일 백그라운드 복귀)의 "10초 뒤 기권패"는 "30초 안에 돌아오면 이어서 합니다"로 고친다. 클라이언트의 포기 시각(`net.js`의 `RECONNECT_WAIT` 비교)도 새 값을 쓴다.
 - **상수** (`ONLINE`): `RECONNECT_WAIT` 10 → 30, `AWAY_BUDGET` 90, `RESUME_COUNTDOWN` 3. 기존 테스트에서 10 s 가정이 있으면 이유를 10장에 남기고 고친다.
+- **구현 메모 (v10.0)**
+  - 일시정지 조건은 "끊긴 선수"가 아니라 `missing()` = 연결이 없거나 다시 들어와 아직 `ready` 전인 선수다. 그래서 돌아온 사람이 시계를 다 맞춰야 카운트다운이 시작되고, `who`에는 준비 중인 사람도 `until: null`로 남는다. 복식에서 한 명만 돌아와 준비하면 남은 사람으로 `wait` 목록을 다시 보낸다.
+  - 일시정지 시작·카운트다운 시작 때 확정 상태를 지금 − `GRACE`까지 진행(`commit`)해 둔다. 재개 뒤 첫 토스 검증이 긴 공백(최대 90 s = 21,600스텝)을 복사본과 확정에서 두 번 계산하지 않게 하기 위함.
+  - 카운트다운 판정은 토스 메시지의 경기 시각으로 한다(`startAt + t·1000 ≥ resumeAt`이면 받음). 시계 오차로 몇 ms 일찍 도착한 재개 직후 토스가 `countdown`으로 거부되지 않도록. 끝난 카운트다운은 알람 또는 다음 메시지에서 푼다(`settlePause`, 저장 없음).
+  - 랠리 중 끊김은 `onResult`(득점)에서 일시정지로 넘어간다(`enterPause(false)`: 득점 처리 중에는 다시 `commit`하지 않음).
+  - 클라이언트(`net.js`): `c.pause`(`wait`·`countdown`, 시각은 내 시각)와 `tossHoldT`(대기 = ∞, 카운트다운 = 재개 경기 시각). 사람 토스는 `tossHoldT` 전이면 막고, 대전 AI의 토스 시각(`tossAt`)은 `tossHoldT + SERVE_DELAY` 뒤로 미룬다(되감기 재계산에서도). 대기 중에는 `racket`을 보내지 않는다.
+  - 재접속한 클라이언트는 `resume`의 `lastToss`를 이미 보낸 토스로 둔다(`sentToss`). 이전에는 마지막 토스가 내 것이면 옛 토스를 다시 보내 `time`으로 거부됐다(5단계부터의 잠복 버그, 화면 영향은 없었음).
 - **테스트** (`tests/pause*.test.js`): 랠리 중 끊김 → 그 포인트는 정상 판정 후 일시정지 / 일시정지·카운트다운 중 토스 거부(`away`·`countdown`) / 30 s 안 복귀 → 카운트다운 → 점수 유지한 채 재개 / 카운트다운 중 재끊김 → 대기 복귀 / 누적 90 s 초과 → 기권 / 한 번에 30 s 초과 → 기권 / 복식에서 1명 끊김 → 4명·관전자 모두 일시정지, 2명 끊김 → 마지막 복귀 뒤 카운트다운 / 일시정지 중 `snapshot`→`restore`(잠들었다 깨어남) 후 상태·누적 유지 / 흔들리는 네트워크(편도 100 ms + 지터) 원격 AI 경기 점수 일치(기존 테스트 유지).
 
 ## 이모트 중계 (12단계)

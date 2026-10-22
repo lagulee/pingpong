@@ -119,7 +119,7 @@ test('[4] 3번째 접속은 full로 거절되고, 없는 방·쓰는 중인 방�
   assert.deepEqual(got, { type: 'error', code: 'version' });
 });
 
-test('[7] 끊김: 10초 안에 다시 접속하면 이어서 끝까지, 점수 일치', () => {
+test('[7] 끊김: 재접속 대기(RECONNECT_WAIT) 안에 다시 접속하면 일시정지 뒤 이어서 끝까지, 점수 일치', () => {
   const { w, A, B, host } = startedWorld({ lat: 40, seed: 5 });
   w.run(() => host.game.results.length >= 3, { maxMs: 120_000 });
   const droppedAt = w.time;
@@ -161,7 +161,7 @@ test('[7] 모바일 백그라운드 복귀(v6.2): wake()를 부르면 재시도 
   assert.ok(sent.includes('ping'), sent.join(','));
 });
 
-test('[7] 끊김: 10초가 지나도 돌아오지 않으면 남은 사람의 기권승, 방이 비면 정리된다', () => {
+test('[7] 끊김: 재접속 대기(RECONNECT_WAIT)가 지나도 돌아오지 않으면 남은 사람의 기권승, 방이 비면 정리된다', () => {
   const { w, A, B, host } = startedWorld({ lat: 40, seed: 6 });
   w.run(() => host.game.results.length >= 1, { maxMs: 60_000 });
   // 나가기 버튼이 아니라 네트워크 끊김: 다시 접속하려 해도 연결이 열리지 않는다

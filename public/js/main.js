@@ -1061,7 +1061,13 @@ function racketNormal(player, t, side) {
   return toWorld(faceNormal(tilt, 0), side);
 }
 
-// 대전 화면 안내: 핑, 상대 끊김 대기, 내 연결 끊김
+// 끊김 일시정지 뒤 재개 카운트다운의 남은 시간 (s), 카운트다운이 아니면 null (10단계)
+function resumeLeft(ms) {
+  const p = client?.pause;
+  return p?.state === 'countdown' && ms < p.at && client.status === 'playing' ? (p.at - ms) / 1000 : null;
+}
+
+// 대전 화면 안내: 핑, 상대 끊김 대기(일시정지), 내 연결 끊김
 function onlineHud(ms) {
   const p = client.ping;
   const watching = client.spectator;
@@ -1072,8 +1078,15 @@ function onlineHud(ms) {
   pingEl.className = p === null ? '' : p < ONLINE.PING_GOOD ? 'good' : p < ONLINE.PING_OK ? 'ok' : 'bad';
   debug.setPing(p);
   let msg = '';
+  const pause = client.pause;
   if (client.status === 'playing' && !client.connected) msg = '연결이 끊겼습니다 — 다시 연결하는 중…';
-  else if (client.oppAway !== null && client.status === 'playing') {
+  else if (pause?.state === 'wait' && client.status === 'playing') {
+    // 10단계 끊김 일시정지: 끊긴 사람 이름과 기권까지 남은 시간 (복식에서 둘이면 둘 다, 시간은 먼저 닿는 마감)
+    const names = pause.who.map((q) => q.nick).join(' · ') || (watching ? '선수' : '상대');
+    const untils = pause.who.map((q) => q.until).filter((u) => u !== null);
+    const left = untils.length ? `남은 ${Math.max(0, Math.ceil((Math.min(...untils) - ms) / 1000))}초` : '다시 연결됨 · 준비 중';
+    msg = `일시정지 · ${names} 연결 끊김 — 기다리는 중 (${left})`;
+  } else if (client.oppAway !== null && client.status === 'playing') {
     msg = `${watching ? '선수' : '상대'} 연결이 끊겼습니다 — 기다리는 중 (${Math.max(0, Math.ceil((client.oppAway - ms) / 1000))}초)`;
   }
   netMsgEl.textContent = msg;
@@ -1165,6 +1178,8 @@ function frame(now) {
     onlineHud(ms);
     const t = client.matchTime(ms);
     if (t < 0 && client.status === 'playing') { centerEl.className = 'center-neutral'; centerEl.textContent = `${Math.ceil(-t)}`; messageUntil = 0; }
+    else if (resumeLeft(ms) !== null) { centerEl.className = 'center-neutral'; centerEl.textContent = `재개 ${Math.ceil(resumeLeft(ms))}`; messageUntil = 0; }
+    else if (client.pause?.state === 'wait' && client.status === 'playing') { centerEl.className = ''; centerEl.textContent = ''; messageUntil = 0; } // 일시정지 안내(net-msg)와 겹치지 않게
   } else {
     const budget = frameSteps(acc, elapsed, paused); // 일시정지 중에는 0스텝
     for (let i = 0; i < budget.steps; i++) fixedStep();
@@ -1267,7 +1282,7 @@ function frame(now) {
   audio.tick();
 
   updateScoreboard();
-  if (t >= messageUntil && !(online() && client.matchTime(nowMs()) < 0)) {
+  if (t >= messageUntil && !(online() && (client.matchTime(nowMs()) < 0 || resumeLeft(nowMs()) !== null || client.pause?.state === 'wait'))) {
     centerEl.className = '';
     const waitServe = rules.phase === 'waitingServe' && !game.free && !game.scenario;
     const oppName = online() ? nameEls.robot.textContent : '로봇';

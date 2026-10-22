@@ -170,7 +170,7 @@ test('[9] 서버 검증: 차례가 아닌 좌석의 hit·toss는 turn으로 거�
   assert.ok(rejected(wrongSeat).some(([s, r]) => s === 730 && r === 'turn'));
 });
 
-test('[9] 한 명이 나가면 그 팀이 기권하고, 끊겼다 10초 안에 돌아오면 같은 좌석에서 이어서 한다', () => {
+test('[9] 한 명이 나가면 그 팀이 기권하고, 끊겼다 재접속 대기 안에 돌아오면 같은 좌석에서 이어서 한다', () => {
   const { w, host, all, B } = fourWorld({ seed: 6 });
   w.run(() => all[0].points.length >= 1, { maxMs: 5 * 60_000 });
   // 재접속: B의 연결이 끊겼다가 돌아온다
@@ -181,7 +181,7 @@ test('[9] 한 명이 나가면 그 팀이 기권하고, 끊겼다 10초 안에 �
   assert.deepEqual(away.oppWho, { side: B.client.me, seat: B.client.seat }, '누가 끊겼는지 알린다');
   const n = host.game.results.length;
   w.run(() => B.client.connected && B.client.status === 'playing' && all.every((x) => x.opp === 'back' || x === B), { maxMs: 8000 });
-  assert.equal(host.playerAt(B.client.me, B.client.seat).away, null);
+  assert.equal(host.playerAt(B.client.me, B.client.seat).awayAt, null); // 10단계: away(마감) → awayAt(끊긴 시각)
   w.run(() => host.game.results.length >= n + 1, { maxMs: 5 * 60_000 });
   assert.equal(host.phase, 'playing');
   // 한 명이 나가면 그 팀의 기권패
