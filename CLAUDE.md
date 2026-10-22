@@ -41,11 +41,13 @@ pingpong/
 │  │  ├─ physics.js
 │  │  ├─ rules.js
 │  │  ├─ match.js          # 경기 흐름 (연습·대전 클라이언트·서버 공용)
-│  │  └─ host.js           # 대전 방·검증·득점 판정 (순수 클래스)
+│  │  ├─ host.js           # 대전 방·검증·득점 판정 (순수 클래스)
+│  │  └─ stats.js          # 11단계: 경기 요약 집계 (순수 함수, 클라이언트 전용)
 │  └─ js/
 │     ├─ main.js  render.js  input.js  ai.js
 │     ├─ audio.js effects.js net.js    debug.js
-│     └─ touch.js mobile.js            # 6단계 모바일: 터치 → 샘플, 모바일 모드
+│     ├─ touch.js mobile.js            # 6단계 모바일: 터치 → 샘플, 모바일 모드
+│     └─ replay.js                     # 13단계: 포인트 기록·재시뮬레이션·하이라이트 선정
 ├─ server/
 │  ├─ worker.js            # 진입점, WebSocket 업그레이드, 방 라우팅
 │  └─ room.js              # Durable Object: host.js를 감싸는 얇은 껍데기
@@ -61,8 +63,8 @@ pingpong/
 | `.claude/rules/physics.md` | 규격, 운동 방정식, 바운드, 충돌, 물리 검증 | `public/shared/physics.js`, `constants.js`, `tests/physics*` |
 | `.claude/rules/input.md` | 드래그·터치 타격, 구질 판정, AI 로봇 | `public/js/input.js`, `touch.js`, `ai.js`, `tests/input*`, `tests/rally*`, `tests/touch*` |
 | `.claude/rules/game-rules.md` | 탁구 규칙, 점수, 서브 | `public/shared/rules.js`, `tests/rules*` |
-| `.claude/rules/network.md` | 동기화, 시계 맞추기, 방, 서버 판정 | `public/js/net.js`, `public/shared/host.js`, `match.js`, `server/**`, `wrangler.jsonc`, `tests/net*` |
-| `.claude/rules/feel.md` | 렌더링, 사운드, 이펙트, 디버그 패널, 모바일 모드 | `public/index.html`, `public/js/main.js`, `render.js`, `audio.js`, `effects.js`, `debug.js`, `mobile.js` |
+| `.claude/rules/network.md` | 동기화, 시계 맞추기, 방, 서버 판정, 끊김 일시정지(10단계), 이모트 중계(12단계) | `public/js/net.js`, `public/shared/host.js`, `match.js`, `server/**`, `wrangler.jsonc`, `tests/net*`, `tests/pause*`, `tests/emote*` |
+| `.claude/rules/feel.md` | 렌더링, 사운드, 이펙트, 디버그 패널, 모바일 모드, 경기 요약(11단계), 이모트 표시(12단계), 리플레이(13단계) | `public/index.html`, `public/js/main.js`, `render.js`, `audio.js`, `effects.js`, `debug.js`, `mobile.js`, `public/shared/stats.js`, `public/js/replay.js`, `tests/stats*`, `tests/replay*`, `tests/keys*` |
 
 ## 5. 좌표계와 기본 규격
 
@@ -94,11 +96,15 @@ pingpong/
 | 7. 구질 버튼 | 버튼으로 구질 선택(Q·W·E·R, 모바일 화면 버튼), 회전 누적, 회전 표시, 로봇의 회전 읽기 | 구질 조합·누적·상한 테스트 + 기존 테스트 유지 | PC·휴대폰에서 회전을 읽고 받아치기 |
 | 8. 관전 | 방 코드로 들어와 진행 중인 경기를 보는 관전자(최대 8명, 입력 불가, 사용자가 "관전하기"를 직접 고름), 자유 시점 카메라 | 가상 클라이언트 2 + 관전자 3 상태 일치, 관전자 입력 거부, 9번째 관전자 거절, 중도 입퇴장 테스트 + 기존 테스트 유지 | 친구 경기를 다른 기기로 관전 |
 | 9. 복식 | 정식 복식(2:2 팀, 번갈아 치기, 대각선 서브, 서브·리시브 순서 교대), 방 인원 4명 | 복식 규칙 테스트 + 가상 클라이언트 4개로 한 게임 점수 일치 + 기존 테스트 유지 | 친구 셋과 복식 1게임 완료 |
+| 10. 끊김 일시정지 | 경기 중 선수가 끊기면 기권 대신 일시정지 → 복귀 시 3초 카운트다운 후 재개 (단식·복식·관전 공통) | 일시정지·재개·누적 한도·잠들었다 깨어남 테스트 + 기존 테스트 유지 | 대전 중 한 명이 앱을 나갔다 와도 경기가 이어짐 |
+| 11. 경기 요약 | 경기 결과 화면에 최장 랠리·구질별 타격/득점·최고 속도·최대 회전 표 | 집계 순수 함수 테스트 + 원격 AI 경기에서 모든 클라이언트 집계 일치 | 경기 후 요약 표가 실제 경기와 맞음 |
+| 12. 이모트 | 정해진 문구 6개를 상대·동료·관전자에게 말풍선으로 보냄 | 중계·쿨다운·잘못된 id·관전자 거부 테스트 + 경기 상태 불변 | 친구와 이모트 주고받기 |
+| 13. 리플레이 | 결정론 재시뮬레이션으로 득점 장면 슬로 재생 (연습: 득점 직후, 대전: 결과 화면 하이라이트) | 재시뮬레이션 결과가 실제 경기와 일치 + 실제 경기 상태 불변 테스트 | 하이라이트가 실제 장면과 같음 |
 
 ## 8. 작업 방식
 
 - **한 번에 한 단계만** 진행한다. 사용자가 다음 단계를 지시하기 전에 넘어가지 않는다.
-- 2단계와 5단계는 **계획을 먼저 제시**하고, 승인받은 뒤 구현한다.
+- 2·5·10·13단계는 **계획을 먼저 제시**하고, 승인받은 뒤 구현한다.
 - 단계를 마치면 다음 순서로 진행한다.
   1. `npm test` 전부 통과를 확인한다.
   2. 버전을 올린다(아래 "버전 표시").
@@ -255,3 +261,4 @@ pingpong/
 - [9단계] 알려진 한계: 복식은 연습(로봇) 모드가 없다. 사람 4명이 모이지 않으면 시험하기 어려워 가상 클라이언트(로봇)로 검증했고, 사람 손맛·동료와의 호흡은 사용자가 배포 주소에서 확인한다. 동료 라켓 위치는 15 Hz 방송이라 상대 둘째 라켓처럼 약간 끊겨 보일 수 있다.
 - [9단계] 버전: 9단계 첫 푸시 = v9.0.
 - [9단계] 브라우저 점검(세션 VM, Playwright + npm의 `three@0.170.0` + `wrangler dev` + AI 클라이언트): ① 사람(브라우저)이 복식 방을 만들고 AI 3명이 입장 → 팀별 대기실 목록·빈 자리·팀 옮기기(자리 `me [1,1]`로 갱신, 자동 재준비)·4명 준비 후 시작, 점수판 팀 이름 "철수 · 사람 / 영희 · 민수", 상태 칩 "복식 · … · 차례 철수". ② 관전자가 AI 4명의 복식 경기를 따라가며 roster 4칸 라켓 위치 수신, 되감기 0·보정 0, 라켓 4개 렌더. 이 점검에서 대전 디버그 화면(`?debug=1`)에서 상대·동료 타격마다 `debug.onShot`이 판정 값 없는 타격(`quality.remote`)에 `toFixed` 오류를 내던 잠복 버그(5단계부터)를 찾아 고쳤다.
+- [계획] 10~13단계 사양을 추가했다(구현 전, VERSION 불변). 사용자와 정한 두 가지: ① 요약·하이라이트는 서버를 바꾸지 않고 클라이언트가 직접 기록하므로, 중간에 들어온 관전자·재접속한 선수는 입장 전 기록이 비는 것을 허용하고 화면에 표시한다(서버가 기록해 resume에 싣는 안은 저장 용량·"서버 불변" 조건과 충돌해 뺐다). ② 10단계 `RECONNECT_WAIT` 30 s와 누적 `AWAY_BUDGET` 90 s는 모두 **끊긴 순간부터** 센다. 확인한 것: 서브 대기(`waitingServe`)에는 시간 제한이 없고 `RALLY_TIMEOUT`은 토스·타격 뒤에만 흐르므로 일시정지 중 멈춰야 할 경기 시계는 없다(서버 경기 시각은 벽시계 기준 그대로).
